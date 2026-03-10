@@ -21,7 +21,8 @@
       "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/build.gradle.kts\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/gradle/libs.versions.toml\")",
       "Bash(adb logcat -c)",
-      "Bash(adb logcat -v time *:W)"
+      "Bash(adb logcat -v time *:W)",
+      "Bash(kill %1)"
     ],
     "additionalDirectories": [
       "\\tmp"

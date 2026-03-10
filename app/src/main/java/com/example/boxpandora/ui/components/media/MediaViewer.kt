@@ -151,6 +151,7 @@ fun MediaViewer(
                     MediaPage(
                         item = item,
                         isActive = page == pagerState.currentPage,
+                        isPanelOpen = panelFraction.value > 0.02f,
                         controlsVisible = isControlsVisible,
                         onToggleUI = { isControlsVisible = !isControlsVisible },
                         onZoomChanged = { zoomed ->
@@ -276,6 +277,7 @@ private fun ViewerHeader(isVisible: Boolean, title: String, onBackClick: () -> U
 private fun MediaPage(
     item: MediaItem,
     isActive: Boolean,
+    isPanelOpen: Boolean,
     controlsVisible: Boolean,
     onToggleUI: () -> Unit,
     onZoomChanged: (Boolean) -> Unit,
@@ -285,6 +287,7 @@ private fun MediaPage(
         VideoPage(
             item = item,
             isActive = isActive,
+            isPanelOpen = isPanelOpen,
             controlsVisible = controlsVisible,
             onToggleUI = onToggleUI,
             onDragEnd = onDragEnd
@@ -293,6 +296,7 @@ private fun MediaPage(
     } else {
         ZoomableImagePage(
             item = item,
+            isPanelOpen = isPanelOpen,
             onToggleUI = onToggleUI,
             onZoomChanged = onZoomChanged,
             onDragEnd = onDragEnd
@@ -307,6 +311,7 @@ private fun MediaPage(
 @Composable
 private fun ZoomableImagePage(
     item: MediaItem,
+    isPanelOpen: Boolean,
     onToggleUI: () -> Unit,
     onZoomChanged: (Boolean) -> Unit,
     onDragEnd: (velocityY: Float) -> Unit
@@ -425,7 +430,8 @@ private fun ZoomableImagePage(
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
-            contentScale = ContentScale.Fit,
+            // Fullscreen: Fit (no cropping). Panel open: Crop (fills width, equal top/bottom crop, no side bars).
+            contentScale = if (isPanelOpen) ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -444,17 +450,20 @@ private fun ZoomableImagePage(
 private fun VideoPage(
     item: MediaItem,
     isActive: Boolean,
+    isPanelOpen: Boolean,
     controlsVisible: Boolean,
     onToggleUI: () -> Unit,
     onDragEnd: (velocityY: Float) -> Unit
 ) {
-    var isPlaying by remember { mutableStateOf(isActive) }
+    // Default paused — user must explicitly press play.
+    // Stop (but don't auto-start) when navigating away.
+    var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var seekToRequest by remember { mutableStateOf<Long?>(null) }
     var isMuted by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isActive) { isPlaying = isActive }
+    LaunchedEffect(isActive) { if (!isActive) isPlaying = false }
 
     LaunchedEffect(controlsVisible, isPlaying) {
         if (controlsVisible && isPlaying) { delay(3500); onToggleUI() }
@@ -502,20 +511,20 @@ private fun VideoPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        // Only create VideoPlayer (and thus MediaCodec) for the active page.
-        // beyondBoundsPageCount=1 causes adjacent pages to be composed; without this
-        // guard, 3+ codec instances would be created simultaneously → resource exhaustion.
-        if (isActive) {
-            VideoPlayer(
-                uri = item.uri,
-                isPlaying = isPlaying,
-                isMuted = isMuted,
-                volume = sharedVideoVolume,
-                seekTo = seekToRequest,
-                onVideoClick = { onToggleUI() },
-                onProgress = { p, d -> progress = p; duration = d }
-            )
-        }
+        // VideoPlayer stays composed for adjacent pages (beyondBoundsPageCount=1).
+        // Non-active pages have isPlaying=false so they don't consume audio/decode resources.
+        // Removing VideoPlayer from composition on each swipe caused MediaCodec dead-thread
+        // errors because native callbacks outlived the released ExoPlayer.
+        VideoPlayer(
+            uri = item.uri,
+            isPlaying = isPlaying,
+            isMuted = isMuted,
+            volume = sharedVideoVolume,
+            seekTo = seekToRequest,
+            cropToFill = isPanelOpen,
+            onVideoClick = { onToggleUI() },
+            onProgress = { p, d -> progress = p; duration = d }
+        )
 
         LaunchedEffect(seekToRequest) { if (seekToRequest != null) seekToRequest = null }
 

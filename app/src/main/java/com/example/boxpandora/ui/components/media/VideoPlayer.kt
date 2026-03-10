@@ -29,7 +29,8 @@ fun VideoPlayer(
     onProgress: (Long, Long) -> Unit,
     modifier: Modifier = Modifier,
     volume: Float = 1f,
-    seekTo: Long? = null
+    seekTo: Long? = null,
+    cropToFill: Boolean = false
 ) {
     val context = LocalContext.current
     val exoPlayer = remember {
@@ -37,6 +38,13 @@ fun VideoPlayer(
             videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
             repeatMode = Player.REPEAT_MODE_ONE
         }
+    }
+
+    LaunchedEffect(cropToFill) {
+        exoPlayer.videoScalingMode = if (cropToFill)
+            C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+        else
+            C.VIDEO_SCALING_MODE_SCALE_TO_FIT
     }
 
     LaunchedEffect(uri) {
