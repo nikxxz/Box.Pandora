@@ -11,10 +11,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
@@ -56,6 +59,10 @@ private var sharedVideoVolume by mutableFloatStateOf(0.5f)
 
 private val PanelBg    = Color(0xFF080808)
 private val CardBg     = Color(0xFF1C1C1E)
+
+// Session-scoped tags: key = filePath ?: uri, persists while app is alive.
+// mutableStateMapOf is snapshot-aware — avoids SnapshotStateList lock verification warnings.
+private val mediaTagsStore = mutableStateMapOf<String, SnapshotStateList<String>>()
 private val LabelColor = Color(0xFF8E8E93)
 
 // Velocity (px/s) required to trigger a fling open/close
@@ -597,30 +604,46 @@ private fun VideoPage(
 
 @Composable
 private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit) {
-    val dayOfWeek = remember(item.deviceCreatedAt) {
-        Instant.ofEpochMilli(item.deviceCreatedAt ?: 0L)
-            .atZone(ZoneId.systemDefault())
-            .dayOfWeek
-            .getDisplayName(DateTimeTextStyle.FULL, Locale.getDefault())
+    val key = item.filePath ?: item.uri
+    val tags = remember(key) { mediaTagsStore.getOrPut(key) { mutableStateListOf() } }
+    var showTagsDialog by remember { mutableStateOf(false) }
+
+    // MediaStore stores timestamps in SECONDS (not milliseconds).
+    // Use deviceCreatedAt if valid (> year 2000 in seconds), fall back to deviceModifiedAt.
+    val timestampSec = remember(item.deviceCreatedAt, item.deviceModifiedAt) {
+        listOf(item.deviceCreatedAt, item.deviceModifiedAt)
+            .firstOrNull { it != null && it > 946_684_800L } // 946684800 = 2000-01-01 in seconds
     }
-    val dateTime = remember(item.deviceCreatedAt) {
-        val zdt = Instant.ofEpochMilli(item.deviceCreatedAt ?: 0L).atZone(ZoneId.systemDefault())
-        val month = zdt.month.getDisplayName(DateTimeTextStyle.FULL, Locale.getDefault())
-        "%d %s %d  |  %02d:%02d".format(zdt.dayOfMonth, month, zdt.year, zdt.hour, zdt.minute)
+
+    val dayOfWeek = remember(timestampSec) {
+        timestampSec?.let {
+            Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault())
+                .dayOfWeek.getDisplayName(DateTimeTextStyle.FULL, Locale.getDefault())
+        } ?: "—"
+    }
+    val dateString = remember(timestampSec) {
+        timestampSec?.let {
+            val z = Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault())
+            "%d %s %d  |  %02d:%02d".format(
+                z.dayOfMonth,
+                z.month.getDisplayName(DateTimeTextStyle.SHORT, Locale.getDefault()),
+                z.year, z.hour, z.minute
+            )
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .wrapContentHeight()
-            .onSizeChanged { onHeightMeasured(it.height.toFloat()) }
+            .onSizeChanged { if (it.height > 0) onHeightMeasured(it.height.toFloat()) }
             .padding(horizontal = 20.dp)
             .padding(top = 14.dp)
             .navigationBarsPadding()
             .padding(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Day + favorite
+        // Row 1: Day + time + favorite
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -631,11 +654,12 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
                     text = dayOfWeek,
                     color = Color.White,
                     style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 34.sp
+                        fontWeight = FontWeight.Medium, fontSize = 34.sp
                     )
                 )
-                Text(text = dateTime, color = LabelColor, style = MaterialTheme.typography.bodyMedium)
+                dateString?.let {
+                    Text(text = it, color = LabelColor, style = MaterialTheme.typography.bodyMedium)
+                }
             }
             IconButton(onClick = { }) {
                 Icon(
@@ -646,59 +670,153 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
             }
         }
 
-        // Dimensions + format strip
+        // Row 2: Tags — [+] [tag pill] [tag pill] …
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(CardBg)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(
-                text = "${item.width} × ${item.height}",
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill(item.extension.uppercase())
-                Pill(Formatters.formatCount((item.fileSize / 1024).toInt()) + " KB")
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(CardBg)
+                    .clickable { showTagsDialog = true },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add tag", tint = Color.White, modifier = Modifier.size(18.dp))
+            }
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (tags.isEmpty()) {
+                    Text(
+                        text = "Add tags…",
+                        color = LabelColor.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
+                    tags.forEach { tag -> TagPill(tag) }
+                }
             }
         }
 
-        // Storage + name cards
+        // Row 3: Dimensions | Filename
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoCard(
-                label = "STORAGE PATH",
-                value = item.filePath?.substringBeforeLast("/") ?: "—",
-                modifier = Modifier.weight(1f)
-            )
-            InfoCard(label = "NAME", value = item.filename, modifier = Modifier.weight(1f))
+            InfoCard(label = "DIMENSIONS", value = "${item.width} × ${item.height}", modifier = Modifier.weight(1f))
+            InfoCard(label = "FILENAME", value = item.filename, modifier = Modifier.weight(1f))
         }
 
-        // Type + size cards
+        // Row 4: Type | Extension | File Size
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            InfoCard(label = "TYPE", value = item.mediaType.uppercase(), modifier = Modifier.weight(1f))
-            InfoCard(
-                label = "FILE SIZE",
-                value = Formatters.formatCount(item.fileSize.toInt()) + " B",
-                modifier = Modifier.weight(1f)
-            )
+            InfoCard(label = "TYPE",      value = item.mediaType.uppercase(),  modifier = Modifier.weight(1f))
+            InfoCard(label = "EXTENSION", value = item.extension.uppercase(),  modifier = Modifier.weight(1f))
+            InfoCard(label = "FILE SIZE", value = formatFileSize(item.fileSize), modifier = Modifier.weight(1f))
         }
+    }
+
+    if (showTagsDialog) {
+        TagsDialog(tags = tags, onDismiss = { showTagsDialog = false })
     }
 }
 
 @Composable
-private fun Pill(text: String) {
+private fun TagPill(text: String) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(Color(0xFF3A3A3C))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
+        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium))
     }
+}
+
+@Composable
+private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
+    var input by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardBg,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text("Tags", color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Existing tags — scrollable row of removable pills
+                if (tags.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        tags.toList().forEach { tag ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xFF48484A))
+                                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(tag, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                                IconButton(
+                                    onClick = { tags.remove(tag) },
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, null, tint = LabelColor, modifier = Modifier.size(12.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Add new tag
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        placeholder = { Text("New tag…", color = LabelColor) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.White.copy(alpha = 0.3f),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color.White
+                        )
+                    )
+                    IconButton(
+                        onClick = {
+                            val tag = input.trim()
+                            if (tag.isNotEmpty() && !tags.contains(tag)) {
+                                tags.add(tag); input = ""
+                            }
+                        },
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF48484A))
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = Color.White)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done", color = Color.White) }
+        }
+    )
 }
 
 @Composable
@@ -722,6 +840,12 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
             maxLines = 3
         )
     }
+}
+
+private fun formatFileSize(bytes: Long): String = when {
+    bytes >= 1_048_576L -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1024L      -> "%.1f KB".format(bytes / 1024.0)
+    else                -> "$bytes B"
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
