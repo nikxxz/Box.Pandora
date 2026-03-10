@@ -1,6 +1,8 @@
 package com.example.boxpandora.ui.components.media
 
+import android.annotation.SuppressLint
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -28,9 +30,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -41,11 +45,27 @@ import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.ui.theme.PandoraSpacing
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.TextStyle as DateTimeTextStyle
 import java.util.Locale
 
 private var sharedVideoVolume by mutableFloatStateOf(0.5f)
 
+private val PanelBg    = Color(0xFF080808)
+private val CardBg     = Color(0xFF1C1C1E)
+private val LabelColor = Color(0xFF8E8E93)
+
+// Velocity (px/s) required to trigger a fling open/close
+private const val FLING_VELOCITY = 500f
+// Fallback fraction when content height not yet measured
+private const val FallbackMaxFraction = 0.52f
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaViewer(
@@ -56,153 +76,240 @@ fun MediaViewer(
 ) {
     val pagerState = rememberPagerState(initialPage = initialIndex) { items.size }
     val currentItem = items.getOrNull(pagerState.currentPage)
+    val scope = rememberCoroutineScope()
 
-    var isPanelVisible by remember { mutableStateOf(false) }
     var isControlsVisible by remember { mutableStateOf(true) }
     var isZoomed by remember { mutableStateOf(false) }
 
+    val panelFraction = remember { Animatable(0f) }
+
+    // Measured natural height of the info panel content (px); drives the snap target.
+    var contentHeightPx by remember { mutableFloatStateOf(0f) }
+
+    // Only reset zoom on page change — panel stays open across swipes
     LaunchedEffect(pagerState.currentPage) {
         isZoomed = false
     }
 
-    Box(
+    // Hide controls once panel starts opening
+    LaunchedEffect(panelFraction.value) {
+        if (panelFraction.value > 0.05f) isControlsVisible = false
+    }
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-            pageSpacing = 16.dp,
-            beyondBoundsPageCount = 1,
-            userScrollEnabled = !isPanelVisible && !isZoomed
-        ) { page ->
-            val item = items[page]
-            MediaPage(
-                item = item,
-                indexInfo = "${page + 1} OF ${items.size}",
-                isActive = page == pagerState.currentPage,
-                controlsVisible = isControlsVisible,
-                onToggleUI = { isControlsVisible = !isControlsVisible },
-                onShowInfo = { isPanelVisible = true },
-                onZoomChanged = { zoomed ->
-                    if (page == pagerState.currentPage && zoomed != isZoomed) {
-                        isZoomed = zoomed
-                    }
-                }
-            )
-        }
+        val screenHeightPx = constraints.maxHeight.toFloat()
 
-        // Top Header
-        AnimatedVisibility(
-            visible = isControlsVisible && !isPanelVisible,
-            enter = fadeIn() + slideInVertically(),
-            exit = fadeOut() + slideOutVertically()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent)
-                        )
-                    )
-                    .statusBarsPadding()
-                    .padding(PandoraSpacing.md)
-            ) {
-                IconButton(
-                    onClick = onBackClick,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+        // Dynamic max fraction: snaps panel to exactly the content height.
+        val maxFraction = if (contentHeightPx > 0f && screenHeightPx > 0f)
+            (contentHeightPx / screenHeightPx).coerceIn(0.28f, 0.88f)
+        else
+            FallbackMaxFraction
+
+        fun snapPanel(velocityY: Float = 0f) {
+            scope.launch {
+                // Panel is binary: open = maxFraction, closed = 0f
+                // Velocity check first; fall back to current position for borderline cases
+                val target = when {
+                    velocityY < -FLING_VELOCITY -> maxFraction   // fast swipe up  → open
+                    velocityY >  FLING_VELOCITY -> 0f            // fast swipe down → close
+                    panelFraction.value > maxFraction * 0.28f -> maxFraction // mostly open → open
+                    else -> 0f                                               // mostly closed → close
                 }
-                
-                Text(
-                    text = currentItem?.albumName?.uppercase() ?: "PANDORA",
-                    modifier = Modifier.align(Alignment.Center),
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    ),
-                    color = Color.White
+                panelFraction.animateTo(
+                    target,
+                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
                 )
-
-                IconButton(
-                    onClick = { /* More */ },
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
-                }
             }
         }
 
-        if (isPanelVisible && currentItem != null) {
-            InfoPanel(item = currentItem, onDismiss = { isPanelVisible = false })
+        val panelHeightDp = with(LocalDensity.current) {
+            (screenHeightPx * panelFraction.value).toDp()
+        }
+
+        // ── Column layout: media shrinks upward as panel grows ───────────────
+        // ContentScale.Crop fills whatever height remains — no black bars in either state.
+        Column(modifier = Modifier.fillMaxSize()) {
+
+            // Media area — weight(1f) gives it all space minus the panel
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    pageSpacing = 16.dp,
+                    beyondBoundsPageCount = 1,
+                    userScrollEnabled = !isZoomed
+                ) { page ->
+                    val item = items[page]
+                    MediaPage(
+                        item = item,
+                        isActive = page == pagerState.currentPage,
+                        controlsVisible = isControlsVisible,
+                        onToggleUI = { isControlsVisible = !isControlsVisible },
+                        onZoomChanged = { zoomed ->
+                            if (page == pagerState.currentPage && zoomed != isZoomed) isZoomed = zoomed
+                        },
+                        onDragEnd = { velocityY -> snapPanel(velocityY) }
+                    )
+                }
+
+                // Header overlaid on media — standalone to avoid ColumnScope.AnimatedVisibility
+                ViewerHeader(
+                    isVisible = isControlsVisible,
+                    title = currentItem?.albumName?.uppercase() ?: "",
+                    onBackClick = onBackClick
+                )
+            }
+
+            // Info panel — grows from bottom, pushing media up
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(panelHeightDp)
+                    .background(PanelBg)
+                    .pointerInput(Unit) {
+                        // Panel drag: close on meaningful downward displacement OR fling — no resize
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val vt = VelocityTracker()
+                            vt.addPosition(down.uptimeMillis, down.position)
+                            var prevY = down.position.y
+                            var totalDy = 0f
+                            var isVertical = false
+                            var locked = false
+
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val active = event.changes.filter { it.pressed }
+                                if (active.isEmpty()) break
+                                if (active.size == 1) {
+                                    val change = active[0]
+                                    vt.addPosition(change.uptimeMillis, change.position)
+                                    val dy = change.position.y - prevY
+                                    if (!locked) {
+                                        if (kotlin.math.abs(dy) > viewConfiguration.touchSlop) {
+                                            isVertical = true; locked = true
+                                        }
+                                    }
+                                    if (isVertical) {
+                                        totalDy += dy
+                                        change.consume()
+                                    }
+                                    prevY = change.position.y
+                                }
+                            }
+                            if (isVertical) {
+                                val velocity = vt.calculateVelocity().y
+                                // Close if swiped down meaningfully (displacement) OR fast fling down
+                                val shouldClose = totalDy > viewConfiguration.touchSlop * 4 ||
+                                    velocity > FLING_VELOCITY / 2
+                                scope.launch {
+                                    panelFraction.animateTo(
+                                        if (shouldClose) 0f else maxFraction,
+                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+                                    )
+                                }
+                            }
+                        }
+                    }
+            ) {
+                if (currentItem != null) {
+                    InfoPanelContent(
+                        item = currentItem,
+                        // Never overwrite a real height with 0 (fires when panel Box collapses to 0)
+                        onHeightMeasured = { if (it > 0f) contentHeightPx = it }
+                    )
+                }
+            }
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Header — extracted to avoid ColumnScope.AnimatedVisibility
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun ViewerHeader(isVisible: Boolean, title: String, onBackClick: () -> Unit) {
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = fadeIn() + slideInVertically(),
+        exit = fadeOut() + slideOutVertically()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Black.copy(0.6f), Color.Transparent)))
+                .statusBarsPadding()
+                .padding(PandoraSpacing.md)
+        ) {
+            IconButton(onClick = onBackClick, modifier = Modifier.align(Alignment.CenterStart)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+            if (title.isNotEmpty()) {
+                Text(
+                    text = title,
+                    modifier = Modifier.align(Alignment.Center),
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
+                    color = Color.White
+                )
+            }
+            IconButton(onClick = { }, modifier = Modifier.align(Alignment.CenterEnd)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MediaPage dispatcher
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun MediaPage(
     item: MediaItem,
-    indexInfo: String,
     isActive: Boolean,
     controlsVisible: Boolean,
     onToggleUI: () -> Unit,
-    onShowInfo: () -> Unit,
-    onZoomChanged: (Boolean) -> Unit
+    onZoomChanged: (Boolean) -> Unit,
+    onDragEnd: (velocityY: Float) -> Unit
 ) {
     if (item.mediaType == "video") {
         VideoPage(
             item = item,
-            indexInfo = indexInfo,
             isActive = isActive,
             controlsVisible = controlsVisible,
             onToggleUI = onToggleUI,
-            onShowInfo = onShowInfo
+            onDragEnd = onDragEnd
         )
         LaunchedEffect(isActive) { if (isActive) onZoomChanged(false) }
     } else {
-        Box(modifier = Modifier.fillMaxSize()) {
-            ZoomableImagePage(item = item, onToggleUI = onToggleUI, onZoomChanged = onZoomChanged)
-            
-            AnimatedVisibility(
-                visible = controlsVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomStart)
-            ) {
-                ImageOverlay(item, indexInfo, onShowInfo)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImageOverlay(item: MediaItem, indexInfo: String, onShowInfo: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))))
-            .padding(24.dp)
-            .navigationBarsPadding()
-            .pointerInput(Unit) { detectTapGestures { onShowInfo() } }
-    ) {
-        Text(indexInfo, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
-        Text(
-            item.filename,
-            color = Color.White,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-            maxLines = 1
+        ZoomableImagePage(
+            item = item,
+            onToggleUI = onToggleUI,
+            onZoomChanged = onZoomChanged,
+            onDragEnd = onDragEnd
         )
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zoomable image with direction-lock + velocity-aware swipe
+// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ZoomableImagePage(
     item: MediaItem,
     onToggleUI: () -> Unit,
-    onZoomChanged: (Boolean) -> Unit
+    onZoomChanged: (Boolean) -> Unit,
+    onDragEnd: (velocityY: Float) -> Unit
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -234,7 +341,10 @@ private fun ZoomableImagePage(
                         if (scale > 1f) {
                             scale = 1f; offset = Offset.Zero; onZoomChanged(false)
                         } else {
-                            scale = 3f; offset = clamp((Offset(layoutSize.width/2f, layoutSize.height/2f) - tapOffset) * 2f, 3f)
+                            val t = 3f
+                            val center = Offset(layoutSize.width / 2f, layoutSize.height / 2f)
+                            scale = t
+                            offset = clamp((center - tapOffset) * (t - 1f) / t, t)
                             onZoomChanged(true)
                         }
                     }
@@ -242,33 +352,71 @@ private fun ZoomableImagePage(
             }
             .pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    val firstDown = awaitFirstDown(requireUnconsumed = false)
+                    val vt = VelocityTracker()
+                    vt.addPosition(firstDown.uptimeMillis, firstDown.position)
+
                     var prevPositions = mutableMapOf<Long, Offset>()
+                    var directionLocked = false
+                    var isVerticalGesture = false
+
                     while (true) {
                         val event = awaitPointerEvent()
                         val active = event.changes.filter { it.pressed }
                         if (active.isEmpty()) break
-                        val currentPositions = active.associate { it.id.value to it.position }
-                        
-                        if (active.size >= 2) {
-                            val ids = active.take(2).map { it.id.value }
-                            val p0prev = prevPositions[ids[0]]; val p1prev = prevPositions[ids[1]]
-                            val p0curr = currentPositions[ids[0]]; val p1curr = currentPositions[ids[1]]
-                            if (p0prev != null && p1prev != null && p0curr != null && p1curr != null) {
-                                val zoom = (p1curr - p0curr).getDistance() / (p1prev - p0prev).getDistance()
-                                val pan = ((p0curr + p1curr) / 2f) - ((p0prev + p1prev) / 2f)
-                                scale = (scale * zoom).coerceIn(1f, 5f)
-                                offset = if (scale > 1f) clamp(offset + pan, scale) else Offset.Zero
-                                onZoomChanged(scale > 1.01f)
+                        val cur = active.associate { it.id.value to it.position }
+
+                        when {
+                            active.size >= 2 -> {
+                                directionLocked = true; isVerticalGesture = false
+                                val ids = active.take(2).map { it.id.value }
+                                val p0p = prevPositions[ids[0]]; val p1p = prevPositions[ids[1]]
+                                val p0c = cur[ids[0]];           val p1c = cur[ids[1]]
+                                if (p0p != null && p1p != null && p0c != null && p1c != null) {
+                                    val pd = (p1p - p0p).getDistance()
+                                    val cd = (p1c - p0c).getDistance()
+                                    val zoom = if (pd > 0f) cd / pd else 1f
+                                    val pan  = (p0c + p1c) / 2f - (p0p + p1p) / 2f
+                                    val ns   = (scale * zoom).coerceIn(1f, 5f)
+                                    scale  = ns
+                                    offset = if (ns > 1f) clamp(offset + pan, ns) else Offset.Zero
+                                    onZoomChanged(ns > 1.01f)
+                                }
+                                active.forEach { it.consume() }
                             }
-                            active.forEach { it.consume() }
-                        } else if (active.size == 1 && scale > 1f) {
-                            val change = active[0]
-                            prevPositions[change.id.value]?.let { offset = clamp(offset + (change.position - it), scale) }
-                            change.consume()
+                            active.size == 1 -> {
+                                val change = active[0]
+                                vt.addPosition(change.uptimeMillis, change.position)
+                                val prev = prevPositions[change.id.value]
+                                if (prev != null) {
+                                    val delta = change.position - prev
+                                    if (!directionLocked) {
+                                        val ax = kotlin.math.abs(delta.x)
+                                        val ay = kotlin.math.abs(delta.y)
+                                        if (ax > viewConfiguration.touchSlop || ay > viewConfiguration.touchSlop) {
+                                            isVerticalGesture = ay > ax * 1.3f
+                                            directionLocked = true
+                                        }
+                                    }
+                                    when {
+                                        scale > 1f -> {
+                                            offset = clamp(offset + delta, scale)
+                                            change.consume()
+                                        }
+                                        isVerticalGesture && directionLocked -> {
+                                            // Just consume — no live resize, snap happens on release
+                                            change.consume()
+                                        }
+                                        // Horizontal at scale=1 — don't consume; HorizontalPager navigates
+                                    }
+                                }
+                            }
                         }
-                        
-                        prevPositions = currentPositions.toMutableMap()
+                        prevPositions = cur.toMutableMap()
+                    }
+
+                    if (directionLocked && isVerticalGesture && scale <= 1f) {
+                        onDragEnd(vt.calculateVelocity().y)
                     }
                 }
             },
@@ -277,22 +425,28 @@ private fun ZoomableImagePage(
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y
-            }
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale; scaleY = scale
+                    translationX = offset.x; translationY = offset.y
+                }
         )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Video page
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 private fun VideoPage(
     item: MediaItem,
-    indexInfo: String,
     isActive: Boolean,
     controlsVisible: Boolean,
     onToggleUI: () -> Unit,
-    onShowInfo: () -> Unit
+    onDragEnd: (velocityY: Float) -> Unit
 ) {
     var isPlaying by remember { mutableStateOf(isActive) }
     var progress by remember { mutableLongStateOf(0L) }
@@ -302,7 +456,52 @@ private fun VideoPage(
 
     LaunchedEffect(isActive) { isPlaying = isActive }
 
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    LaunchedEffect(controlsVisible, isPlaying) {
+        if (controlsVisible && isPlaying) { delay(3500); onToggleUI() }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            // Velocity-aware vertical swipe for panel — taps pass through (no consume until slop)
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val vt = VelocityTracker()
+                    vt.addPosition(down.uptimeMillis, down.position)
+                    var prevY = down.position.y
+                    var isVertical = false
+                    var locked = false
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val active = event.changes.filter { it.pressed }
+                        if (active.isEmpty()) break
+                        if (active.size == 1) {
+                            val change = active[0]
+                            vt.addPosition(change.uptimeMillis, change.position)
+                            val dy = change.position.y - prevY
+                            val dx = change.position.x - change.previousPosition.x
+                            if (!locked) {
+                                val ay = kotlin.math.abs(dy)
+                                val ax = kotlin.math.abs(dx)
+                                if (ay > viewConfiguration.touchSlop || ax > viewConfiguration.touchSlop) {
+                                    isVertical = ay > ax * 1.3f
+                                    locked = true
+                                }
+                            }
+                            if (isVertical && locked) {
+                                // Just consume — snap happens on release
+                                change.consume()
+                            }
+                            prevY = change.position.y
+                        }
+                    }
+                    if (isVertical) onDragEnd(vt.calculateVelocity().y)
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
         VideoPlayer(
             uri = item.uri,
             isPlaying = isPlaying,
@@ -316,26 +515,21 @@ private fun VideoPage(
         LaunchedEffect(seekToRequest) { if (seekToRequest != null) seekToRequest = null }
 
         AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
-            Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f))) {
-                
-                // Bottom Controls Container
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.3f))
+            ) {
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))))
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(0.8f))))
                         .padding(horizontal = 24.dp)
                         .padding(bottom = 32.dp)
                         .navigationBarsPadding(),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Index and Name
-                    Column(modifier = Modifier.pointerInput(Unit) { detectTapGestures { onShowInfo() } }) {
-                        Text(indexInfo, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
-                        Text(item.filename, color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-                    }
-
-                    // Progress Slider
                     Column {
                         Slider(
                             value = progress.toFloat(),
@@ -345,7 +539,7 @@ private fun VideoPage(
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
                                 activeTrackColor = Color.White,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                inactiveTrackColor = Color.White.copy(0.3f)
                             )
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -353,44 +547,28 @@ private fun VideoPage(
                             Text(formatDuration(duration), color = Color.White, style = MaterialTheme.typography.labelSmall)
                         }
                     }
-
-                    // Playback Controls Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Volume Button (Mute Toggle)
                         IconButton(onClick = { isMuted = !isMuted }) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                                contentDescription = "Mute Toggle",
-                                tint = Color.White
-                            )
+                            Icon(if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = Color.White)
                         }
-
                         IconButton(onClick = { seekToRequest = (progress - 10000).coerceAtLeast(0) }) {
-                            Icon(Icons.Default.Replay10, contentDescription = "Back 10s", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.Replay10, null, tint = Color.White, modifier = Modifier.size(32.dp))
                         }
-
                         IconButton(
                             onClick = { isPlaying = !isPlaying },
                             modifier = Modifier.size(72.dp).background(Color.White, CircleShape)
                         ) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color.Black,
-                                modifier = Modifier.size(40.dp)
-                            )
+                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(40.dp))
                         }
-
                         IconButton(onClick = { seekToRequest = (progress + 10000).coerceAtMost(duration) }) {
-                            Icon(Icons.Default.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.Forward10, null, tint = Color.White, modifier = Modifier.size(32.dp))
                         }
-
-                        IconButton(onClick = { /* Repeat/Loop toggle */ }) {
-                            Icon(Icons.Default.Repeat, contentDescription = "Repeat", tint = Color.White)
+                        IconButton(onClick = { }) {
+                            Icon(Icons.Default.Repeat, null, tint = Color.White)
                         }
                     }
                 }
@@ -399,60 +577,143 @@ private fun VideoPage(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ─────────────────────────────────────────────────────────────────────────────
+// Info panel content — wrapContentHeight so panel matches content
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
-private fun InfoPanel(item: MediaItem, onDismiss: () -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
-        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
+private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit) {
+    val dayOfWeek = remember(item.deviceCreatedAt) {
+        Instant.ofEpochMilli(item.deviceCreatedAt ?: 0L)
+            .atZone(ZoneId.systemDefault())
+            .dayOfWeek
+            .getDisplayName(DateTimeTextStyle.FULL, Locale.getDefault())
+    }
+    val dateTime = remember(item.deviceCreatedAt) {
+        val zdt = Instant.ofEpochMilli(item.deviceCreatedAt ?: 0L).atZone(ZoneId.systemDefault())
+        val month = zdt.month.getDisplayName(DateTimeTextStyle.FULL, Locale.getDefault())
+        "%d %s %d  |  %02d:%02d".format(zdt.dayOfMonth, month, zdt.year, zdt.hour, zdt.minute)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .wrapContentHeight()
+            .onSizeChanged { onHeightMeasured(it.height.toFloat()) }
+            .padding(horizontal = 20.dp)
+            .padding(top = 14.dp)
+            .navigationBarsPadding()
+            .padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        // Day + favorite
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                Column {
-                    val dateParts = Formatters.formatShortDateParts(item.deviceCreatedAt)
-                    Text(text = "${dateParts.month} ${dateParts.day}", style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Medium, fontSize = 34.sp))
-                    Text(text = dateParts.year, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { /* Favorite */ }) {
-                    Icon(imageVector = if (item.isFavorite == 1) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Favorite", tint = if (item.isFavorite == 1) Color.Red else MaterialTheme.colorScheme.onSurface)
-                }
+            Column {
+                Text(
+                    text = dayOfWeek,
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 34.sp
+                    )
+                )
+                Text(text = dateTime, color = LabelColor, style = MaterialTheme.typography.bodyMedium)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetaCard(label = "FILENAME", value = item.filename.substringBeforeLast("."), modifier = Modifier.weight(1f))
-                MetaCard(label = "EXTENSION", value = item.extension.uppercase(), modifier = Modifier.weight(0.4f))
+            IconButton(onClick = { }) {
+                Icon(
+                    imageVector = if (item.isFavorite == 1) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Favorite",
+                    tint = if (item.isFavorite == 1) Color(0xFFFF375F) else LabelColor
+                )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                MetaCard(label = "TYPE", value = item.mediaType.uppercase(), modifier = Modifier.weight(1f))
-                MetaCard(label = "DIMENSIONS", value = "${item.width} x ${item.height}", modifier = Modifier.weight(1f))
-                MetaCard(label = "FILE SIZE", value = "${Formatters.formatCount(item.fileSize.toInt())} B", modifier = Modifier.weight(1f))
+        }
+
+        // Dimensions + format strip
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(CardBg)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "${item.width} × ${item.height}",
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Pill(item.extension.uppercase())
+                Pill(Formatters.formatCount((item.fileSize / 1024).toInt()) + " KB")
             }
+        }
+
+        // Storage + name cards
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InfoCard(
+                label = "STORAGE PATH",
+                value = item.filePath?.substringBeforeLast("/") ?: "—",
+                modifier = Modifier.weight(1f)
+            )
+            InfoCard(label = "NAME", value = item.filename, modifier = Modifier.weight(1f))
+        }
+
+        // Type + size cards
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            InfoCard(label = "TYPE", value = item.mediaType.uppercase(), modifier = Modifier.weight(1f))
+            InfoCard(
+                label = "FILE SIZE",
+                value = Formatters.formatCount(item.fileSize.toInt()) + " B",
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
 
 @Composable
-private fun MetaCard(label: String, value: String, modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.heightIn(min = 86.dp),
-        color = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(22.dp),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+private fun Pill(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFF3A3A3C))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp, fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-            Spacer(Modifier.height(8.dp))
-            Text(text = value, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
-        }
+        Text(text, color = Color.White, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold))
     }
 }
+
+@Composable
+private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(CardBg)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
+    ) {
+        Text(
+            text = label,
+            color = LabelColor,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold)
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = value,
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+            maxLines = 3
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 private fun formatDuration(millis: Long): String {
-    val seconds = (millis / 1000) % 60
-    val minutes = (millis / (1000 * 60)) % 60
-    return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    val s = (millis / 1000) % 60
+    val m = (millis / (1000 * 60)) % 60
+    return "%02d:%02d".format(m, s)
 }
