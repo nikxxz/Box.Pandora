@@ -1,10 +1,7 @@
 package com.example.boxpandora.ui.main
 
+import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,10 +11,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavType
+import androidx.navigation.compose.*
+import androidx.navigation.navArgument
+import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.common.AppHeader
 import kotlinx.coroutines.launch
 
@@ -29,6 +26,9 @@ fun MainScreen() {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    
+    // Shared state for the viewer
+    var activeMediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -117,7 +117,9 @@ fun MainScreen() {
             ) {
                 NavigationGraph(
                     navController = navController,
-                    onOpenDrawer = { scope.launch { drawerState.open() } }
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    activeMediaItems = activeMediaItems,
+                    onUpdateMediaItems = { activeMediaItems = it }
                 )
             }
         }
@@ -125,7 +127,12 @@ fun MainScreen() {
 }
 
 @Composable
-fun NavigationGraph(navController: NavHostController, onOpenDrawer: () -> Unit) {
+fun NavigationGraph(
+    navController: NavHostController, 
+    onOpenDrawer: () -> Unit,
+    activeMediaItems: List<MediaItem>,
+    onUpdateMediaItems: (List<MediaItem>) -> Unit
+) {
     NavHost(
         navController = navController,
         startDestination = Screen.Folders.route,
@@ -155,7 +162,6 @@ fun NavigationGraph(navController: NavHostController, onOpenDrawer: () -> Unit) 
             }
         }
 
-        // Detail: slide in from right, pop back to right
         composable(
             route = "folder_detail/{albumName}",
             enterTransition = {
@@ -168,12 +174,40 @@ fun NavigationGraph(navController: NavHostController, onOpenDrawer: () -> Unit) 
                 fadeIn(tween(NAV_FADE_MS))
             },
             popExitTransition = {
-                slideOutHorizontally(tween(NAV_SLIDE_MS)) { it } + fadeOut(tween(NAV_FADE_MS))
+                slideOutHorizontally(tween(NAV_SLIDE_MS)) { it } + fadeOut(tween(NAV_SLIDE_MS))
             }
         ) { backStackEntry ->
             val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
             FolderDetailScreen(
                 albumName = albumName,
+                onBackClick = { navController.popBackStack() },
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                }
+            )
+        }
+
+        composable(
+            route = "media_viewer/{index}",
+            arguments = listOf(navArgument("index") { type = NavType.IntType }),
+            enterTransition = {
+                scaleIn(tween(NAV_SLIDE_MS), initialScale = 0.9f) + fadeIn(tween(NAV_SLIDE_MS))
+            },
+            exitTransition = {
+                scaleOut(tween(NAV_SLIDE_MS), targetScale = 0.9f) + fadeOut(tween(NAV_SLIDE_MS))
+            },
+            popEnterTransition = {
+                scaleIn(tween(NAV_SLIDE_MS), initialScale = 0.9f) + fadeIn(tween(NAV_SLIDE_MS))
+            },
+            popExitTransition = {
+                scaleOut(tween(NAV_SLIDE_MS), targetScale = 0.9f) + fadeOut(tween(NAV_SLIDE_MS))
+            }
+        ) { backStackEntry ->
+            val index = backStackEntry.arguments?.getInt("index") ?: 0
+            MediaViewerScreen(
+                items = activeMediaItems,
+                initialIndex = index,
                 onBackClick = { navController.popBackStack() }
             )
         }

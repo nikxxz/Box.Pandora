@@ -7,7 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.boxpandora.PandoraApp
+import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
@@ -27,7 +28,8 @@ import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
 @Composable
 fun FolderDetailScreen(
     albumName: String,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onMediaClick: (List<MediaItem>, Int) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
@@ -45,8 +47,6 @@ fun FolderDetailScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
-                // Match the app background so there's no surface/background seam
-                // that's visible in both dark and light mode.
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -66,10 +66,10 @@ fun FolderDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(1.dp)
                 ) {
-                    items(mediaItems, key = { it.uri }) { item ->
+                    itemsIndexed(mediaItems, key = { _, item -> item.uri }) { index, item ->
                         MediaThumbnail(
                             item = item,
-                            onPress = { /* Open Viewer */ },
+                            onPress = { onMediaClick(mediaItems, index) },
                             onLongPress = { /* Select */ },
                             modifier = Modifier.animateItemPlacement()
                         )
