@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.painter.ColorPainter
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import coil.size.Size
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.util.Formatters
 import java.io.File
@@ -67,7 +68,12 @@ fun MediaThumbnail(
             .data(imageModel)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
-            .decoderFactory(VideoFrameDecoder.Factory())
+            // Explicit thumbnail size: lets Coil start decoding before Compose layout
+            // measurement completes, preventing decode-queue pileup during fast scroll.
+            .size(Size(600, 600))
+            // Only attach VideoFrameDecoder for actual video items — images don't need it
+            // and the factory being present on every request adds overhead.
+            .apply { if (item.mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
             .crossfade(150)
             .build()
     }

@@ -19,7 +19,9 @@
       "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/res/layout/pager_video_item.xml\")",
       "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app\")",
       "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/build.gradle.kts\")",
-      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/gradle/libs.versions.toml\")"
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/gradle/libs.versions.toml\")",
+      "Bash(adb logcat -c)",
+      "Bash(adb logcat -v time *:W)"
     ],
     "additionalDirectories": [
       "\\tmp"

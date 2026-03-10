@@ -425,7 +425,7 @@ private fun ZoomableImagePage(
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
-            contentScale = ContentScale.Crop,
+            contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -502,15 +502,20 @@ private fun VideoPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        VideoPlayer(
-            uri = item.uri,
-            isPlaying = isPlaying,
-            isMuted = isMuted,
-            volume = sharedVideoVolume,
-            seekTo = seekToRequest,
-            onVideoClick = { onToggleUI() },
-            onProgress = { p, d -> progress = p; duration = d }
-        )
+        // Only create VideoPlayer (and thus MediaCodec) for the active page.
+        // beyondBoundsPageCount=1 causes adjacent pages to be composed; without this
+        // guard, 3+ codec instances would be created simultaneously → resource exhaustion.
+        if (isActive) {
+            VideoPlayer(
+                uri = item.uri,
+                isPlaying = isPlaying,
+                isMuted = isMuted,
+                volume = sharedVideoVolume,
+                seekTo = seekToRequest,
+                onVideoClick = { onToggleUI() },
+                onProgress = { p, d -> progress = p; duration = d }
+            )
+        }
 
         LaunchedEffect(seekToRequest) { if (seekToRequest != null) seekToRequest = null }
 
