@@ -55,7 +55,6 @@ fun FolderCard(
     val currentYear = Calendar.getInstance().get(Calendar.YEAR)
     val isSameYear = dateParts.year == currentYear.toString()
 
-    // Track press state for the scale animation — gives tactile push-in feedback.
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -66,6 +65,25 @@ fun FolderCard(
         ),
         label = "cardScale"
     )
+
+    val context = LocalContext.current
+    val imageModel = remember(album.coverFilePath, album.coverUri) {
+        album.coverFilePath?.let { File(it) } ?: album.coverUri
+    }
+    
+    val cacheKey = remember(album.id, album.lastModifiedAt) {
+        "cover-${album.id}-${album.lastModifiedAt}"
+    }
+
+    val request = remember(imageModel, cacheKey) {
+        ImageRequest.Builder(context)
+            .data(imageModel)
+            .memoryCacheKey(cacheKey)
+            .diskCacheKey(cacheKey)
+            .decoderFactory(VideoFrameDecoder.Factory())
+            .crossfade(200)
+            .build()
+    }
 
     Surface(
         modifier = modifier
@@ -82,7 +100,7 @@ fun FolderCard(
                 .fillMaxSize()
                 .clickable(
                     interactionSource = interactionSource,
-                    indication = null // scale handles the visual press feedback
+                    indication = null
                 ) { onPress(album) }
                 .border(
                     width = 5.dp,
@@ -92,18 +110,11 @@ fun FolderCard(
                 .clip(RoundedCornerShape(PandoraDimensions.cardBorderRadius - 5.dp))
         ) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(album.coverFilePath?.let { File(it) } ?: album.coverUri)
-                    .memoryCacheKey("cover-${album.id}-${album.lastModifiedAt}")
-                    .diskCacheKey("cover-${album.id}-${album.lastModifiedAt}")
-                    .decoderFactory(VideoFrameDecoder.Factory())
-                    .crossfade(200)
-                    .build(),
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxSize()
-                    // Use theme surface so the placeholder colour matches in both modes
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             )
 

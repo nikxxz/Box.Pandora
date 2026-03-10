@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface AlbumDao {
+    @Query("SELECT * FROM albums WHERE (hidden = 0 OR :showHidden = 1) ORDER BY last_modified_at DESC")
+    fun getAlbumsFlow(showHidden: Boolean): Flow<List<Album>>
+
     @Query("SELECT * FROM albums WHERE hidden = 0 ORDER BY last_modified_at DESC")
     fun getAllAlbumsFlow(): Flow<List<Album>>
 
@@ -18,12 +21,20 @@ interface AlbumDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(albums: List<Album>)
 
+    @Query("SELECT * FROM albums WHERE id = :id")
+    suspend fun getById(id: Long): Album?
+
     @Query("SELECT * FROM albums WHERE name = :name")
     suspend fun getByName(name: String): Album?
 
     @Query("UPDATE albums SET hidden = :hidden WHERE name = :name")
     suspend fun setHidden(name: String, hidden: Boolean)
 
-    @Query("DELETE FROM albums WHERE name NOT IN (:names) AND path IS NULL")
-    suspend fun deleteStaleAlbums(names: List<String>)
+    @Query("DELETE FROM albums")
+    suspend fun clearAll()
+
+    // Delete albums whose id is not in the current set. Guard against empty list
+    // at the call site — Room's NOT IN () with an empty list is invalid SQL.
+    @Query("DELETE FROM albums WHERE id NOT IN (:ids)")
+    suspend fun deleteStaleAlbums(ids: List<Long>)
 }

@@ -1,15 +1,13 @@
 package com.example.boxpandora.ui.components.media
 
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -18,8 +16,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.boxpandora.R
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -29,7 +27,9 @@ fun VideoPlayer(
     isMuted: Boolean,
     onVideoClick: () -> Unit,
     onProgress: (Long, Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    volume: Float = 1f,
+    seekTo: Long? = null
 ) {
     val context = LocalContext.current
     val exoPlayer = remember {
@@ -52,8 +52,14 @@ fun VideoPlayer(
         }
     }
 
-    LaunchedEffect(isMuted) {
-        exoPlayer.volume = if (isMuted) 0f else 1f
+    LaunchedEffect(isMuted, volume) {
+        exoPlayer.volume = if (isMuted) 0f else volume
+    }
+
+    LaunchedEffect(seekTo) {
+        seekTo?.let {
+            exoPlayer.seekTo(it)
+        }
     }
 
     // Progress tracking
@@ -63,28 +69,28 @@ fun VideoPlayer(
                 if (exoPlayer.duration > 0) {
                     onProgress(exoPlayer.currentPosition, exoPlayer.duration)
                 }
-                kotlinx.coroutines.delay(500)
+                kotlinx.coroutines.delay(200)
             }
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            // Immediate shutdown to prevent audio/video trailing during navigation
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             exoPlayer.release()
         }
     }
 
     AndroidView(
-        factory = {
-            PlayerView(context).apply {
-                useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                player = exoPlayer
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
+        factory = { ctx ->
+            // We inflate from XML because Media3 doesn't expose surface_type programmatically.
+            // TextureView is required so the video layer follows Compose scale/alpha animations.
+            val frameLayout = FrameLayout(ctx)
+            val view = LayoutInflater.from(ctx).inflate(R.layout.player_view, frameLayout, false) as PlayerView
+            view.player = exoPlayer
+            view
         },
         modifier = modifier
             .fillMaxSize()

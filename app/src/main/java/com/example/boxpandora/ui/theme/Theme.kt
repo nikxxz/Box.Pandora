@@ -10,6 +10,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.boxpandora.ui.main.viewmodel.ThemeMode
 
 private val DarkColorScheme = darkColorScheme(
     primary = DarkAccent,
@@ -41,9 +42,15 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun BoxPandoraTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    themeMode: ThemeMode = ThemeMode.AUTO,
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.AUTO -> isSystemInDarkTheme()
+    }
+
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     val view = LocalView.current
 
@@ -51,8 +58,6 @@ fun BoxPandoraTheme(
         SideEffect {
             val window = (view.context as Activity).window
             val bgArgb = colorScheme.background.toArgb()
-            // Apply theme background to both system bars so there's no
-            // colour mismatch between the app chrome and the OS chrome.
             window.statusBarColor = bgArgb
             window.navigationBarColor = bgArgb
             val controller = WindowCompat.getInsetsController(window, view)

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,26 +37,23 @@ fun MediaThumbnail(
 ) {
     val context = LocalContext.current
 
-    // Simple Gallery approach: pass File(path) directly to the image loader.
-    // This bypasses ContentResolver entirely — MediaMetadataRetriever.setDataSource(path)
-    // for videos is direct and never fails with FileNotFoundException.
-    // Fall back to the content:// URI only if the file path is unavailable.
-    val imageModel = item.filePath
-        ?.takeIf { it.isNotEmpty() }
-        ?.let { File(it) }
-        ?: item.uri
+    val imageModel = remember(item.filePath, item.uri) {
+        item.filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: item.uri
+    }
 
-    // Cache key includes modification time + file size (Simple Gallery's signature pattern).
-    // Coil busts the cache automatically when the file changes.
-    val cacheKey = "${item.filePath ?: item.uri}-${item.deviceModifiedAt}-${item.fileSize}"
+    val cacheKey = remember(item.filePath, item.uri, item.deviceModifiedAt, item.fileSize) {
+        "${item.filePath ?: item.uri}-${item.deviceModifiedAt}-${item.fileSize}"
+    }
 
-    val request = ImageRequest.Builder(context)
-        .data(imageModel)
-        .memoryCacheKey(cacheKey)
-        .diskCacheKey(cacheKey)
-        .decoderFactory(VideoFrameDecoder.Factory()) // extracts first frame for videos
-        .crossfade(150)
-        .build()
+    val request = remember(imageModel, cacheKey) {
+        ImageRequest.Builder(context)
+            .data(imageModel)
+            .memoryCacheKey(cacheKey)
+            .diskCacheKey(cacheKey)
+            .decoderFactory(VideoFrameDecoder.Factory())
+            .crossfade(150)
+            .build()
+    }
 
     Box(
         modifier = modifier
@@ -73,7 +71,6 @@ fun MediaThumbnail(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Video Badge
         if (item.mediaType == "video") {
             Box(
                 modifier = Modifier
@@ -100,7 +97,6 @@ fun MediaThumbnail(
             }
         }
 
-        // Favorite Badge
         if (item.isFavorite == 1) {
             Icon(
                 imageVector = Icons.Default.Favorite,

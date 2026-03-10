@@ -5,21 +5,28 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
 
 class FolderDetailViewModel(
     private val repository: MediaRepository,
     private val albumName: String
 ) : ViewModel() {
 
-    val mediaItems: StateFlow<List<MediaItem>> = repository.getMediaByAlbumFlow(albumName)
+    private val _showHidden = MutableStateFlow(false)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val mediaItems: StateFlow<List<MediaItem>> = _showHidden
+        .flatMapLatest { repository.getMediaByAlbumFlow(albumName, it) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    fun setShowHidden(show: Boolean) {
+        _showHidden.value = show
+    }
 }
 
 class FolderDetailViewModelFactory(

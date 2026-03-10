@@ -11,19 +11,20 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MediaItemDao {
-    @Query("SELECT * FROM media_index ORDER BY device_created_at DESC")
-    fun getAllMediaPaged(): PagingSource<Int, MediaItem>
+    @Query("SELECT * FROM media_index WHERE (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC")
+    fun getAllMediaPaged(showHidden: Boolean): PagingSource<Int, MediaItem>
 
     @Query("SELECT * FROM media_index WHERE album_id = :albumId ORDER BY device_created_at DESC")
     fun getMediaByAlbumPaged(albumId: Long): PagingSource<Int, MediaItem>
 
     @Query("""
-        SELECT media_index.* FROM media_index 
-        INNER JOIN albums ON media_index.album_id = albums.id 
-        WHERE albums.name = :albumName 
-        ORDER BY device_created_at DESC
+        SELECT media_index.* FROM media_index
+        INNER JOIN albums ON media_index.album_id = albums.id
+        WHERE albums.name = :albumName
+        AND (media_index.hidden = 0 OR :showHidden = 1)
+        ORDER BY media_index.device_created_at DESC
     """)
-    fun getMediaByAlbumFlow(albumName: String): Flow<List<MediaItem>>
+    fun getMediaByAlbumFlow(albumName: String, showHidden: Boolean): Flow<List<MediaItem>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<MediaItem>)

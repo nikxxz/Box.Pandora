@@ -3,7 +3,23 @@
     "allow": [
       "Bash(/tmp/FolderDetailScreen.kt:*)",
       "Bash(python:*)",
-      "WebFetch(domain:api.github.com)"
+      "WebFetch(domain:api.github.com)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/kotlin/com/simplemobiletools/gallery/pro/views/MyZoomableImageView.kt\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app/src/main/kotlin/com/simplemobiletools/gallery/pro\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app/src/main/kotlin/com/simplemobiletools/gallery/pro/activities\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app/src/main/kotlin/com/simplemobiletools/gallery/pro/fragments\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app/src/main/kotlin/com/simplemobiletools/gallery/pro/views\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/kotlin/com/simplemobiletools/gallery/pro/activities/ViewPagerActivity.kt\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/kotlin/com/simplemobiletools/gallery/pro/fragments/PhotoFragment.kt\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/kotlin/com/simplemobiletools/gallery/pro/fragments/VideoFragment.kt\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/search?q=MyZoomableImageView\")",
+      "Bash(curl -s \"https://api.github.com/search/code?q=repo:SimpleMobileTools/Simple-Gallery+MyZoomableImageView\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app/src/main/res/layout\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/res/layout/pager_photo_item.xml\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/src/main/res/layout/pager_video_item.xml\")",
+      "Bash(curl -s \"https://api.github.com/repos/SimpleMobileTools/Simple-Gallery/contents/app\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/app/build.gradle.kts\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/SimpleMobileTools/Simple-Gallery/master/gradle/libs.versions.toml\")"
     ],
     "additionalDirectories": [
       "\\tmp"
