@@ -45,13 +45,12 @@ class FolderDetailViewModel(
         .flatMapLatest { (albumId, showHidden) ->
             if (albumId != null) {
                 repository.getMediaByAlbumIdFlow(albumId, showHidden)
-                    // Suppress re-renders when sync rewrites the same items with
-                    // updated metadata (indexedAt, scannedAt, etc.) but the set
-                    // of visible photos/videos hasn't actually changed.
-                    // The grid only updates when URIs are added, removed, or their
-                    // hidden/favourite state flips — real user-visible changes.
+                    // Suppress re-renders when sync rewrites the same items (even if
+                    // it changes sort order by populating device_created_at for the
+                    // first time). Using toHashSet() makes the comparison ORDER-INDEPENDENT:
+                    // only re-emits when URIs are added/removed or hidden/favourite flips.
                     .distinctUntilChangedBy { list ->
-                        list.map { Triple(it.uri, it.isHidden, it.isFavorite) }
+                        list.map { Triple(it.uri, it.isHidden, it.isFavorite) }.toHashSet()
                     }
             } else {
                 flowOf(emptyList())
