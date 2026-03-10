@@ -23,7 +23,7 @@ class MediaStoreRepository(private val context: Context) {
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
             MediaStore.Files.FileColumns.DISPLAY_NAME,
-            MediaStore.Files.FileColumns.DATA,       // actual file path — Simple Gallery approach
+            MediaStore.Files.FileColumns.DATA,       // actual file path
             MediaStore.Files.FileColumns.SIZE,
             MediaStore.Files.FileColumns.WIDTH,
             MediaStore.Files.FileColumns.HEIGHT,
@@ -77,6 +77,36 @@ class MediaStoreRepository(private val context: Context) {
         mediaList
     }
 
+    suspend fun fetchMediaByPath(path: String): MediaItem? = withContext(Dispatchers.IO) {
+        val contentResolver: ContentResolver = context.contentResolver
+        val uri = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.DATA,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.WIDTH,
+            MediaStore.Files.FileColumns.HEIGHT,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.BUCKET_ID,
+            "bucket_display_name",
+            MediaStore.Files.FileColumns.DURATION,
+            MediaStore.Files.FileColumns.MEDIA_TYPE
+        )
+
+        val selection = "${MediaStore.Files.FileColumns.DATA} = ?"
+        val selectionArgs = arrayOf(path)
+
+        contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+            val list = mutableListOf<MediaItem>()
+            fetchFromCursor(cursor, list)
+            return@withContext list.firstOrNull()
+        }
+        null
+    }
+
     @SuppressLint("InlinedApi")
     private fun fetchFromCursor(cursor: android.database.Cursor, mediaList: MutableList<MediaItem>) {
         val idCol       = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
@@ -121,7 +151,7 @@ class MediaStoreRepository(private val context: Context) {
                     MediaItem(
                         uri              = contentUri.toString(),
                         filename         = name,
-                        filePath         = path,          // actual file path for direct Coil loading
+                        filePath         = path,
                         fileSize         = size,
                         width            = width,
                         height           = height,

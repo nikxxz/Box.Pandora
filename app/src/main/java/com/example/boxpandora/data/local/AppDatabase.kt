@@ -36,6 +36,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun albumDao(): AlbumDao
     abstract fun mediaItemDao(): MediaItemDao
     abstract fun tagDao(): TagDao
+    abstract fun mediaTagDao(): MediaTagDao
+    abstract fun imageEmbeddingDao(): ImageEmbeddingDao
+    abstract fun faceDao(): FaceDao
+    abstract fun tagSuggestionDao(): TagSuggestionDao
+    abstract fun heuristicTagDao(): HeuristicTagDao
+    abstract fun tagRejectionDao(): TagRejectionDao
     abstract fun scanLogDao(): ScanLogDao
     abstract fun userPreferenceDao(): UserPreferenceDao
 }

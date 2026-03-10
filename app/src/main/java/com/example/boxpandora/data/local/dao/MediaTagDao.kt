@@ -13,6 +13,9 @@ interface MediaTagDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(mediaTag: MediaTag)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(mediaTags: List<MediaTag>)
+
     @Query("DELETE FROM media_tags WHERE media_uri = :mediaUri AND tag_id = :tagId")
     suspend fun delete(mediaUri: String, tagId: Long)
 
@@ -23,6 +26,12 @@ interface MediaTagDao {
     """)
     fun getTagsForMedia(mediaUri: String): Flow<List<Tag>>
 
+    @Query("SELECT * FROM media_tags WHERE media_uri = :mediaUri")
+    suspend fun getMediaTagsForUri(mediaUri: String): List<MediaTag>
+
     @Query("DELETE FROM media_tags WHERE media_uri = :mediaUri")
     suspend fun clearTagsForMedia(mediaUri: String)
+
+    @Query("DELETE FROM media_tags WHERE media_uri IN (:uris)")
+    suspend fun clearTagsForUris(uris: List<String>)
 }

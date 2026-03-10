@@ -17,6 +17,9 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_index WHERE album_id = :albumId ORDER BY device_created_at DESC")
     fun getMediaByAlbumPaged(albumId: Long): PagingSource<Int, MediaItem>
 
+    // Legacy — kept for reference. Queries BOTH tables; any write to `albums`
+    // re-fires this flow, causing thumbnail flashes while a sync runs.
+    // Use getMediaByAlbumIdFlow instead.
     @Query("""
         SELECT media_index.* FROM media_index
         INNER JOIN albums ON media_index.album_id = albums.id
@@ -25,6 +28,20 @@ interface MediaItemDao {
         ORDER BY media_index.device_created_at DESC
     """)
     fun getMediaByAlbumFlow(albumName: String, showHidden: Boolean): Flow<List<MediaItem>>
+
+    // Queries ONLY media_index — never re-fires when the albums table is written.
+    // Sync writes albums first then media; this flow only wakes on media_index
+    // changes, so thumbnails are never invalidated by an album upsert.
+    @Query("""
+        SELECT * FROM media_index
+        WHERE album_id = :albumId
+        AND (hidden = 0 OR :showHidden = 1)
+        ORDER BY device_created_at DESC
+    """)
+    fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean): Flow<List<MediaItem>>
+
+    @Query("SELECT * FROM media_index WHERE album_id = :albumId")
+    suspend fun getMediaByAlbum(albumId: Long): List<MediaItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<MediaItem>)
@@ -41,6 +58,9 @@ interface MediaItemDao {
     @Update
     suspend fun update(item: MediaItem)
 
+    @Query("UPDATE media_index SET hidden = :hidden WHERE uri = :uri")
+    suspend fun setHidden(uri: String, hidden: Int)
+
     // Only select rows with a truly unresolved thumbnail (NULL).
     // Rows with thumb_uri = '' were permanently marked as unresolvable and are
     // intentionally excluded to prevent infinite retry loops on broken/orphaned files.
@@ -49,4 +69,18 @@ interface MediaItemDao {
 
     @Query("SELECT uri FROM media_index")
     suspend fun getAllUris(): List<String>
+
+    // Lightweight fetch of only the user-editable fields needed to survive a re-sync.
+    // Used in syncMediaStore() to avoid N individual getByUri() calls.
+    @Query("SELECT uri, rating, favorite, hidden, notes FROM media_index")
+    suspend fun getAllUserMetadata(): List<MediaUserMetadata>
 }
+
+/** Projection used only during sync to preserve user-editable fields in one query. */
+data class MediaUserMetadata(
+    val uri: String,
+    val rating: Int,
+    val favorite: Int,
+    val hidden: Int,
+    val notes: String?
+)

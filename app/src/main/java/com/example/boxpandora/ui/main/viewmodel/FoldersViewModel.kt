@@ -14,6 +14,13 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
     private val _showHidden = MutableStateFlow(false)
     val showHidden: StateFlow<Boolean> = _showHidden
 
+    private val _selectedAlbumIds = MutableStateFlow<Set<Long>>(emptySet())
+    val selectedAlbumIds: StateFlow<Set<Long>> = _selectedAlbumIds
+
+    val isSelectionMode: StateFlow<Boolean> = _selectedAlbumIds
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val albums: StateFlow<List<Album>> = _showHidden
         .flatMapLatest { show ->
@@ -29,9 +36,70 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
         _showHidden.value = show
     }
 
+    fun toggleSelection(albumId: Long) {
+        val current = _selectedAlbumIds.value
+        if (current.contains(albumId)) {
+            _selectedAlbumIds.value = current - albumId
+        } else {
+            _selectedAlbumIds.value = current + albumId
+        }
+    }
+
+    fun clearSelection() {
+        _selectedAlbumIds.value = emptySet()
+    }
+
     fun refresh() {
         viewModelScope.launch {
             repository.syncMediaStore()
+        }
+    }
+
+    fun deleteSelectedAlbums() {
+        val ids = _selectedAlbumIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.deleteAlbums(ids)
+            clearSelection()
+        }
+    }
+
+    fun renameSelectedAlbum(newName: String) {
+        val id = _selectedAlbumIds.value.firstOrNull() ?: return
+        viewModelScope.launch {
+            repository.renameAlbum(id, newName)
+            clearSelection()
+        }
+    }
+
+    fun copySelectedAlbums(destinationPath: String) {
+        val ids = _selectedAlbumIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.copyAlbums(ids, destinationPath)
+            clearSelection()
+        }
+    }
+
+    fun moveSelectedAlbums(destinationPath: String) {
+        val ids = _selectedAlbumIds.value.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            repository.moveAlbums(ids, destinationPath)
+            clearSelection()
+        }
+    }
+
+    fun toggleHiddenForSelected() {
+        val selectedIds = _selectedAlbumIds.value
+        if (selectedIds.isEmpty()) return
+        
+        val selectedAlbums = albums.value.filter { it.id in selectedIds }
+        val targetHidden = !selectedAlbums.all { it.isHidden }
+        
+        viewModelScope.launch {
+            repository.setAlbumsHidden(selectedIds.toList(), targetHidden)
+            clearSelection()
         }
     }
 }

@@ -1,21 +1,21 @@
 package com.example.boxpandora.ui.components.grid
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,10 +36,13 @@ import com.example.boxpandora.ui.theme.PandoraDimensions
 import java.io.File
 import java.util.Calendar
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FolderCard(
     album: Album,
-    onPress: (Album) -> Unit,
+    isSelected: Boolean = false,
+    onPress: () -> Unit,
+    onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val cardWidth = PandoraDimensions.cardWidth()
@@ -58,12 +61,17 @@ fun FolderCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.96f else 1f,
+        targetValue = if (isPressed || isSelected) 0.96f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessHigh
         ),
         label = "cardScale"
+    )
+
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        label = "borderColor"
     )
 
     val context = LocalContext.current
@@ -92,19 +100,21 @@ fun FolderCard(
             .graphicsLayer { scaleX = scale; scaleY = scale },
         shape = RoundedCornerShape(PandoraDimensions.cardBorderRadius),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp
+        tonalElevation = if (isSelected) 8.dp else 4.dp,
+        shadowElevation = if (isSelected) 12.dp else 8.dp
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clickable(
+                .combinedClickable(
                     interactionSource = interactionSource,
-                    indication = null
-                ) { onPress(album) }
+                    indication = null,
+                    onClick = onPress,
+                    onLongClick = onLongPress
+                )
                 .border(
-                    width = 5.dp,
-                    color = MaterialTheme.colorScheme.outline,
+                    width = if (isSelected) 6.dp else 5.dp,
+                    color = borderColor,
                     shape = RoundedCornerShape(PandoraDimensions.cardBorderRadius)
                 )
                 .clip(RoundedCornerShape(PandoraDimensions.cardBorderRadius - 5.dp))
@@ -117,6 +127,24 @@ fun FolderCard(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             )
+
+            // Selection Overlay
+            if (isSelected) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                )
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                        .size(28.dp)
+                )
+            }
 
             Box(
                 modifier = Modifier

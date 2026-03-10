@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -29,6 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.Album
+import com.example.boxpandora.ui.common.AppHeader
+import com.example.boxpandora.ui.common.DeleteConfirmationDialog
+import com.example.boxpandora.ui.common.FolderSelectorDialog
+import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.components.grid.FolderCard
 import com.example.boxpandora.ui.main.viewmodel.FoldersViewModel
 import com.example.boxpandora.ui.main.viewmodel.FoldersViewModelFactory
@@ -46,7 +51,8 @@ private fun hasStorageAccess(): Boolean {
 @Composable
 fun FoldersScreen(
     showHidden: Boolean,
-    onFolderClick: (Album) -> Unit
+    onFolderClick: (Album) -> Unit,
+    onOpenDrawer: () -> Unit
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
@@ -54,9 +60,22 @@ fun FoldersScreen(
         factory = FoldersViewModelFactory(app.repository)
     )
     val albums by viewModel.albums.collectAsState()
+    val selectedIds by viewModel.selectedAlbumIds.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showCopyDialog by remember { mutableStateOf(false) }
+    var showMoveDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
+    }
+
+    if (isSelectionMode) {
+        BackHandler {
+            viewModel.clearSelection()
+        }
     }
 
     var permissionGranted by remember { mutableStateOf(hasStorageAccess()) }
@@ -97,51 +116,137 @@ fun FoldersScreen(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Use AnimatedContent for smoother state transitions between Loading and Content
-        AnimatedContent(
-            targetState = albums.isEmpty(),
-            transitionSpec = {
-                fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
-                fadeOut(animationSpec = tween(90))
-            },
-            label = "FoldersContentTransition"
-        ) { isLoading ->
-            if (isLoading) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+    Column(modifier = Modifier.fillMaxSize()) {
+        val showHideLabel = remember(selectedIds, albums) {
+            val selectedAlbums = albums.filter { it.id in selectedIds }
+            if (selectedAlbums.isNotEmpty() && selectedAlbums.all { it.isHidden }) "Show" else "Hide"
+        }
+
+        AppHeader(
+            onMenuClick = onOpenDrawer,
+            onSearchClick = { },
+            selectionCount = selectedIds.size,
+            onClearSelection = { viewModel.clearSelection() },
+            showHideOption = showHideLabel,
+            onActionClick = { action ->
+                when (action) {
+                    "delete" -> showDeleteDialog = true
+                    "rename" -> showRenameDialog = true
+                    "copy" -> showCopyDialog = true
+                    "move" -> showMoveDialog = true
+                    "hide_show" -> viewModel.toggleHiddenForSelected()
+                    else -> viewModel.clearSelection()
                 }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    contentPadding = PaddingValues(
-                        horizontal = PandoraDimensions.gridPadding,
-                        vertical = 8.dp
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(albums, key = { it.id }) { album -> // Changed key to ID
-                        FolderCard(
-                            album = album,
-                            onPress = { onFolderClick(album) },
-                            modifier = Modifier.animateItemPlacement()
-                        )
+            }
+        )
+
+        Box(modifier = Modifier.weight(1f)) {
+            AnimatedContent(
+                targetState = albums.isEmpty(),
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
+                    fadeOut(animationSpec = tween(90))
+                },
+                label = "FoldersContentTransition"
+            ) { isLoading ->
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        contentPadding = PaddingValues(
+                            horizontal = PandoraDimensions.gridPadding,
+                            vertical = 8.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(albums, key = { it.id }) { album ->
+                            FolderCard(
+                                album = album,
+                                isSelected = album.id in selectedIds,
+                                onPress = {
+                                    if (isSelectionMode) {
+                                        viewModel.toggleSelection(album.id)
+                                    } else {
+                                        onFolderClick(album)
+                                    }
+                                },
+                                onLongPress = {
+                                    viewModel.toggleSelection(album.id)
+                                },
+                                modifier = Modifier.animateItemPlacement()
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        FloatingActionButton(
-            onClick = { viewModel.refresh() },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Icon(Icons.Default.Refresh, contentDescription = "Sync")
+            if (!isSelectionMode) {
+                FloatingActionButton(
+                    onClick = { viewModel.refresh() },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Sync")
+                }
+            }
         }
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmationDialog(
+            count = selectedIds.size,
+            isFolder = true,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                viewModel.deleteSelectedAlbums()
+                showDeleteDialog = false
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        val album = albums.find { it.id in selectedIds }
+        album?.let {
+            RenameDialog(
+                initialName = it.name,
+                onDismiss = { showRenameDialog = false },
+                onConfirm = { newName ->
+                    viewModel.renameSelectedAlbum(newName)
+                    showRenameDialog = false
+                }
+            )
+        }
+    }
+
+    if (showCopyDialog) {
+        FolderSelectorDialog(
+            title = "Copy to",
+            albums = albums.filter { it.id !in selectedIds },
+            onDismiss = { showCopyDialog = false },
+            onConfirm = { album ->
+                album.path?.let { viewModel.copySelectedAlbums(it) }
+                showCopyDialog = false
+            }
+        )
+    }
+
+    if (showMoveDialog) {
+        FolderSelectorDialog(
+            title = "Move to",
+            albums = albums.filter { it.id !in selectedIds },
+            onDismiss = { showMoveDialog = false },
+            onConfirm = { album ->
+                album.path?.let { viewModel.moveSelectedAlbums(it) }
+                showMoveDialog = false
+            }
+        )
     }
 }
 

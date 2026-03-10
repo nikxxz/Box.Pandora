@@ -1,25 +1,23 @@
 package com.example.boxpandora.ui.main
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.ui.common.AppHeader
+import com.example.boxpandora.ui.common.DeleteConfirmationDialog
+import com.example.boxpandora.ui.common.FolderSelectorDialog
+import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
@@ -38,57 +36,127 @@ fun FolderDetailScreen(
         factory = FolderDetailViewModelFactory(app.repository, albumName)
     )
     val mediaItems by viewModel.mediaItems.collectAsState()
+    val allAlbums by viewModel.allAlbums.collectAsState()
+    val selectedUris by viewModel.selectedUris.collectAsState()
+    val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showCopyDialog by remember { mutableStateOf(false) }
+    var showMoveDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
     }
 
+    if (isSelectionMode) {
+        BackHandler {
+            viewModel.clearSelection()
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(albumName) },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            val showHideLabel = remember(selectedUris, mediaItems) {
+                val selectedItems = mediaItems.filter { it.uri in selectedUris }
+                if (selectedItems.isNotEmpty() && selectedItems.all { it.isHidden == 1 }) "Show" else "Hide"
+            }
+
+            AppHeader(
+                title = albumName,
+                onBackClick = onBackClick,
+                onSearchClick = { },
+                selectionCount = selectedUris.size,
+                onClearSelection = { viewModel.clearSelection() },
+                showHideOption = showHideLabel,
+                onActionClick = { action ->
+                    when (action) {
+                        "delete" -> showDeleteDialog = true
+                        "rename" -> showRenameDialog = true
+                        "copy" -> showCopyDialog = true
+                        "move" -> showMoveDialog = true
+                        "hide_show" -> viewModel.toggleHiddenForSelected()
+                        else -> viewModel.clearSelection()
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground
-                )
+                }
             )
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            // Using AnimatedContent for smoother transition between states
-            AnimatedContent(
-                targetState = mediaItems.isEmpty(),
-                transitionSpec = {
-                    fadeIn(tween(200)) togetherWith fadeOut(tween(200))
-                },
-                label = "FolderDetailContent"
-            ) { isEmpty ->
-                if (isEmpty) {
-                    Box(modifier = Modifier.fillMaxSize()) // Or a placeholder
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(1.dp)
-                    ) {
-                        itemsIndexed(mediaItems, key = { _, item -> item.uri }) { index, item ->
-                            MediaThumbnail(
-                                item = item,
-                                onPress = { onMediaClick(mediaItems, index) },
-                                onLongPress = { /* Select */ },
-                                modifier = Modifier.animateItemPlacement()
-                            )
-                        }
-                    }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(1.dp)
+            ) {
+                itemsIndexed(mediaItems, key = { _, item -> item.uri }) { index, item ->
+                    MediaThumbnail(
+                        item = item,
+                        isSelected = item.uri in selectedUris,
+                        onPress = {
+                            if (isSelectionMode) {
+                                viewModel.toggleSelection(item.uri)
+                            } else {
+                                onMediaClick(mediaItems, index)
+                            }
+                        },
+                        onLongPress = {
+                            viewModel.toggleSelection(item.uri)
+                        },
+                        modifier = Modifier.animateItemPlacement()
+                    )
                 }
             }
         }
+    }
+
+    if (showDeleteDialog) {
+        DeleteConfirmationDialog(
+            count = selectedUris.size,
+            isFolder = false,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                viewModel.deleteSelectedItems()
+                showDeleteDialog = false
+            }
+        )
+    }
+
+    if (showRenameDialog) {
+        val item = mediaItems.find { it.uri in selectedUris }
+        item?.let {
+            RenameDialog(
+                initialName = it.filename.substringBeforeLast("."),
+                onDismiss = { showRenameDialog = false },
+                onConfirm = { newName ->
+                    viewModel.renameSelectedItem(newName)
+                    showRenameDialog = false
+                }
+            )
+        }
+    }
+
+    if (showCopyDialog) {
+        FolderSelectorDialog(
+            title = "Copy to",
+            albums = allAlbums,
+            onDismiss = { showCopyDialog = false },
+            onConfirm = { album ->
+                album.path?.let { viewModel.copySelectedItems(it) }
+                showCopyDialog = false
+            }
+        )
+    }
+
+    if (showMoveDialog) {
+        FolderSelectorDialog(
+            title = "Move to",
+            albums = allAlbums,
+            onDismiss = { showMoveDialog = false },
+            onConfirm = { album ->
+                album.path?.let { viewModel.moveSelectedItems(it) }
+                showMoveDialog = false
+            }
+        )
     }
 }
