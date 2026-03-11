@@ -49,6 +49,7 @@ private val CATEGORY_META: Map<String, CategoryMeta> = mapOf(
     "clothing"  to CategoryMeta(Icons.Default.Style,         Color(0xFFFF6B6B)),
     "pose"      to CategoryMeta(Icons.Default.FitnessCenter, Color(0xFF339AF0)),
     "place"     to CategoryMeta(Icons.Default.LocationOn,   Color(0xFF20C997)),
+    "animal"    to CategoryMeta(Icons.Default.Pets,         Color(0xFF94D82D)),
     "object"    to CategoryMeta(Icons.Default.Category,     Color(0xFFFF922B)),
     "mood"      to CategoryMeta(Icons.Default.Mood,         Color(0xFFF59F00)),
     "misc"      to CategoryMeta(Icons.AutoMirrored.Filled.Label, Color(0xFF868E96))
@@ -61,7 +62,7 @@ private fun categoryIcon(category: String): ImageVector =
     CATEGORY_META[category.lowercase()]?.icon ?: Icons.AutoMirrored.Filled.Label
 
 val TAG_CATEGORIES = listOf(
-    "All", "people", "character", "style", "clothing", "pose", "place", "object", "mood", "misc"
+    "All", "people", "character", "style", "clothing", "pose", "place", "animal", "object", "mood", "misc"
 )
 
 private fun categoryDisplayName(cat: String) = cat.replaceFirstChar { it.uppercase() }
@@ -71,7 +72,8 @@ private fun categoryDisplayName(cat: String) = cat.replaceFirstChar { it.upperca
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TagsScreen(
-    onTagClick: (Tag) -> Unit = {}
+    onTagClick: (Tag) -> Unit = {},
+    onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
@@ -97,7 +99,7 @@ fun TagsScreen(
             TagsHeader(
                 isSearchActive = uiState.isSearchActive,
                 onSearchToggle = { viewModel.toggleSearch() },
-                onManageClick  = { /* future: open manage/review sheet */ }
+                onManageClick  = onOpenDrawer
             )
         }
 
@@ -132,6 +134,7 @@ fun TagsScreen(
                         onToggleModeMenu  = { showFeaturedModeMenu = !showFeaturedModeMenu },
                         onDismissModeMenu = { showFeaturedModeMenu = false },
                         onModeSelect      = { viewModel.setFeaturedMode(it); showFeaturedModeMenu = false },
+                        onModeLabel       = uiState.featuredMode.label,
                         onToggleVisible   = { viewModel.toggleFeaturedVisible() }
                     )
                 }
@@ -338,6 +341,7 @@ private fun FeaturedSectionHeader(
     onToggleModeMenu:  () -> Unit,
     onDismissModeMenu: () -> Unit,
     onModeSelect:      (FeaturedMode) -> Unit,
+    onModeLabel:       String,
     onToggleVisible:   () -> Unit
 ) {
     Row(
@@ -353,7 +357,7 @@ private fun FeaturedSectionHeader(
                 contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
             ) {
                 Text(
-                    text  = mode.label.uppercase(),
+                    text  = onModeLabel.uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(
                         letterSpacing = 1.2.sp,
                         fontWeight    = FontWeight.SemiBold

@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -29,8 +30,7 @@ import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.repository.RelatedTag
-import com.example.boxpandora.ui.common.DeleteConfirmationDialog
-import com.example.boxpandora.ui.common.RenameDialog
+import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.*
 import java.text.SimpleDateFormat
@@ -60,11 +60,15 @@ fun TagGalleryScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
+    
+    // Management Dialog States
     var showRenameDialog by remember { mutableStateOf(false) }
-    var showMergeDialog by remember { mutableStateOf(false) }
+    var showMergeSheet by remember { mutableStateOf(false) }
     var showDeleteTagDialog by remember { mutableStateOf(false) }
     var showDeleteMediaDialog by remember { mutableStateOf(false) }
     var showBulkTagDialog by remember { mutableStateOf(false) }
+    var showCategorySheet by remember { mutableStateOf(false) }
+    var showAliasDialog by remember { mutableStateOf(false) }
 
     // Edge Case: Tag deleted - Navigate back automatically
     LaunchedEffect(uiState.tag, uiState.isLoading) {
@@ -79,29 +83,32 @@ fun TagGalleryScreen(
 
     Scaffold(
         topBar = {
-            if (uiState.isSelectionMode) {
-                SelectionToolbar(
-                    selectedCount = uiState.selectedUris.size,
-                    onClearSelection = { viewModel.clearSelection() },
-                    onRemoveTag = { viewModel.removeTagFromSelected() },
-                    onAddTag = { showBulkTagDialog = true },
-                    onFavorite = { viewModel.toggleFavoriteSelected() },
-                    onDelete = { showDeleteMediaDialog = true }
-                )
-            } else {
-                TagGalleryHeader(
-                    tagName = uiState.tag?.name ?: "Tag",
-                    isSearchActive = isSearchActive,
-                    onBackClick = onBackClick,
-                    onSearchToggle = { isSearchActive = !isSearchActive },
-                    onMenuAction = { action ->
-                        when (action) {
-                            "Rename tag" -> showRenameDialog = true
-                            "Merge tag" -> showMergeDialog = true
-                            "Delete tag" -> showDeleteTagDialog = true
+            Column {
+                if (uiState.isSelectionMode) {
+                    SelectionToolbar(
+                        selectedCount = uiState.selectedUris.size,
+                        onClearSelection = { viewModel.clearSelection() },
+                        onRemoveTag = { viewModel.removeTagFromSelected() },
+                        onAddTag = { showBulkTagDialog = true },
+                        onFavorite = { viewModel.toggleFavoriteSelected() },
+                        onDelete = { showDeleteMediaDialog = true }
+                    )
+                } else {
+                    TagGalleryHeader(
+                        tagName = uiState.tag?.name ?: "Tag",
+                        isSearchActive = isSearchActive,
+                        onBackClick = onBackClick,
+                        onSearchToggle = { isSearchActive = !isSearchActive },
+                        onMenuAction = { action ->
+                            when (action) {
+                                "Rename tag" -> showRenameDialog = true
+                                "Merge tag" -> showMergeSheet = true
+                                "Delete tag" -> showDeleteTagDialog = true
+                            }
                         }
-                    }
-                )
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.alpha(0.12f))
             }
         }
     ) { innerPadding ->
@@ -121,8 +128,6 @@ fun TagGalleryScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (uiState.media.isEmpty() && uiState.tag != null && uiState.searchQuery.isEmpty()) {
-                TagEmptyMediaState(onBrowseClick = onBackClick)
             } else if (uiState.tag != null) {
                 TagMediaGrid(
                     uiState = uiState,
@@ -141,22 +146,24 @@ fun TagGalleryScreen(
                     onActionClick = { action ->
                          when (action) {
                             "Rename tag" -> showRenameDialog = true
-                            "Merge tag" -> showMergeDialog = true
+                            "Merge tag" -> showMergeSheet = true
                             "Delete unused" -> showDeleteTagDialog = true
-                            "Change category" -> { /* Open category sheet */ }
-                            "Add alias" -> { /* Open alias dialog */ }
+                            "Change category" -> showCategorySheet = true
+                            "Add alias" -> showAliasDialog = true
                         }
                     },
-                    onFilterChange = { viewModel.updateFilters(it) }
+                    onFilterChange = { viewModel.updateFilters(it) },
+                    onBrowseClick = onBackClick
                 )
             }
         }
     }
 
-    // Dialogs
+    // Sheets & Dialogs
     if (showRenameDialog) {
         RenameDialog(
             initialName = uiState.tag?.name ?: "",
+            title = "Rename Tag",
             onDismiss = { showRenameDialog = false },
             onConfirm = { 
                 viewModel.renameTag(it)
@@ -165,10 +172,47 @@ fun TagGalleryScreen(
         )
     }
 
+    if (showMergeSheet) {
+        TagSelectorSheet(
+            title = "Select target tag for merge",
+            tags = uiState.allTags,
+            excludeTagId = tagId,
+            onDismiss = { showMergeSheet = false },
+            onConfirm = { target ->
+                viewModel.mergeTag(target.id)
+                showMergeSheet = false
+            }
+        )
+    }
+
+    if (showCategorySheet) {
+        CategorySelectorSheet(
+            currentCategory = uiState.tag?.category ?: "misc",
+            onDismiss = { showCategorySheet = false },
+            onConfirm = { category ->
+                viewModel.updateCategory(category)
+                showCategorySheet = false
+            }
+        )
+    }
+
+    if (showAliasDialog) {
+        RenameDialog(
+            initialName = "",
+            title = "Add Alias",
+            onDismiss = { showAliasDialog = false },
+            onConfirm = { alias ->
+                viewModel.addAlias(alias)
+                showAliasDialog = false
+            }
+        )
+    }
+
     if (showDeleteTagDialog) {
         DeleteConfirmationDialog(
             count = 1,
             isFolder = false,
+            title = "Delete Tag",
             onDismiss = { showDeleteTagDialog = false },
             onConfirm = {
                 viewModel.deleteTag()
@@ -346,7 +390,8 @@ fun TagMediaGrid(
     onTagClick: (Long) -> Unit,
     onEditDescription: (String) -> Unit,
     onActionClick: (String) -> Unit,
-    onFilterChange: (TagFilters) -> Unit
+    onFilterChange: (TagFilters) -> Unit,
+    onBrowseClick: () -> Unit
 ) {
     val columns = if (uiState.gridMode == GridMode.COMPACT) 4 else 3
     val tag = uiState.tag ?: return
@@ -355,22 +400,55 @@ fun TagMediaGrid(
         columns = GridCells.Fixed(columns),
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = 8.dp,
-            end = 8.dp,
-            top = 8.dp,
+            start = 12.dp,
+            end = 12.dp,
+            top = 12.dp,
             bottom = 80.dp
         ),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        // Header Sections
+        // Upper Header Section
         item(span = { GridItemSpan(columns) }) {
-            Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 TagHeroCard(tag = tag, media = uiState.media)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 TagStatisticsRow(tag = tag)
-                Spacer(Modifier.height(24.dp))
-                
+                Spacer(Modifier.height(16.dp))
+                TagControlsRow(
+                    currentSort = uiState.sortMode,
+                    gridMode = uiState.gridMode,
+                    filters = uiState.filters,
+                    onSortChange = onSortChange,
+                    onGridModeToggle = onGridModeToggle,
+                    onFilterChange = onFilterChange
+                )
+            }
+        }
+
+        // Empty State below controls if needed
+        if (uiState.media.isEmpty()) {
+            item(span = { GridItemSpan(columns) }) {
+                TagEmptyMediaState(onBrowseClick = onBrowseClick)
+            }
+        } else {
+            itemsIndexed(items = uiState.media, key = { _, item -> item.uri }) { index, item ->
+                MediaThumbnail(
+                    uri = item.uri,
+                    filePath = item.filePath,
+                    mediaType = item.mediaType,
+                    duration = item.duration,
+                    isFavorite = item.isFavorite,
+                    isSelected = item.uri in uiState.selectedUris,
+                    onPress = { onMediaClick(uiState.media, index) },
+                    onLongPress = { onMediaLongClick(item) }
+                )
+            }
+        }
+
+        // Footer Sections (Management)
+        item(span = { GridItemSpan(columns) }) {
+            Column(modifier = Modifier.padding(top = 24.dp)) {
                 RelatedTagsSection(
                     relatedTags = uiState.relatedTags,
                     onTagClick = onTagClick
@@ -387,30 +465,8 @@ fun TagMediaGrid(
                 
                 TagActionsPanel(onActionClick = onActionClick)
                 
-                Spacer(Modifier.height(24.dp))
-                
-                TagControlsRow(
-                    currentSort = uiState.sortMode,
-                    gridMode = uiState.gridMode,
-                    filters = uiState.filters,
-                    onSortChange = onSortChange,
-                    onGridModeToggle = onGridModeToggle,
-                    onFilterChange = onFilterChange
-                )
+                Spacer(Modifier.height(48.dp))
             }
-        }
-
-        itemsIndexed(items = uiState.media, key = { _, item -> item.uri }) { index, item ->
-            MediaThumbnail(
-                uri = item.uri,
-                filePath = item.filePath,
-                mediaType = item.mediaType,
-                duration = item.duration,
-                isFavorite = item.isFavorite,
-                isSelected = item.uri in uiState.selectedUris,
-                onPress = { onMediaClick(uiState.media, index) },
-                onLongPress = { onMediaLongClick(item) }
-            )
         }
     }
 }
@@ -423,7 +479,7 @@ fun RelatedTagsSection(
 ) {
     if (relatedTags.isEmpty()) return
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "RELATED TAGS",
             style = MaterialTheme.typography.labelLarge.copy(
@@ -439,28 +495,29 @@ fun RelatedTagsSection(
         ) {
             relatedTags.forEach { related ->
                 val tag = related.tag
-                val accentColor = categoryColor(tag.category)
                 
                 Surface(
                     onClick = { onTagClick(tag.id) },
-                    shape = RoundedCornerShape(12.dp),
-                    color = accentColor.copy(alpha = 0.1f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.2f))
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.Transparent,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .height(36.dp)
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = tag.name,
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                            color = accentColor
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             text = "(${related.cooccurrenceCount})",
                             style = MaterialTheme.typography.labelSmall,
-                            color = accentColor.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
                     }
                 }
@@ -474,55 +531,96 @@ fun TagDescriptionBlock(
     description: String?,
     onEdit: (String) -> Unit
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
     var isEditing by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf(description ?: "") }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-        Text(
-            text = "ABOUT THIS TAG",
-            style = MaterialTheme.typography.labelLarge.copy(
-                letterSpacing = 1.2.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-        Spacer(Modifier.height(12.dp))
-        
-        if (isEditing) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Add description...") },
-                trailingIcon = {
-                    IconButton(onClick = { 
-                        onEdit(text)
-                        isEditing = false
-                    }) {
-                        Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        shape = RoundedCornerShape(12.dp),
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { isExpanded = !isExpanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "ABOUT THIS TAG",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        letterSpacing = 1.2.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+
+            AnimatedVisibility(visible = isExpanded) {
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    if (isEditing) {
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Add description...") },
+                            trailingIcon = {
+                                IconButton(onClick = { 
+                                    onEdit(text)
+                                    isEditing = false
+                                }) {
+                                    Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        )
+                    } else {
+                        Text(
+                            text = if (description.isNullOrBlank()) "Add description" else description,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (description.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
+                        )
+                        
+                        TextButton(
+                            onClick = { 
+                                text = description ?: ""
+                                isEditing = true 
+                            },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text("Edit description", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
-            )
-        } else {
-            Text(
-                text = if (description.isNullOrBlank()) "Add description" else description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (description.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { 
-                        text = description ?: ""
-                        isEditing = true 
-                    }
-                    .padding(vertical = 4.dp)
-            )
+            }
+            
+            if (!isExpanded && description.isNullOrBlank()) {
+                Text(
+                    text = "Add description",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp).clickable { isExpanded = true; isEditing = true }
+                )
+            }
         }
     }
 }
 
 @Composable
 fun TagActionsPanel(onActionClick: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "TAG ACTIONS",
             style = MaterialTheme.typography.labelLarge.copy(
@@ -541,24 +639,30 @@ fun TagActionsPanel(onActionClick: (String) -> Unit) {
             Triple(Icons.Default.Delete, "Delete unused", MaterialTheme.colorScheme.error)
         )
 
-        actions.forEach { (icon, label, color) ->
-            ListItem(
-                headlineContent = { 
-                    Text(
-                        text = label, 
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = color ?: MaterialTheme.colorScheme.onSurface
-                    ) 
-                },
-                leadingContent = { 
-                    Icon(
-                        imageVector = icon, 
-                        contentDescription = null,
-                        tint = color ?: MaterialTheme.colorScheme.onSurfaceVariant
-                    ) 
-                },
-                modifier = Modifier.clickable { onActionClick(label) }
-            )
+        actions.forEachIndexed { index, (icon, label, color) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clickable { onActionClick(label) },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon, 
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = color ?: MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    text = label, 
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = color ?: MaterialTheme.colorScheme.onSurface
+                )
+            }
+            if (index < actions.size - 1) {
+                HorizontalDivider(modifier = Modifier.alpha(0.05f), thickness = 0.5.dp)
+            }
         }
     }
 }
@@ -574,7 +678,7 @@ fun TagControlsRow(
     modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -582,9 +686,21 @@ fun TagControlsRow(
             // Sort
             var showSortMenu by remember { mutableStateOf(false) }
             Box {
-                TextButton(onClick = { showSortMenu = true }) {
-                    Text("Sort: ${currentSort.label}")
-                    Icon(Icons.Default.ArrowDropDown, null)
+                Surface(
+                    onClick = { showSortMenu = true },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Sort: ${currentSort.label}",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(20.dp))
+                    }
                 }
                 DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     TagGallerySort.entries.forEach { sort ->
@@ -599,14 +715,26 @@ fun TagControlsRow(
                 }
             }
             
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(16.dp))
             
             // Filter
             var showFilterMenu by remember { mutableStateOf(false) }
             Box {
-                TextButton(onClick = { showFilterMenu = true }) {
-                    Text("Filter")
-                    Icon(Icons.Default.FilterList, null)
+                Surface(
+                    onClick = { showFilterMenu = true },
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Filter",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Icon(Icons.Default.FilterList, null, modifier = Modifier.size(20.dp))
+                    }
                 }
                 DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }) {
                     DropdownMenuItem(
@@ -637,41 +765,33 @@ fun TagControlsRow(
         IconButton(onClick = onGridModeToggle) {
             Icon(
                 imageVector = if (gridMode == GridMode.COMPACT) Icons.Default.GridView else Icons.Default.GridOn,
-                contentDescription = "Toggle Grid"
+                contentDescription = "Toggle Grid",
+                modifier = Modifier.size(20.dp)
             )
         }
     }
 }
 
-// Reuse HeroCard, StatisticsRow, etc. from Phase 1 or with minor updates
 @Composable
 fun TagHeroCard(
     tag: Tag,
     media: List<MediaItem>,
     modifier: Modifier = Modifier
 ) {
-    val collageItems = remember(media) {
-        if (media.isEmpty()) emptyList()
-        else {
-            val mostRecent = media.first()
-            val random = if (media.size > 1) media.drop(1).random() else null
-            val third = if (media.size > 2) media.drop(2).random() else null
-            listOfNotNull(mostRecent, random, third).distinct().take(3)
-        }
-    }
+    val coverImage = media.firstOrNull()
 
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(200.dp),
+            .height(150.dp),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
     ) {
         Row(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(20.dp),
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
@@ -686,15 +806,15 @@ fun TagHeroCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 Surface(
-                    color = categoryColor(tag.category).copy(alpha = 0.2f),
+                    color = categoryColor(tag.category).copy(alpha = 0.15f),
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
                         text = tag.category.replaceFirstChar { it.uppercase() },
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                         color = categoryColor(tag.category)
                     )
                 }
@@ -702,64 +822,34 @@ fun TagHeroCard(
 
             Box(
                 modifier = Modifier
-                    .weight(1.2f)
+                    .weight(0.8f)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp))
             ) {
-                if (collageItems.isEmpty()) {
+                if (coverImage == null) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(categoryColor(tag.category).copy(alpha = 0.1f)),
+                            .background(categoryColor(tag.category).copy(alpha = 0.05f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = categoryIcon(tag.category),
                             contentDescription = null,
-                            modifier = Modifier.size(64.dp),
+                            modifier = Modifier.size(48.dp),
                             tint = categoryColor(tag.category).copy(alpha = 0.2f)
                         )
                     }
                 } else {
-                    CollageLayout(items = collageItems)
+                    AsyncImage(
+                        model = coverImage.thumbUri ?: coverImage.uri,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-fun CollageLayout(items: List<MediaItem>) {
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.weight(1f)) {
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                CollageImage(items.getOrNull(0))
-            }
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                CollageImage(items.getOrNull(1))
-            }
-        }
-        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-            CollageImage(items.getOrNull(2))
-        }
-    }
-}
-
-@Composable
-fun CollageImage(item: MediaItem?) {
-    if (item != null) {
-        AsyncImage(
-            model = item.thumbUri ?: item.uri,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-        )
     }
 }
 
@@ -779,8 +869,9 @@ fun TagStatisticsRow(tag: Tag, modifier: Modifier = Modifier) {
     Text(
         text = statsText,
         style = MaterialTheme.typography.labelSmall.copy(
-            letterSpacing = 1.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 12.sp,
+            letterSpacing = 0.5.sp,
+            fontWeight = FontWeight.Medium
         ),
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         modifier = modifier.fillMaxWidth(),
@@ -794,35 +885,34 @@ fun TagEmptyMediaState(
     onBrowseClick: () -> Unit
 ) {
     Column(
-        modifier = modifier.fillMaxSize().padding(32.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 64.dp, horizontal = 32.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(
             imageVector = Icons.Default.PhotoLibrary,
             contentDescription = null,
-            modifier = Modifier.size(80.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             text = "No media with this tag",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
             textAlign = TextAlign.Center
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Images will appear here when tagged",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(24.dp))
         Button(
             onClick = onBrowseClick,
             shape = RoundedCornerShape(12.dp),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.primary
+            )
         ) {
             Text("Browse media")
         }
@@ -839,6 +929,7 @@ private fun categoryColor(category: String): Color {
         "clothing"  -> Color(0xFFFF6B6B)
         "pose"      -> Color(0xFF339AF0)
         "place"     -> Color(0xFF20C997)
+        "animal"    -> Color(0xFF94D82D)
         "object"    -> Color(0xFFFF922B)
         "mood"      -> Color(0xFFF59F00)
         else        -> Color(0xFF868E96)
@@ -852,6 +943,7 @@ private fun categoryIcon(category: String) = when (category.lowercase()) {
     "clothing"  -> Icons.Default.Style
     "pose"      -> Icons.Default.FitnessCenter
     "place"     -> Icons.Default.LocationOn
+    "animal"    -> Icons.Default.Pets
     "object"    -> Icons.Default.Category
     "mood"      -> Icons.Default.Mood
     else        -> Icons.AutoMirrored.Filled.Label

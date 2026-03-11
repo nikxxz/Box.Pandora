@@ -34,6 +34,7 @@ data class TagGalleryUiState(
     val tag: Tag? = null,
     val media: List<MediaItem> = emptyList(),
     val relatedTags: List<RelatedTag> = emptyList(),
+    val allTags: List<Tag> = emptyList(),
     val sortMode: TagGallerySort = TagGallerySort.RECENTLY_ADDED,
     val gridMode: GridMode = GridMode.LARGE,
     val filters: TagFilters = TagFilters(),
@@ -66,20 +67,24 @@ class TagGalleryViewModel(
     private val _relatedTags = tagRepository.getRelatedTagsFlow(tagId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private val _allTags = tagRepository.getAllTagsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val uiState: StateFlow<TagGalleryUiState> = combine(
         combine(_tag, _mediaItems, _relatedTags) { t, m, r -> Triple(t, m, r) },
         combine(_sortMode, _gridMode, _searchQuery) { s, g, q -> Triple(s, g, q) },
-        combine(_filters, _selectedUris) { f, sel -> Pair(f, sel) }
-    ) { tmr, sgq, fsel ->
+        combine(_filters, _selectedUris, _allTags) { f, sel, all -> Triple(f, sel, all) }
+    ) { tmr, sgq, fsa ->
         val (tag, media, related) = tmr
         val (sort, grid, query) = sgq
-        val (filters, selected) = fsel
+        val (filters, selected, all) = fsa
 
         val filteredMedia = applyFiltersAndSearch(media, query, filters)
         TagGalleryUiState(
             tag = tag,
             media = sortMedia(filteredMedia, sort),
             relatedTags = related,
+            allTags = all,
             sortMode = sort,
             gridMode = grid,
             filters = filters,

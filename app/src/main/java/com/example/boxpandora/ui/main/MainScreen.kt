@@ -199,7 +199,8 @@ fun NavigationGraph(
             TagsScreen(
                 onTagClick = { tag ->
                     navController.navigate("tag_gallery/${tag.id}")
-                }
+                },
+                onOpenDrawer = onOpenDrawer
             )
         }
 
