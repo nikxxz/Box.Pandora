@@ -12,29 +12,43 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOff
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.FolderCard
-import com.example.boxpandora.ui.main.viewmodel.FoldersViewModel
-import com.example.boxpandora.ui.main.viewmodel.FoldersViewModelFactory
+import com.example.boxpandora.ui.components.grid.MediaThumbnail
+import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.theme.PandoraDimensions
+import kotlinx.coroutines.launch
 
 private fun hasStorageAccess(): Boolean {
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -44,7 +58,7 @@ private fun hasStorageAccess(): Boolean {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun FoldersScreen(
     showHidden: Boolean,
@@ -58,18 +72,31 @@ fun FoldersScreen(
         factory = FoldersViewModelFactory(app.repository)
     )
     val albums by viewModel.albums.collectAsState()
+    val totalCount by viewModel.totalMediaCount.collectAsState()
     val selectedIds by viewModel.selectedAlbumIds.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val currentTab by viewModel.currentTab.collectAsState()
 
     val isSearchOpen by viewModel.isSearchOpen.collectAsState()
     val searchParams by viewModel.searchParams.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
+
+    val allMediaItems = viewModel.allMedia.collectAsLazyPagingItems()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
+
+    val pullToRefreshState = rememberPullToRefreshState()
+    if (pullToRefreshState.isRefreshing) {
+        LaunchedEffect(true) {
+            viewModel.refresh()
+            pullToRefreshState.endRefresh()
+        }
+    }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
@@ -125,18 +152,41 @@ fun FoldersScreen(
         return
     }
 
+    // Pager state for swipe navigation
+    val pagerState = rememberPagerState(
+        initialPage = currentTab.ordinal,
+        pageCount = { HomeTab.entries.size }
+    )
+    val coroutineScope = rememberCoroutineScope()
+
+    // Sync Pager with ViewModel
+    LaunchedEffect(pagerState.currentPage) {
+        viewModel.setTab(HomeTab.entries[pagerState.currentPage])
+    }
+
+    LaunchedEffect(currentTab) {
+        if (currentTab.ordinal != pagerState.currentPage) {
+            pagerState.animateScrollToPage(currentTab.ordinal)
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         val showHideLabel = remember(selectedIds, albums) {
             val selectedAlbums = albums.filter { it.id in selectedIds }
             if (selectedAlbums.isNotEmpty() && selectedAlbums.all { it.isHidden }) "Show" else "Hide"
         }
 
+        val subtitle = "Library • %,d items".format(totalCount)
+
         AppHeader(
+            title = "pandora",
+            subtitle = if (isSelectionMode) null else subtitle,
             onMenuClick = onOpenDrawer,
             onSearchClick = { viewModel.openSearch() },
             selectionCount = selectedIds.size,
             onClearSelection = { viewModel.clearSelection() },
             showHideOption = showHideLabel,
+            isPinned = albums.find { it.id in selectedIds }?.isPinned == true,
             allowOpenWith = false,
             onActionClick = { action ->
                 when (action) {
@@ -145,6 +195,7 @@ fun FoldersScreen(
                     "copy" -> showCopyDialog = true
                     "move" -> showMoveDialog = true
                     "hide_show" -> viewModel.toggleHiddenForSelected()
+                    "pin" -> viewModel.togglePinSelectedAlbums()
                     else -> viewModel.clearSelection()
                 }
             }
@@ -162,7 +213,52 @@ fun FoldersScreen(
             )
         }
 
-        Box(modifier = Modifier.weight(1f)) {
+        if (!isSearchOpen && !isSelectionMode) {
+            ScrollableTabRow(
+                selectedTabIndex = pagerState.currentPage,
+                containerColor = Color.Transparent,
+                edgePadding = 16.dp,
+                divider = {},
+                indicator = { tabPositions ->
+                    Box(
+                        Modifier
+                            .tabIndicatorOffset(tabPositions[pagerState.currentPage])
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .height(2.5.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                },
+                modifier = Modifier.height(42.dp)
+            ) {
+                HomeTab.entries.forEach { tab ->
+                    Tab(
+                        selected = pagerState.currentPage == tab.ordinal,
+                        onClick = { 
+                            coroutineScope.launch { pagerState.animateScrollToPage(tab.ordinal) }
+                        },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        text = {
+                            Text(
+                                text = if (tab == HomeTab.FOLDERS) "Folders" else "All Media",
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = if (pagerState.currentPage == tab.ordinal) FontWeight.Bold else FontWeight.Normal,
+                                    letterSpacing = 0.5.sp,
+                                    fontSize = 14.sp
+                                )
+                            )
+                        }
+                    )
+                }
+            }
+        }
+
+        Box(modifier = Modifier
+            .weight(1f)
+            .nestedScroll(pullToRefreshState.nestedScrollConnection)
+        ) {
             if (isSearchOpen) {
                 SearchResultsGrid(
                     results = searchResults,
@@ -170,51 +266,128 @@ fun FoldersScreen(
                     onPress = { item ->
                         onMediaClick(searchResults, searchResults.indexOf(item))
                     },
-                    onLongPress = { /* Search selection? Not yet implemented in VM */ }
+                    onLongPress = { }
                 )
             } else {
-                AnimatedContent(
-                    targetState = albums.isEmpty(),
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
-                                fadeOut(animationSpec = tween(90))
-                    },
-                    label = "FoldersContentTransition"
-                ) { isLoading ->
-                    if (isLoading) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        }
-                    } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(2),
-                            contentPadding = PaddingValues(
-                                horizontal = PandoraDimensions.gridPadding,
-                                vertical = 8.dp
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(albums, key = { it.id }) { album ->
-                                FolderCard(
-                                    album = album,
-                                    isSelected = album.id in selectedIds,
-                                    onPress = {
-                                        if (isSelectionMode) {
-                                            viewModel.toggleSelection(album.id)
-                                        } else {
-                                            onFolderClick(album)
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    beyondBoundsPageCount = 1
+                ) { pageIndex ->
+                    when (HomeTab.entries[pageIndex]) {
+                        HomeTab.FOLDERS -> {
+                            AnimatedContent(
+                                targetState = albums.isEmpty() && !isRefreshing,
+                                transitionSpec = {
+                                    fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
+                                            fadeOut(animationSpec = tween(90))
+                                },
+                                label = "FoldersContentTransition"
+                            ) { isEmpty ->
+                                if (isEmpty) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("No folders found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                } else {
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(2),
+                                        contentPadding = PaddingValues(
+                                            horizontal = PandoraDimensions.gridPadding,
+                                            vertical = 16.dp
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
+                                        verticalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        items(albums, key = { it.id }) { album ->
+                                            FolderCard(
+                                                album = album,
+                                                isSelected = album.id in selectedIds,
+                                                onPress = {
+                                                    if (isSelectionMode) {
+                                                        viewModel.toggleSelection(album.id)
+                                                    } else {
+                                                        onFolderClick(album)
+                                                    }
+                                                },
+                                                onLongPress = {
+                                                    viewModel.toggleSelection(album.id)
+                                                },
+                                                modifier = Modifier.animateItemPlacement()
+                                            )
                                         }
-                                    },
-                                    onLongPress = {
-                                        viewModel.toggleSelection(album.id)
-                                    },
-                                    modifier = Modifier.animateItemPlacement()
-                                )
+                                    }
+                                }
+                            }
+                        }
+                        HomeTab.ALL_MEDIA -> {
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(4),
+                                contentPadding = PaddingValues(bottom = 16.dp, top = 8.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                items(
+                                    count = allMediaItems.itemCount,
+                                    span = { index ->
+                                        val item = allMediaItems[index]
+                                        if (item is AllMediaUiItem.Header) GridItemSpan(4) else GridItemSpan(1)
+                                    }
+                                ) { index ->
+                                    val item = allMediaItems[index]
+                                    when (item) {
+                                        is AllMediaUiItem.Header -> {
+                                            Text(
+                                                text = item.title,
+                                                style = MaterialTheme.typography.titleMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                            )
+                                        }
+                                        is AllMediaUiItem.Media -> {
+                                            MediaThumbnail(
+                                                uri = item.item.uri,
+                                                filePath = item.item.filePath,
+                                                mediaType = item.item.mediaType,
+                                                duration = item.item.duration,
+                                                isFavorite = item.item.isFavorite,
+                                                isSelected = false,
+                                                onPress = {
+                                                    val mediaList = mutableListOf<MediaItem>()
+                                                    for (j in 0 until allMediaItems.itemCount) {
+                                                        (allMediaItems[j] as? AllMediaUiItem.Media)?.item?.let { mediaList.add(it) }
+                                                    }
+                                                    onMediaClick(mediaList, mediaList.indexOf(item.item))
+                                                },
+                                                onLongPress = { }
+                                            )
+                                        }
+                                        null -> {
+                                            Box(
+                                                Modifier
+                                                    .aspectRatio(1f)
+                                                    .padding(1.dp)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            if (pullToRefreshState.verticalOffset > 0 || pullToRefreshState.isRefreshing) {
+                PullToRefreshContainer(
+                    state = pullToRefreshState,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -258,6 +431,7 @@ fun FoldersScreen(
     }
 
     if (showMoveDialog) {
+        val selectedAlbums = albums.filter { it.id in selectedIds }
         FolderSelectorDialog(
             title = "Move to",
             albums = albums.filter { it.id !in selectedIds },

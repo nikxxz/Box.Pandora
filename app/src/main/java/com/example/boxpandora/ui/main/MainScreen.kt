@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,11 +54,12 @@ fun MainScreen() {
         factory = MaintenanceViewModelFactory(app.repository)
     )
 
-    val themeMode    by themeViewModel.themeMode.collectAsState()
-    val showHidden   by themeViewModel.showHidden.collectAsState()
-    val gridSize     by themeViewModel.gridSize.collectAsState()
-    val showMetadata by themeViewModel.showMetadata.collectAsState()
-    val sortOrder    by themeViewModel.sortOrder.collectAsState()
+    val themeMode     by themeViewModel.themeMode.collectAsState()
+    val showHidden    by themeViewModel.showHidden.collectAsState()
+    val gridSize      by themeViewModel.gridSize.collectAsState()
+    val showMetadata  by themeViewModel.showMetadata.collectAsState()
+    val sortOrder     by themeViewModel.sortOrder.collectAsState()
+    val showGradient  by themeViewModel.showGradient.collectAsState()
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -76,10 +76,11 @@ fun MainScreen() {
         BackHandler { isDrawerOpen = false }
     }
 
-    BoxPandoraTheme(themeMode = themeMode) {
+    BoxPandoraTheme(themeMode = themeMode, showGradient = showGradient) {
         Box(modifier = Modifier.fillMaxSize()) {
 
             Scaffold(
+                containerColor = Color.Transparent,
                 bottomBar = {
                     AnimatedVisibility(
                         visible = bottomNavItems.any { it.route == currentRoute },
@@ -87,7 +88,7 @@ fun MainScreen() {
                         exit  = slideOutVertically(animationSpec = tween(200)) { it / 3 } + fadeOut(animationSpec = tween(200))
                     ) {
                         NavigationBar(
-                            containerColor = MaterialTheme.colorScheme.background,
+                            containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
                             tonalElevation = 0.dp,
                             modifier = Modifier.height(80.dp)
                         ) {
@@ -121,7 +122,7 @@ fun MainScreen() {
                                         )
                                     },
                                     colors = NavigationBarItemDefaults.colors(
-                                        indicatorColor = MaterialTheme.colorScheme.background
+                                        indicatorColor = Color.Transparent
                                     )
                                 )
                             }
@@ -174,11 +175,13 @@ fun MainScreen() {
                     gridSize       = gridSize,
                     showMetadata   = showMetadata,
                     sortOrder      = sortOrder,
+                    showGradient   = showGradient,
                     onThemeSet     = { themeViewModel.setThemeMode(it) },
                     onToggleHide   = { themeViewModel.setShowHidden(!showHidden) },
                     onGridSizeSet  = { themeViewModel.setGridSize(it) },
                     onToggleMeta   = { themeViewModel.setShowMetadata(!showMetadata) },
                     onSortOrderSet = { themeViewModel.setSortOrder(it) },
+                    onToggleGradient = { themeViewModel.setShowGradient(!showGradient) },
                     onOpenFullSettings = {
                         isDrawerOpen = false
                         navController.navigate(Screen.Settings.route)
@@ -205,11 +208,13 @@ fun SettingsDrawer(
     gridSize: Int,
     showMetadata: Boolean,
     sortOrder: SortOrder,
+    showGradient: Boolean,
     onThemeSet: (ThemeMode) -> Unit,
     onToggleHide: () -> Unit,
     onGridSizeSet: (Int) -> Unit,
     onToggleMeta: () -> Unit,
     onSortOrderSet: (SortOrder) -> Unit,
+    onToggleGradient: () -> Unit,
     onOpenFullSettings: () -> Unit
 ) {
     Surface(
@@ -261,6 +266,14 @@ fun SettingsDrawer(
 
             Spacer(Modifier.height(16.dp))
 
+            CompactToggleRow(
+                title = "Subtle background gradient",
+                checked = showGradient,
+                onCheckedChange = { onToggleGradient() }
+            )
+
+            Spacer(Modifier.height(8.dp))
+
             SegmentedSelector(
                 label = "Grid Size",
                 options = listOf(2, 3, 4, 5),
@@ -287,16 +300,16 @@ fun SettingsDrawer(
             Spacer(Modifier.height(12.dp))
 
             Text(
-                text = "Sort by",
+                text = "Sort Folders/Files by",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             
             val sortOptions = listOf(
-                SortOrder.DATE_DESC to "Date (New)",
-                SortOrder.DATE_ASC to "Date (Old)",
+                SortOrder.DATE_DESC to "Activity",
                 SortOrder.NAME_ASC to "Name",
+                SortOrder.COUNT_DESC to "Items",
                 SortOrder.SIZE_DESC to "Size"
             )
 

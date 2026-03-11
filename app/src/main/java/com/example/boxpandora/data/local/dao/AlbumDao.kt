@@ -32,7 +32,9 @@ interface AlbumDao {
         val updateList = mutableListOf<Album>()
         for (i in insertResults.indices) {
             if (insertResults[i] == -1L) {
-                updateList.add(albums[i])
+                // Before updating, preserve pinned status
+                val existing = getById(albums[i].id)
+                updateList.add(if (existing != null) albums[i].copy(isPinned = existing.isPinned) else albums[i])
             }
         }
         if (updateList.isNotEmpty()) {
@@ -49,11 +51,12 @@ interface AlbumDao {
     @Query("UPDATE albums SET hidden = :hidden WHERE name = :name")
     suspend fun setHidden(name: String, hidden: Boolean)
 
+    @Query("UPDATE albums SET pinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean)
+
     @Query("DELETE FROM albums")
     suspend fun clearAll()
 
-    // Delete albums whose id is not in the current set. Guard against empty list
-    // at the call site — Room's NOT IN () with an empty list is invalid SQL.
     @Query("DELETE FROM albums WHERE id NOT IN (:ids)")
     suspend fun deleteStaleAlbums(ids: List<Long>)
 }

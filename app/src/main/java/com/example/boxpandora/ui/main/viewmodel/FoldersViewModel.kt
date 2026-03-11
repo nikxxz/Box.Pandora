@@ -3,13 +3,27 @@ package com.example.boxpandora.ui.main.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.insertSeparators
+import androidx.paging.map
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
+import com.example.boxpandora.data.util.Formatters
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+enum class HomeTab {
+    FOLDERS, ALL_MEDIA
+}
+
+sealed class AllMediaUiItem {
+    data class Media(val item: MediaItem) : AllMediaUiItem()
+    data class Header(val title: String) : AllMediaUiItem()
+}
 
 @OptIn(FlowPreview::class)
 class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
@@ -17,7 +31,12 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
     private val _showHidden = MutableStateFlow(false)
     val showHidden: StateFlow<Boolean> = _showHidden
 
-    // ── Search ────────────────────────────────────────────────────────────────
+    private val _sortOrder = MutableStateFlow(SortOrder.DATE_DESC)
+    val sortOrder: StateFlow<SortOrder> = _sortOrder
+
+    private val _currentTab = MutableStateFlow(HomeTab.FOLDERS)
+    val currentTab: StateFlow<HomeTab> = _currentTab
+
     private val _searchParams = MutableStateFlow(MediaRepository.MediaSearchParams())
     val searchParams: StateFlow<MediaRepository.MediaSearchParams> = _searchParams
 
@@ -29,6 +48,9 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
 
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching
+
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
 
     init {
         viewModelScope.launch {
@@ -68,18 +90,68 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val albums: StateFlow<List<Album>> = _showHidden
-        .flatMapLatest { show ->
-            repository.getAlbumsFlow(show)
+    val albums: StateFlow<List<Album>> = combine(_showHidden, _sortOrder) { show, order ->
+        show to order
+    }.flatMapLatest { (show, order) ->
+        repository.getAlbumsFlow(show).map { list ->
+            val sorted = when (order) {
+                SortOrder.DATE_DESC -> list.sortedByDescending { it.lastModifiedAt }
+                SortOrder.DATE_ASC -> list.sortedBy { it.lastModifiedAt }
+                SortOrder.NAME_ASC -> list.sortedBy { it.name }
+                SortOrder.COUNT_DESC -> list.sortedByDescending { it.mediaCount }
+                SortOrder.SIZE_DESC -> list.sortedByDescending { it.mediaCount } // Placeholder for actual size
+                else -> list.sortedByDescending { it.lastModifiedAt }
+            }
+            sorted.sortedByDescending { it.isPinned }
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allMedia: Flow<PagingData<AllMediaUiItem>> = _showHidden.flatMapLatest { show ->
+        repository.getAllMediaPaged(show).map { pagingData ->
+            pagingData.map { AllMediaUiItem.Media(it) as AllMediaUiItem }
+                .insertSeparators { before, after ->
+                    if (after == null) return@insertSeparators null
+                    val afterMedia = (after as? AllMediaUiItem.Media)?.item ?: return@insertSeparators null
+                    val afterDate = afterMedia.deviceCreatedAt ?: 0L
+                    
+                    if (before == null) {
+                        return@insertSeparators AllMediaUiItem.Header(Formatters.formatHeaderDate(afterDate))
+                    }
+                    
+                    val beforeMedia = (before as? AllMediaUiItem.Media)?.item ?: return@insertSeparators null
+                    val beforeDate = beforeMedia.deviceCreatedAt ?: 0L
+                    
+                    val beforeTitle = Formatters.formatHeaderDate(beforeDate)
+                    val afterTitle = Formatters.formatHeaderDate(afterDate)
+                    
+                    if (beforeTitle != afterTitle) {
+                        AllMediaUiItem.Header(afterTitle)
+                    } else {
+                        null
+                    }
+                }
+        }
+    }.cachedIn(viewModelScope)
+
+    val totalMediaCount: StateFlow<Int> = albums.map { list ->
+        list.sumOf { it.mediaCount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     fun setShowHidden(show: Boolean) {
         _showHidden.value = show
+    }
+
+    fun setSortOrder(order: SortOrder) {
+        _sortOrder.value = order
+    }
+
+    fun setTab(tab: HomeTab) {
+        _currentTab.value = tab
     }
 
     fun toggleSelection(albumId: Long) {
@@ -97,7 +169,9 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
+            _isRefreshing.value = true
             repository.syncMediaStore()
+            _isRefreshing.value = false
         }
     }
 
@@ -114,6 +188,17 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
         val id = _selectedAlbumIds.value.firstOrNull() ?: return
         viewModelScope.launch {
             repository.renameAlbum(id, newName)
+            clearSelection()
+        }
+    }
+
+    fun togglePinSelectedAlbums() {
+        val ids = _selectedAlbumIds.value
+        if (ids.isEmpty()) return
+        val currentAlbums = albums.value.filter { it.id in ids }
+        val anyUnpinned = currentAlbums.any { !it.isPinned }
+        viewModelScope.launch {
+            repository.setAlbumsPinned(ids.toList(), anyUnpinned)
             clearSelection()
         }
     }

@@ -27,12 +27,8 @@ object Formatters {
     data class DateParts(val month: String, val day: String, val year: String)
 
     fun formatShortDateParts(timestamp: Long?): DateParts {
-        // Treat null, 0, or dates near 1970 as invalid/dummy
         if (timestamp == null || timestamp <= 0L) return DateParts("", "--", "")
-        
         val millis = if (timestamp < 10_000_000_000L) timestamp * 1000 else timestamp
-        
-        // Additional guard: If the date is before year 2000, it's likely a system dummy
         if (millis < 946684800000L) return DateParts("", "--", "")
         
         val date = Date(millis)
@@ -44,5 +40,37 @@ object Formatters {
             dayFormat.format(date),
             yearFormat.format(date)
         )
+    }
+
+    fun formatHeaderDate(timestamp: Long?): String {
+        if (timestamp == null || timestamp <= 0L) return "Unknown"
+        val millis = if (timestamp < 10_000_000_000L) timestamp * 1000 else timestamp
+        
+        val now = Calendar.getInstance()
+        val date = Calendar.getInstance().apply { timeInMillis = millis }
+        
+        return when {
+            isSameDay(now, date) -> "Today"
+            isYesterday(now, date) -> "Yesterday"
+            now.get(Calendar.YEAR) == date.get(Calendar.YEAR) -> {
+                SimpleDateFormat("MMMM d", Locale.US).format(date.time)
+            }
+            else -> {
+                SimpleDateFormat("MMMM d, yyyy", Locale.US).format(date.time)
+            }
+        }
+    }
+
+    private fun isSameDay(c1: Calendar, c2: Calendar): Boolean {
+        return c1.get(Calendar.YEAR) == c2.get(Calendar.YEAR) &&
+               c1.get(Calendar.DAY_OF_YEAR) == c2.get(Calendar.DAY_OF_YEAR)
+    }
+
+    private fun isYesterday(now: Calendar, date: Calendar): Boolean {
+        val yesterday = Calendar.getInstance().apply { 
+            timeInMillis = now.timeInMillis
+            add(Calendar.DAY_OF_YEAR, -1)
+        }
+        return isSameDay(yesterday, date)
     }
 }

@@ -20,11 +20,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -34,14 +36,6 @@ import coil.size.Size
 import com.example.boxpandora.data.util.Formatters
 import java.io.File
 
-/**
- * Grid thumbnail cell.
- *
- * Accepts individual stable primitive fields instead of a full MediaItem object.
- * This makes the composable SKIPPABLE by the Compose compiler: if none of the
- * declared parameters change between recompositions, Compose skips the body
- * entirely — no request rebuild, no Coil lookup, no placeholder flash.
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaThumbnail(
@@ -53,29 +47,22 @@ fun MediaThumbnail(
     isSelected: Boolean,
     onPress: () -> Unit,
     onLongPress: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    blurRadius: Dp = 0.dp // New parameter for optional blurring
 ) {
     val context = LocalContext.current
-
-    // The cache key is the stable identity used by both Coil memory and disk caches.
     val cacheKey = remember(filePath, uri) { filePath?.takeIf { it.isNotEmpty() } ?: uri }
-
-    // imageModel is the data Coil actually loads from. File is preferred over URI.
     val imageModel = remember(cacheKey) {
         filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: uri
     }
 
-    // The request is memoised by cacheKey alone to prevent spurious re-decodes.
     val request = remember(cacheKey) {
         ImageRequest.Builder(context)
             .data(imageModel)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
-            // Fixed decode size prevents pileup during fast scroll.
             .size(Size(600, 600))
-            // VideoFrameDecoder is only needed for video items.
             .apply { if (mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
-            // No crossfade: prevents visible flashes during cell remapping.
             .crossfade(false)
             .build()
     }
@@ -106,7 +93,6 @@ fun MediaThumbnail(
                 onLongClick = onLongPress
             )
     ) {
-        // Placeholder color as a permanent background layer to prevent "reverting" flashes.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -119,10 +105,18 @@ fun MediaThumbnail(
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
                 .graphicsLayer {
                     clip = true
                     shape = RoundedCornerShape(if (isSelected) 12.dp else 0.dp)
                 }
+        )
+
+        // Overlay for better contrast
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = if (blurRadius > 0.dp) 0.25f else 0f))
         )
 
         if (isSelected) {

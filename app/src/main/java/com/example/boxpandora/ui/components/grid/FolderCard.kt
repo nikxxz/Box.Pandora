@@ -4,7 +4,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,7 +29,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -62,17 +68,19 @@ fun FolderCard(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    
     val scale by animateFloatAsState(
-        targetValue = if (isPressed || isSelected) 0.96f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessHigh
-        ),
+        targetValue = if (isPressed || isSelected) 0.97f else 1f,
+        animationSpec = if (isPressed) {
+            tween(durationMillis = 120)
+        } else {
+            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+        },
         label = "cardScale"
     )
 
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
         label = "borderColor"
     )
 
@@ -110,16 +118,16 @@ fun FolderCard(
                 .fillMaxSize()
                 .combinedClickable(
                     interactionSource = interactionSource,
-                    indication = null,
+                    indication = LocalIndication.current,
                     onClick = onPress,
                     onLongClick = onLongPress
                 )
                 .border(
-                    width = if (isSelected) 6.dp else 5.dp,
+                    width = if (isSelected) 6.dp else 1.dp,
                     color = borderColor,
                     shape = RoundedCornerShape(PandoraDimensions.cardBorderRadius)
                 )
-                .clip(RoundedCornerShape(PandoraDimensions.cardBorderRadius - 5.dp))
+                .clip(RoundedCornerShape(PandoraDimensions.cardBorderRadius))
         ) {
             AsyncImage(
                 model = request,
@@ -128,24 +136,23 @@ fun FolderCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .blur(20.dp)
+                    .blur(if (isSelected) 25.dp else 15.dp)
             )
 
-            // Dark overlay and gradient scrim
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.28f))
+                    .background(Color.Black.copy(alpha = if (isSelected) 0.5f else 0.35f))
             )
-            
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(cardHeight * 0.4f)
+                    .height(cardHeight * 0.45f)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
                         )
                     )
             )
@@ -155,7 +162,7 @@ fun FolderCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                 )
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
@@ -165,6 +172,19 @@ fun FolderCard(
                         .align(Alignment.TopStart)
                         .padding(12.dp)
                         .size(28.dp)
+                )
+            }
+
+            if (album.isPinned) {
+                Icon(
+                    imageVector = Icons.Default.PushPin,
+                    contentDescription = "Pinned",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(12.dp)
+                        .size(18.dp)
+                        .graphicsLayer(rotationZ = 45f)
                 )
             }
 
@@ -178,38 +198,34 @@ fun FolderCard(
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(start = (cardWidth.value * 0.089f).dp)
+                        .padding(start = (cardWidth.value * 0.089f).dp, top = 6.dp) // Added top padding for date
                         .height(tabLift)
                         .align(Alignment.TopStart),
                     verticalArrangement = Arrangement.Center
                 ) {
-                    if (isSameYear) {
-                        Row {
-                            Text(
-                                text = dateParts.month,
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontSize = (cardWidth.value * 0.067f).sp
-                                )
-                            )
-                            Text(
-                                text = " ${dateParts.day}",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = (cardWidth.value * 0.067f).sp
-                                )
-                            )
+                    val annotatedDate = buildAnnotatedString {
+                        withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.primary)) {
+                            append(dateParts.month)
                         }
-                    } else {
-                        Text(
-                            text = if (dateParts.year.isEmpty() || dateParts.year == "1970") "--"
-                                   else "${currentYear - dateParts.year.toInt()} years ago",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = (cardWidth.value * 0.067f).sp
-                            )
-                        )
+                        append(" ")
+                        append(if (isSameYear) dateParts.day else dateParts.year)
                     }
+                    
+                    Text(
+                        text = annotatedDate,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                            fontSize = (cardWidth.value * 0.058f).sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                    Text(
+                        text = "Last updated",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            fontSize = (cardWidth.value * 0.045f).sp
+                        )
+                    )
                 }
 
                 Row(
@@ -226,19 +242,30 @@ fun FolderCard(
                     Text(
                         text = album.name,
                         style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.W400,
-                            fontSize = (cardWidth.value * 0.1f).sp
+                            fontWeight = FontWeight.Medium,
+                            fontSize = (cardWidth.value * 0.095f).sp
                         ),
                         maxLines = 1,
                         modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = Formatters.formatCount(album.mediaCount),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = (cardWidth.value * 0.056f).sp
+                    
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = Formatters.formatCount(album.mediaCount),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = (cardWidth.value * 0.056f).sp
+                            )
                         )
-                    )
+                        Text(
+                            text = "items",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                fontSize = (cardWidth.value * 0.045f).sp
+                            )
+                        )
+                    }
                 }
             }
 
@@ -247,7 +274,7 @@ fun FolderCard(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.72f))
+                        .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
                     Text(
@@ -255,7 +282,8 @@ fun FolderCard(
                         color = Color.White,
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.8.sp
+                            letterSpacing = 0.8.sp,
+                            fontSize = 8.sp
                         )
                     )
                 }

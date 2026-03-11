@@ -14,7 +14,7 @@ enum class ThemeMode {
 }
 
 enum class SortOrder {
-    DATE_DESC, DATE_ASC, NAME_ASC, SIZE_DESC
+    DATE_DESC, DATE_ASC, NAME_ASC, SIZE_DESC, COUNT_DESC
 }
 
 private const val PREF_THEME_MODE  = "theme_mode"
@@ -22,6 +22,7 @@ private const val PREF_SHOW_HIDDEN = "show_hidden"
 private const val PREF_GRID_SIZE   = "grid_size"
 private const val PREF_SHOW_META   = "show_meta"
 private const val PREF_SORT_ORDER  = "sort_order"
+private const val PREF_GRADIENT    = "show_gradient"
 
 class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel() {
 
@@ -39,6 +40,9 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
 
     private val _sortOrder = MutableStateFlow(SortOrder.DATE_DESC)
     val sortOrder: StateFlow<SortOrder> = _sortOrder
+
+    private val _showGradient = MutableStateFlow(true)
+    val showGradient: StateFlow<Boolean> = _showGradient
 
     init {
         viewModelScope.launch {
@@ -60,6 +64,9 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
                 runCatching { SortOrder.valueOf(saved) }.getOrNull()?.let {
                     _sortOrder.value = it
                 }
+            }
+            preferenceDao.getByKey(PREF_GRADIENT)?.value?.let { saved ->
+                _showGradient.value = saved != "false"
             }
         }
     }
@@ -96,6 +103,13 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
         _sortOrder.value = order
         viewModelScope.launch {
             preferenceDao.insert(UserPreference(key = PREF_SORT_ORDER, value = order.name))
+        }
+    }
+
+    fun setShowGradient(show: Boolean) {
+        _showGradient.value = show
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_GRADIENT, value = show.toString()))
         }
     }
 }

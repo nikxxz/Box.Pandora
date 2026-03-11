@@ -32,14 +32,10 @@ class MediaRepository(
 ) {
     private val nomediaScanner = NomediaScanner()
 
-    /**
-     * Parameters for media search. [terms] splits [query] on whitespace/commas.
-     * [isActive] is true if any filter differs from the default pass-through value.
-     */
     data class MediaSearchParams(
         val query: String = "",
-        val type: String = "all",        // "all" | "image" | "video"
-        val format: String = "all",      // "all" | "jpg" | "png" | "gif" | "mp4" | "webp"
+        val type: String = "all",
+        val format: String = "all",
         val tagCategory: String = "All"
     ) {
         val terms: List<String> get() =
@@ -49,18 +45,11 @@ class MediaRepository(
             query.isNotBlank() || type != "all" || format != "all" || tagCategory != "All"
     }
 
-    /**
-     * Searches media using structural filters (type/format/tagCategory) and text query in SQL,
-     * then applies strict multi-term matching in memory (AND logic across terms).
-     * Pass albumId = null to search across all albums.
-     */
     suspend fun searchMedia(
         params: MediaSearchParams,
         albumId: Long? = null,
         showHidden: Boolean = false
     ): List<MediaItem> = withContext(Dispatchers.IO) {
-        // Use the full query for a broad SQL match to get candidates.
-        // This ensures relevant items (like 'cactus') aren't buried by LIMIT 500.
         val candidates = mediaItemDao.searchFiltered(
             showHidden  = showHidden,
             albumId     = albumId ?: -1L,
@@ -75,14 +64,12 @@ class MediaRepository(
         val terms = params.terms
         if (terms.isEmpty()) return@withContext candidates
 
-        // Build uri → tagNames map via one batch query
         val uriTagMap = tagRepository.getTagNamesForUris(candidates.map { it.uri })
             .groupBy { it.mediaUri }
             .mapValues { (_, rows) ->
                 rows.flatMap { listOf(it.tagName.lowercase(), it.normalizedName.lowercase()) }.toSet()
             }
 
-        // Each term must match filename or any attached tag (AND across terms)
         candidates.filter { item ->
             val fn   = item.filename.lowercase()
             val tags = uriTagMap[item.uri] ?: emptySet()
@@ -115,12 +102,10 @@ class MediaRepository(
         return mediaItemDao.getMediaByAlbumFlow(albumName, showHidden)
     }
 
-    /** One-time lookup — resolves albumName to its stable MediaStore bucket ID. */
     suspend fun getAlbumIdByName(albumName: String): Long? {
         return albumDao.getByName(albumName)?.id
     }
 
-    /** Flow that watches ONLY media_index — never re-fires on albums table writes. */
     fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean = false): Flow<List<MediaItem>> {
         return mediaItemDao.getMediaByAlbumIdFlow(albumId, showHidden)
     }
@@ -209,23 +194,17 @@ class MediaRepository(
             notes      = oldItem.notes,
             isHidden   = oldItem.isHidden
         )
-        // Insert if new URI, update if already present (avoids CASCADE-deleting tags)
         mediaItemDao.insertAll(listOf(updatedNewItem))
         mediaItemDao.updateAll(listOf(updatedNewItem))
 
         if (oldUri == newUri) return
 
         database.withTransaction {
-            // Use TagRepository for all tag-related transfers
             tagRepository.transferTagMetadata(oldUri, newUri)
-
-            // Image Embeddings
             val embeddings = imageEmbeddingDao.getForAsset(oldUri)
             if (embeddings.isNotEmpty()) {
                 imageEmbeddingDao.insertAll(embeddings.map { it.copy(assetId = newUri) })
             }
-
-            // Face Embeddings
             val faces = faceDao.getFacesForAsset(oldUri)
             faces.forEach { face ->
                 val newFaceId = face.faceId.replace(oldUri, newUri)
@@ -233,7 +212,6 @@ class MediaRepository(
                 faceDao.insertFace(face.copy(faceId = newFaceId, assetId = newUri))
                 embedding?.let { faceDao.insertEmbedding(it.copy(faceId = newFaceId)) }
             }
-
             if (deleteOld) {
                 mediaItemDao.deleteByUris(listOf(oldUri))
             }
@@ -249,6 +227,12 @@ class MediaRepository(
         val album = albumDao.getById(albumId) ?: return@withContext false
         val newFolder = fileSystemManager.renameAlbum(album, newName)
         if (newFolder != null) { syncMediaStore(); true } else false
+    }
+
+    suspend fun setAlbumsPinned(albumIds: List<Long>, pinned: Boolean) = withContext(Dispatchers.IO) {
+        albumIds.forEach { id ->
+            albumDao.setPinned(id, pinned)
+        }
     }
 
     suspend fun copyAlbums(albumIds: List<Long>, destinationPath: String): Boolean = withContext(Dispatchers.IO) {
@@ -346,7 +330,6 @@ class MediaRepository(
             onProgress?.invoke("Comparing with database...", 0.5f)
             val existingUris = mediaItemDao.getAllUris().toSet()
 
-            // Identify items to delete (stale)
             val urisToDelete = existingUris.filter { !allScannedUris.contains(it) }
             if (urisToDelete.isNotEmpty()) {
                 mediaItemDao.deleteByUris(urisToDelete)
@@ -354,12 +337,10 @@ class MediaRepository(
             }
 
             onProgress?.invoke("Updating media index...", 0.7f)
-            // Upsert all scanned items
             mediaItemDao.insertAll(allScannedItems)
             mediaItemDao.updateAll(allScannedItems)
 
             onProgress?.invoke("Updating albums...", 0.9f)
-            // Rebuild albums list
             val albums = allScannedItems.groupBy { it.albumId to it.albumName }
                 .mapNotNull { (key, items) ->
                     val (albumId, albumName) = key
@@ -399,9 +380,6 @@ class MediaRepository(
 
     suspend fun forceRecheck(onProgress: (String, Float) -> Unit) = withContext(Dispatchers.IO) {
         onProgress("Clearing cache and database...", 0.05f)
-        // Optionally clear specific tables if "Force" means start from scratch
-        // but typically it means deep scan and re-verify everything.
-        // We can clear thumbnails and re-sync.
         thumbnailManager.clearAll()
         syncMediaStore(isFullScan = true, onProgress = onProgress)
     }
