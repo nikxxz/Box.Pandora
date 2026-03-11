@@ -41,6 +41,7 @@ import java.io.File
 fun MediaThumbnail(
     uri: String,
     filePath: String?,
+    thumbUri: String? = null,
     mediaType: String,
     duration: Double?,
     isFavorite: Int,
@@ -48,12 +49,17 @@ fun MediaThumbnail(
     onPress: () -> Unit,
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
-    blurRadius: Dp = 0.dp // New parameter for optional blurring
+    blurRadius: Dp = 0.dp
 ) {
     val context = LocalContext.current
-    val cacheKey = remember(filePath, uri) { filePath?.takeIf { it.isNotEmpty() } ?: uri }
+    val cacheKey = remember(thumbUri, filePath, uri) { 
+        thumbUri?.takeIf { it.isNotEmpty() } ?: filePath?.takeIf { it.isNotEmpty() } ?: uri 
+    }
+    
     val imageModel = remember(cacheKey) {
-        filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: uri
+        thumbUri?.takeIf { it.isNotEmpty() } ?: 
+        filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: 
+        uri
     }
 
     val request = remember(cacheKey) {
@@ -61,9 +67,11 @@ fun MediaThumbnail(
             .data(imageModel)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
-            .size(Size(600, 600))
+            // Reduced size for grid thumbnails to improve performance and memory usage.
+            // 300x300 is sufficient for 4-column grid on most devices.
+            .size(Size(300, 300))
             .apply { if (mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
-            .crossfade(false)
+            .crossfade(true)
             .build()
     }
 

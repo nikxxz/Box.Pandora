@@ -30,10 +30,15 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -170,7 +175,48 @@ fun FoldersScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // Scrolling logic for collapsible TabRow and shrinking Header
+    val tabRowHeight = 48.dp
+    val tabRowHeightPx = with(LocalDensity.current) { tabRowHeight.toPx() }
+    
+    var scrollOffset by remember { mutableStateOf(0f) }
+    
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // If search or selection is open, we don't want to collapse
+                if (isSearchOpen || isSelectionMode) return Offset.Zero
+                
+                val delta = available.y
+                val newOffset = scrollOffset + delta
+                val minOffset = -tabRowHeightPx
+                
+                return if (delta < 0 && scrollOffset > minOffset) {
+                    val consumed = if (newOffset < minOffset) minOffset - scrollOffset else delta
+                    scrollOffset += consumed
+                    Offset(0f, consumed)
+                } else if (delta > 0 && scrollOffset < 0) {
+                    val consumed = if (newOffset > 0) -scrollOffset else delta
+                    scrollOffset += consumed
+                    Offset(0f, consumed)
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
+
+    // Reset scroll when state changes significantly
+    LaunchedEffect(isSearchOpen, isSelectionMode) {
+        if (isSearchOpen || isSelectionMode) scrollOffset = 0f
+    }
+
+    val scrollProgress = (1f + scrollOffset / tabRowHeightPx).coerceIn(0f, 1f)
+
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .nestedScroll(nestedScrollConnection)
+    ) {
         val showHideLabel = remember(selectedIds, albums) {
             val selectedAlbums = albums.filter { it.id in selectedIds }
             if (selectedAlbums.isNotEmpty() && selectedAlbums.all { it.isHidden }) "Show" else "Hide"
@@ -198,7 +244,8 @@ fun FoldersScreen(
                     "pin" -> viewModel.togglePinSelectedAlbums()
                     else -> viewModel.clearSelection()
                 }
-            }
+            },
+            scrollProgress = scrollProgress
         )
 
         AnimatedVisibility(
@@ -214,28 +261,32 @@ fun FoldersScreen(
         }
 
         if (!isSearchOpen && !isSelectionMode) {
-            ScrollableTabRow(
+            TabRow(
                 selectedTabIndex = pagerState.currentPage,
                 containerColor = Color.Transparent,
-                edgePadding = 16.dp,
                 divider = {},
                 indicator = { tabPositions ->
-                    Box(
-                        Modifier
-                            .tabIndicatorOffset(tabPositions[pagerState.currentPage])
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                            .height(2.5.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
+                    if (pagerState.currentPage < tabPositions.size) {
+                        Box(
+                            Modifier
+                                .tabIndicatorOffset(tabPositions[pagerState.currentPage])
+                                .fillMaxWidth()
+                                .padding(horizontal = 48.dp)
+                                .height(2.5.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                    }
                 },
-                modifier = Modifier.height(42.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(tabRowHeight * scrollProgress)
+                    .alpha(scrollProgress)
             ) {
                 HomeTab.entries.forEach { tab ->
                     Tab(
                         selected = pagerState.currentPage == tab.ordinal,
-                        onClick = { 
+                        onClick = {
                             coroutineScope.launch { pagerState.animateScrollToPage(tab.ordinal) }
                         },
                         selectedContentColor = MaterialTheme.colorScheme.primary,
@@ -292,8 +343,10 @@ fun FoldersScreen(
                                     LazyVerticalGrid(
                                         columns = GridCells.Fixed(2),
                                         contentPadding = PaddingValues(
-                                            horizontal = PandoraDimensions.gridPadding,
-                                            vertical = 16.dp
+                                            start = PandoraDimensions.gridPadding,
+                                            top = 16.dp,
+                                            end = PandoraDimensions.gridPadding,
+                                            bottom = 16.dp
                                         ),
                                         horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
                                         verticalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
@@ -351,6 +404,7 @@ fun FoldersScreen(
                                             MediaThumbnail(
                                                 uri = item.item.uri,
                                                 filePath = item.item.filePath,
+                                                thumbUri = item.item.thumbUri,
                                                 mediaType = item.item.mediaType,
                                                 duration = item.item.duration,
                                                 isFavorite = item.item.isFavorite,

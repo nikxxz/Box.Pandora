@@ -22,9 +22,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,6 +44,7 @@ import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
 import java.io.File
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -86,16 +93,52 @@ fun FolderDetailScreen(
         }
     }
 
+    // Scrolling logic
+    val toolbarHeightPx = with(LocalDensity.current) { 80.dp.roundToPx().toFloat() }
+    var scrollOffset by remember { mutableStateOf(0f) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (isSearchOpen || isSelectionMode) return Offset.Zero
+                
+                val delta = available.y
+                val newOffset = scrollOffset + delta
+                val minOffset = -(toolbarHeightPx * 0.4f)
+                
+                return if (delta < 0 && scrollOffset > minOffset) {
+                    val consumed = if (newOffset < minOffset) minOffset - scrollOffset else delta
+                    scrollOffset += consumed
+                    Offset(0f, consumed)
+                } else if (delta > 0 && scrollOffset < 0) {
+                    val consumed = if (newOffset > 0) -scrollOffset else delta
+                    scrollOffset += consumed
+                    Offset(0f, consumed)
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(isSearchOpen, isSelectionMode) {
+        scrollOffset = 0f
+    }
+
+    val scrollProgress = ((scrollOffset + toolbarHeightPx * 0.4f) / (toolbarHeightPx * 0.4f)).coerceIn(0f, 1f)
+
     Scaffold(
         topBar = {
-            Column {
+            Column(modifier = Modifier.offset { IntOffset(0, scrollOffset.roundToInt()) }) {
                 val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
                     val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
                     if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
                 }
 
+                val subtitle = "%,d items".format(pagingItems.itemCount)
+
                 AppHeader(
                     title = albumName,
+                    subtitle = if (isSelectionMode) null else subtitle,
                     onBackClick = onBackClick,
                     onSearchClick = { viewModel.openSearch() },
                     selectionCount = selectedUris.size,
@@ -125,7 +168,8 @@ fun FolderDetailScreen(
                             }
                             else -> viewModel.clearSelection()
                         }
-                    }
+                    },
+                    scrollProgress = scrollProgress
                 )
 
                 AnimatedVisibility(
@@ -141,9 +185,13 @@ fun FolderDetailScreen(
                 }
             }
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = MaterialTheme.colorScheme.background,
+        modifier = Modifier.nestedScroll(nestedScrollConnection)
     ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding)) {
+        Box(modifier = Modifier.padding(innerPadding).offset { 
+            val yOffset = if (isSearchOpen || isSelectionMode) 0 else scrollOffset.roundToInt()
+            IntOffset(0, yOffset) 
+        }) {
             if (isSearchOpen) {
                 SearchResultsGrid(
                     results = searchResults,

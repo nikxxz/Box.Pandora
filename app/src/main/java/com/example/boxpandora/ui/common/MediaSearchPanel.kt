@@ -246,13 +246,14 @@ fun SearchResultsGrid(
             ) {
                 items(results, key = { it.uri }) { item ->
                     MediaThumbnail(
-                        uri        = item.uri,
-                        filePath   = item.filePath,
-                        mediaType  = item.mediaType,
-                        duration   = item.duration,
-                        isFavorite = item.isFavorite,
-                        isSelected = item.uri in selectedUris,
-                        onPress    = { onPress(item) },
+                        uri         = item.uri,
+                        filePath    = item.filePath,
+                        thumbUri    = item.thumbUri,
+                        mediaType   = item.mediaType,
+                        duration    = item.duration,
+                        isFavorite  = item.isFavorite,
+                        isSelected  = item.uri in selectedUris,
+                        onPress     = { onPress(item) },
                         onLongPress = { onLongPress(item) }
                     )
                 }
