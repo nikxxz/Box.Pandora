@@ -79,4 +79,8 @@ class ThumbnailManager(private val context: Context) {
         val file = File(thumbDir, fileName)
         if (file.exists()) file.delete()
     }
+
+    fun clearAll() {
+        thumbDir.listFiles()?.forEach { it.delete() }
+    }
 }

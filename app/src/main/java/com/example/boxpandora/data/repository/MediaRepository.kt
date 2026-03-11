@@ -329,7 +329,80 @@ class MediaRepository(
         syncMediaStore()
     }
 
-    suspend fun syncMediaStore() {
-        // Implementation for syncing with MediaStore if needed
+    suspend fun syncMediaStore(
+        isFullScan: Boolean = false,
+        onProgress: ((String, Float) -> Unit)? = null
+    ) = withContext(Dispatchers.IO) {
+        try {
+            onProgress?.invoke("Fetching MediaStore content...", 0.1f)
+            val mediaStoreItems = mediaStoreRepository.fetchAllMedia()
+
+            onProgress?.invoke("Scanning for hidden folders...", 0.3f)
+            val nomediaResults = nomediaScanner.scanForNomediaFolders()
+            
+            val allScannedItems = mediaStoreItems + nomediaResults.mediaItems
+            val allScannedUris = allScannedItems.map { it.uri }.toSet()
+
+            onProgress?.invoke("Comparing with database...", 0.5f)
+            val existingUris = mediaItemDao.getAllUris().toSet()
+
+            // Identify items to delete (stale)
+            val urisToDelete = existingUris.filter { !allScannedUris.contains(it) }
+            if (urisToDelete.isNotEmpty()) {
+                mediaItemDao.deleteByUris(urisToDelete)
+                urisToDelete.forEach { thumbnailManager.deleteThumbnail(it) }
+            }
+
+            onProgress?.invoke("Updating media index...", 0.7f)
+            // Upsert all scanned items
+            mediaItemDao.insertAll(allScannedItems)
+            mediaItemDao.updateAll(allScannedItems)
+
+            onProgress?.invoke("Updating albums...", 0.9f)
+            // Rebuild albums list
+            val albums = allScannedItems.groupBy { it.albumId to it.albumName }
+                .mapNotNull { (key, items) ->
+                    val (albumId, albumName) = key
+                    if (albumId == null || albumName == null) return@mapNotNull null
+                    
+                    val coverItem = items.maxByOrNull { it.deviceCreatedAt ?: 0L } ?: items.first()
+                    val photoItems = items.filter { it.mediaType == "image" }
+                    val videoItems = items.filter { it.mediaType == "video" }
+                    
+                    Album(
+                        id = albumId,
+                        name = albumName,
+                        path = items.firstOrNull { it.filePath != null }?.filePath?.let { File(it).parent },
+                        mediaCount = items.size,
+                        photoCount = photoItems.size,
+                        videoCount = videoItems.size,
+                        coverUri = coverItem.uri,
+                        coverFilePath = coverItem.filePath,
+                        photoCoverUri = photoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
+                        videoCoverUri = videoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
+                        lastModifiedAt = items.maxOfOrNull { it.deviceModifiedAt ?: it.deviceCreatedAt ?: 0L },
+                        isHidden = items.any { it.isHidden == 1 }
+                    )
+                }
+
+            albumDao.upsertAll(albums)
+            if (albums.isNotEmpty()) {
+                albumDao.deleteStaleAlbums(albums.map { it.id })
+            }
+
+            onProgress?.invoke("Sync complete", 1.0f)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onProgress?.invoke("Error: ${e.message}", -1f)
+        }
+    }
+
+    suspend fun forceRecheck(onProgress: (String, Float) -> Unit) = withContext(Dispatchers.IO) {
+        onProgress("Clearing cache and database...", 0.05f)
+        // Optionally clear specific tables if "Force" means start from scratch
+        // but typically it means deep scan and re-verify everything.
+        // We can clear thumbnails and re-sync.
+        thumbnailManager.clearAll()
+        syncMediaStore(isFullScan = true, onProgress = onProgress)
     }
 }

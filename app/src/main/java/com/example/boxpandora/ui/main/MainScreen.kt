@@ -10,16 +10,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.Brightness7
-import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -33,6 +31,8 @@ import androidx.navigation.navArgument
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.components.media.MediaViewer
+import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModel
+import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.ThemeMode
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModel
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
@@ -50,6 +50,10 @@ fun MainScreen() {
     val themeViewModel: ThemeViewModel = viewModel(
         factory = ThemeViewModelFactory(app.database.userPreferenceDao())
     )
+    val maintenanceViewModel: MaintenanceViewModel = viewModel(
+        factory = MaintenanceViewModelFactory(app.repository)
+    )
+
     val themeMode  by themeViewModel.themeMode.collectAsState()
     val showHidden by themeViewModel.showHidden.collectAsState()
 
@@ -59,6 +63,10 @@ fun MainScreen() {
 
     var activeMediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var isDrawerOpen by remember { mutableStateOf(false) }
+
+    val isProcessing by maintenanceViewModel.isProcessing.collectAsState()
+    val status by maintenanceViewModel.status.collectAsState()
+    val progress by maintenanceViewModel.progress.collectAsState()
 
     if (isDrawerOpen) {
         BackHandler { isDrawerOpen = false }
@@ -157,14 +165,67 @@ fun MainScreen() {
                 exit    = slideOutHorizontally(tween(DRAWER_PANEL_MS, easing = FastOutSlowInEasing)) { -it }
             ) {
                 SettingsDrawer(
-                    themeMode    = themeMode,
-                    showHidden   = showHidden,
-                    onThemeSet   = { themeViewModel.setThemeMode(it) },
-                    onToggleHide = { themeViewModel.setShowHidden(!showHidden) }
+                    themeMode      = themeMode,
+                    showHidden     = showHidden,
+                    onThemeSet     = { themeViewModel.setThemeMode(it) },
+                    onToggleHide   = { themeViewModel.setShowHidden(!showHidden) },
+                    onReindex      = { maintenanceViewModel.reindex() },
+                    onForceRecheck = { maintenanceViewModel.forceRecheck() },
+                    onClose        = { isDrawerOpen = false }
+                )
+            }
+
+            if (isProcessing || (progress > 0f && progress < 1f) || (status.isNotBlank() && !isProcessing)) {
+                SyncProgressModal(
+                    status = status,
+                    progress = progress,
+                    isProcessing = isProcessing,
+                    onDismiss = { maintenanceViewModel.resetProgress() }
                 )
             }
         }
     }
+}
+
+@Composable
+fun SyncProgressModal(
+    status: String,
+    progress: Float,
+    isProcessing: Boolean,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { if (!isProcessing) onDismiss() },
+        title = { Text("Media Library Sync") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(status, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(16.dp))
+                if (progress >= 0f) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "${(progress * 100).toInt()}%",
+                        modifier = Modifier.align(Alignment.End),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                } else {
+                    // Error state or indeterminate
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                }
+            }
+        },
+        confirmButton = {
+            if (!isProcessing) {
+                TextButton(onClick = onDismiss) {
+                    Text("Done")
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -306,73 +367,250 @@ fun SettingsDrawer(
     themeMode: ThemeMode,
     showHidden: Boolean,
     onThemeSet: (ThemeMode) -> Unit,
-    onToggleHide: () -> Unit
+    onToggleHide: () -> Unit,
+    onReindex: () -> Unit,
+    onForceRecheck: () -> Unit,
+    onClose: () -> Unit
 ) {
+    val isAuto = themeMode == ThemeMode.AUTO
+
     Column(
         modifier = Modifier
             .fillMaxHeight()
-            .width(280.dp)
-            .background(MaterialTheme.colorScheme.surface)
+            .width(320.dp)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(24.dp)
     ) {
         Text(
             text = "Settings",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+            style = MaterialTheme.typography.displaySmall.copy(
+                fontWeight = FontWeight.Bold,
+                fontSize = 32.sp
+            ),
+            color = MaterialTheme.colorScheme.onBackground
         )
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        Spacer(Modifier.height(32.dp))
 
-        Text("Appearance", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-        val modes = listOf(
-            Triple(ThemeMode.LIGHT, "Light", Icons.Default.Brightness7),
-            Triple(ThemeMode.DARK,  "Dark",  Icons.Default.Brightness4),
-            Triple(ThemeMode.AUTO,  "Auto",  Icons.Default.BrightnessAuto)
+        Text(
+            text = "User Interface colors",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
 
-        modes.forEach { (mode, label, icon) ->
+        Spacer(Modifier.height(12.dp))
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            tonalElevation = 1.dp
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Automatic Option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onThemeSet(ThemeMode.AUTO) }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = isAuto,
+                        onClick = { onThemeSet(ThemeMode.AUTO) }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            "Automatic",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Colors will change according to day time.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                // Manual Option
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { if (isAuto) onThemeSet(ThemeMode.LIGHT) }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = !isAuto,
+                        onClick = { if (isAuto) onThemeSet(ThemeMode.LIGHT) }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            "Manual",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Change colors yourself.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                // Light/Dark Switch (Only if Manual)
+                AnimatedVisibility(
+                    visible = !isAuto,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp, start = 48.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        Text(
+                            "Light",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (themeMode == ThemeMode.LIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Switch(
+                            checked = themeMode == ThemeMode.DARK,
+                            onCheckedChange = { isDark ->
+                                onThemeSet(if (isDark) ThemeMode.DARK else ThemeMode.LIGHT)
+                            }
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            "Dark",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (themeMode == ThemeMode.DARK) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        Text(
+            text = "Content visibility",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            tonalElevation = 1.dp
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onThemeSet(mode) }
-                    .padding(vertical = 8.dp),
+                    .clip(RoundedCornerShape(24.dp))
+                    .clickable { onToggleHide() }
+                    .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(
+                        if (showHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     Spacer(Modifier.width(16.dp))
-                    Text(label)
+                    Text(
+                        "Show Hidden Files",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
-                RadioButton(selected = themeMode == mode, onClick = { onThemeSet(mode) })
+                Switch(checked = showHidden, onCheckedChange = { onToggleHide() })
             }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        Spacer(Modifier.height(32.dp))
 
-        Text("Visibility", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onToggleHide() }
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+        Text(
+            text = "Maintenance",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            tonalElevation = 1.dp
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (showHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(Modifier.width(16.dp))
-                Text("Show Hidden Files")
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onReindex() }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            "Media ReIndex",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Scan for new or changed media.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onForceRecheck() }
+                        .padding(vertical = 12.dp, horizontal = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            "Force Re-check",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Clear cache and deep scan everything.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
-            Switch(checked = showHidden, onCheckedChange = { onToggleHide() })
         }
+
+        Spacer(Modifier.weight(1f))
+        
+        Spacer(Modifier.height(16.dp))
     }
 }
 
