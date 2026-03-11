@@ -10,9 +10,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -32,11 +35,7 @@ import androidx.navigation.navArgument
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.components.media.MediaViewer
-import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModel
-import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModelFactory
-import com.example.boxpandora.ui.main.viewmodel.ThemeMode
-import com.example.boxpandora.ui.main.viewmodel.ThemeViewModel
-import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
+import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.settings.*
 import com.example.boxpandora.ui.theme.BoxPandoraTheme
 
@@ -56,8 +55,11 @@ fun MainScreen() {
         factory = MaintenanceViewModelFactory(app.repository)
     )
 
-    val themeMode  by themeViewModel.themeMode.collectAsState()
-    val showHidden by themeViewModel.showHidden.collectAsState()
+    val themeMode    by themeViewModel.themeMode.collectAsState()
+    val showHidden   by themeViewModel.showHidden.collectAsState()
+    val gridSize     by themeViewModel.gridSize.collectAsState()
+    val showMetadata by themeViewModel.showMetadata.collectAsState()
+    val sortOrder    by themeViewModel.sortOrder.collectAsState()
 
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -153,7 +155,7 @@ fun MainScreen() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(0.4f))
+                        .background(Color.Black.copy(0.6f))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -169,15 +171,18 @@ fun MainScreen() {
                 SettingsDrawer(
                     themeMode      = themeMode,
                     showHidden     = showHidden,
+                    gridSize       = gridSize,
+                    showMetadata   = showMetadata,
+                    sortOrder      = sortOrder,
                     onThemeSet     = { themeViewModel.setThemeMode(it) },
                     onToggleHide   = { themeViewModel.setShowHidden(!showHidden) },
-                    onReindex      = { maintenanceViewModel.reindex() },
-                    onForceRecheck = { maintenanceViewModel.forceRecheck() },
+                    onGridSizeSet  = { themeViewModel.setGridSize(it) },
+                    onToggleMeta   = { themeViewModel.setShowMetadata(!showMetadata) },
+                    onSortOrderSet = { themeViewModel.setSortOrder(it) },
                     onOpenFullSettings = {
                         isDrawerOpen = false
                         navController.navigate(Screen.Settings.route)
-                    },
-                    onClose        = { isDrawerOpen = false }
+                    }
                 )
             }
 
@@ -191,6 +196,243 @@ fun MainScreen() {
             }
         }
     }
+}
+
+@Composable
+fun SettingsDrawer(
+    themeMode: ThemeMode,
+    showHidden: Boolean,
+    gridSize: Int,
+    showMetadata: Boolean,
+    sortOrder: SortOrder,
+    onThemeSet: (ThemeMode) -> Unit,
+    onToggleHide: () -> Unit,
+    onGridSizeSet: (Int) -> Unit,
+    onToggleMeta: () -> Unit,
+    onSortOrderSet: (SortOrder) -> Unit,
+    onOpenFullSettings: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(280.dp),
+        color = MaterialTheme.colorScheme.background,
+        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .width(32.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                text = "Quick Options",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            QuickSectionHeader("Appearance")
+            
+            SegmentedSelector(
+                label = "Theme Mode",
+                options = listOf(ThemeMode.AUTO, ThemeMode.LIGHT, ThemeMode.DARK),
+                selected = themeMode,
+                onSelected = onThemeSet
+            ) { mode ->
+                when(mode) {
+                    ThemeMode.AUTO -> "Auto"
+                    ThemeMode.LIGHT -> "Light"
+                    ThemeMode.DARK -> "Dark"
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            SegmentedSelector(
+                label = "Grid Size",
+                options = listOf(2, 3, 4, 5),
+                selected = gridSize,
+                onSelected = onGridSizeSet
+            ) { it.toString() }
+
+            Spacer(Modifier.height(24.dp))
+
+            QuickSectionHeader("Content")
+
+            CompactToggleRow(
+                title = "Show hidden files",
+                checked = showHidden,
+                onCheckedChange = { onToggleHide() }
+            )
+
+            CompactToggleRow(
+                title = "Metadata overlay",
+                checked = showMetadata,
+                onCheckedChange = { onToggleMeta() }
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = "Sort by",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+            
+            val sortOptions = listOf(
+                SortOrder.DATE_DESC to "Date (New)",
+                SortOrder.DATE_ASC to "Date (Old)",
+                SortOrder.NAME_ASC to "Name",
+                SortOrder.SIZE_DESC to "Size"
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                sortOptions.forEach { (order, label) ->
+                    val isSelected = sortOrder == order
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSortOrderSet(order) },
+                        label = { Text(label, fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            
+            TextButton(
+                onClick = onOpenFullSettings,
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(12.dp)
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("Open Full Settings")
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun QuickSectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        modifier = Modifier.padding(bottom = 12.dp)
+    )
+}
+
+@Composable
+fun <T> SegmentedSelector(
+    label: String,
+    options: List<T>,
+    selected: T,
+    onSelected: (T) -> Unit,
+    optionLabel: (T) -> String
+) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(4.dp)) {
+                options.forEach { option ->
+                    val isSelected = option == selected
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                            .clickable { onSelected(option) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = optionLabel(option),
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CompactToggleRow(
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.graphicsLayer(scaleX = 0.75f, scaleY = 0.75f)
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun FlowRow(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    content: @Composable () -> Unit
+) {
+    androidx.compose.foundation.layout.FlowRow(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = verticalArrangement,
+        content = { content() }
+    )
 }
 
 @Composable
@@ -219,7 +461,6 @@ fun SyncProgressModal(
                         style = MaterialTheme.typography.labelSmall
                     )
                 } else {
-                    // Error state or indeterminate
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                 }
             }
@@ -243,7 +484,6 @@ fun NavigationGraph(
     showHidden: Boolean
 ) {
     NavHost(navController = navController, startDestination = Screen.Folders.route) {
-
         composable(Screen.Folders.route) {
             FoldersScreen(
                 showHidden    = showHidden,
@@ -257,40 +497,23 @@ fun NavigationGraph(
                 onOpenDrawer  = onOpenDrawer
             )
         }
-
-        composable(Screen.Favorites.route) {
-            EmptyScreen("Favorites")
-        }
-
+        composable(Screen.Favorites.route) { EmptyScreen("Favorites") }
         composable(Screen.Tags.route) {
             TagsScreen(
-                onTagClick = { tag ->
-                    navController.navigate("tag_gallery/${tag.id}")
-                },
+                onTagClick = { tag -> navController.navigate("tag_gallery/${tag.id}") },
                 onOpenDrawer = onOpenDrawer
             )
         }
-
         composable(
             route           = "folder_detail/{albumId}/{albumName}",
             arguments       = listOf(
                 navArgument("albumId")   { type = NavType.LongType },
                 navArgument("albumName") { type = NavType.StringType }
             ),
-            enterTransition = {
-                slideIntoContainer(
-                    towards       = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)
-                ) + fadeIn(tween(NAV_SLIDE_MS))
-            },
+            enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)) + fadeIn(tween(NAV_SLIDE_MS)) },
             exitTransition  = { fadeOut(tween(NAV_FADE_MS)) },
             popEnterTransition = { fadeIn(tween(NAV_FADE_MS)) },
-            popExitTransition  = {
-                slideOutOfContainer(
-                    towards       = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)
-                ) + fadeOut(tween(NAV_SLIDE_MS))
-            }
+            popExitTransition  = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)) + fadeOut(tween(NAV_SLIDE_MS)) }
         ) { backStackEntry ->
             val albumId   = backStackEntry.arguments?.getLong("albumId") ?: 0L
             val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
@@ -305,26 +528,13 @@ fun NavigationGraph(
                 }
             )
         }
-
         composable(
             route           = Screen.TagGallery.route,
-            arguments       = listOf(
-                navArgument("tagId") { type = NavType.LongType }
-            ),
-            enterTransition = {
-                slideIntoContainer(
-                    towards       = AnimatedContentTransitionScope.SlideDirection.Start,
-                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)
-                ) + fadeIn(tween(NAV_SLIDE_MS))
-            },
+            arguments       = listOf(navArgument("tagId") { type = NavType.LongType }),
+            enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)) + fadeIn(tween(NAV_SLIDE_MS)) },
             exitTransition  = { fadeOut(tween(NAV_FADE_MS)) },
             popEnterTransition = { fadeIn(tween(NAV_FADE_MS)) },
-            popExitTransition  = {
-                slideOutOfContainer(
-                    towards       = AnimatedContentTransitionScope.SlideDirection.End,
-                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)
-                ) + fadeOut(tween(NAV_SLIDE_MS))
-            }
+            popExitTransition  = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)) + fadeOut(tween(NAV_SLIDE_MS)) }
         ) { backStackEntry ->
             val tagId = backStackEntry.arguments?.getLong("tagId") ?: 0L
             TagGalleryScreen(
@@ -337,36 +547,15 @@ fun NavigationGraph(
                 }
             )
         }
-
         composable(
             route           = "media_viewer/{index}",
             arguments       = listOf(navArgument("index") { type = NavType.IntType }),
-            enterTransition = {
-                fadeIn(tween(NAV_SLIDE_MS)) +
-                scaleIn(initialScale = 0.92f, animationSpec = tween(NAV_SLIDE_MS))
-            },
-            exitTransition  = {
-                fadeOut(tween(NAV_FADE_MS)) +
-                scaleOut(targetScale = 0.92f, animationSpec = tween(NAV_FADE_MS))
-            },
-            popEnterTransition = {
-                fadeIn(tween(NAV_SLIDE_MS)) +
-                scaleIn(initialScale = 0.92f, animationSpec = tween(NAV_SLIDE_MS))
-            },
-            popExitTransition  = {
-                fadeOut(tween(NAV_FADE_MS)) +
-                scaleOut(targetScale = 0.92f, animationSpec = tween(NAV_FADE_MS))
-            }
+            enterTransition = { fadeIn(tween(NAV_SLIDE_MS)) + scaleIn(initialScale = 0.92f, animationSpec = tween(NAV_SLIDE_MS)) },
+            exitTransition  = { fadeOut(tween(NAV_FADE_MS)) + scaleOut(targetScale = 0.92f, animationSpec = tween(NAV_FADE_MS)) }
         ) { backStackEntry ->
             val index = backStackEntry.arguments?.getInt("index") ?: 0
-            MediaViewer(
-                items        = activeMediaItems,
-                initialIndex = index,
-                onBackClick  = { navController.popBackStack() }
-            )
+            MediaViewer(items = activeMediaItems, initialIndex = index, onBackClick = { navController.popBackStack() })
         }
-
-        // Settings Routes
         composable(Screen.Settings.route) { SettingsScreen(navController) }
         composable(Screen.LibrarySettings.route) { LibrarySettingsScreen(navController) }
         composable(Screen.TaggingAISettings.route) { TaggingAISettingsScreen(navController) }
@@ -379,242 +568,8 @@ fun NavigationGraph(
 }
 
 @Composable
-fun SettingsDrawer(
-    themeMode: ThemeMode,
-    showHidden: Boolean,
-    onThemeSet: (ThemeMode) -> Unit,
-    onToggleHide: () -> Unit,
-    onReindex: () -> Unit,
-    onForceRecheck: () -> Unit,
-    onOpenFullSettings: () -> Unit,
-    onClose: () -> Unit
-) {
-    val isAuto = themeMode == ThemeMode.AUTO
-
-    Column(
-        modifier = Modifier
-            .fillMaxHeight()
-            .width(320.dp)
-            .background(MaterialTheme.colorScheme.background)
-            .statusBarsPadding()
-            .padding(24.dp)
-    ) {
-        Text(
-            text = "Options",
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 32.sp
-            ),
-            color = MaterialTheme.colorScheme.onBackground
-        )
-
-        Spacer(Modifier.height(32.dp))
-
-        Text(
-            text = "User Interface colors",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            tonalElevation = 1.dp
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                // Automatic Option
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onThemeSet(ThemeMode.AUTO) }
-                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = isAuto,
-                        onClick = { onThemeSet(ThemeMode.AUTO) }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            "Automatic",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Colors will change according to day time.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-
-                // Manual Option
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { if (isAuto) onThemeSet(ThemeMode.LIGHT) }
-                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = !isAuto,
-                        onClick = { if (isAuto) onThemeSet(ThemeMode.LIGHT) }
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            "Manual",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Change colors yourself.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-
-                // Light/Dark Switch (Only if Manual)
-                AnimatedVisibility(
-                    visible = !isAuto,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, start = 48.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Start
-                    ) {
-                        Text(
-                            "Light",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (themeMode == ThemeMode.LIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Switch(
-                            checked = themeMode == ThemeMode.DARK,
-                            onCheckedChange = { isDark ->
-                                onThemeSet(if (isDark) ThemeMode.DARK else ThemeMode.LIGHT)
-                            }
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Dark",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (themeMode == ThemeMode.DARK) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        Text(
-            text = "Content visibility",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-        Spacer(Modifier.height(12.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            tonalElevation = 1.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .clickable { onToggleHide() }
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (showHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(16.dp))
-                    Text(
-                        "Show Hidden Files",
-                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Switch(checked = showHidden, onCheckedChange = { onToggleHide() })
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-
-        Text(
-            text = "Application",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-        Spacer(Modifier.height(12.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-            tonalElevation = 1.dp
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenFullSettings() }
-                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            "Full Settings",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Configure library, AI, and performance.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.weight(1f))
-        
-        Spacer(Modifier.height(16.dp))
-    }
-}
-
-@Composable
 fun EmptyScreen(title: String) {
-    Box(
-        modifier          = Modifier.fillMaxSize(),
-        contentAlignment  = Alignment.Center
-    ) {
-        Text(
-            text  = title,
-            style = MaterialTheme.typography.displaySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-        )
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment  = Alignment.Center) {
+        Text(text = title, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
     }
 }

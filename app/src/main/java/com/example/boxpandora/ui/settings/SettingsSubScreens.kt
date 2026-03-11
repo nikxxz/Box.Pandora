@@ -44,23 +44,23 @@ fun SettingsSubScreen(
 
 @Composable
 fun LibrarySettingsScreen(navController: NavController) {
-    SettingsSubScreen("Library Settings", navController) {
+    SettingsSubScreen("Library Scanning", navController) {
         LazyColumn {
-            item { SettingSectionHeader("Media behaviour") }
-            item { SettingItem("Include/Exclude directories", "Choose which folders to scan", Icons.Default.Folder) }
-            item { SettingItem("Re-scan & Recache Media", "Manually trigger a full library refresh", Icons.Default.Refresh) }
-            item { SettingItem("Hidden folders", "Manage list of ignored directories", Icons.Default.VisibilityOff) }
+            item { SettingSectionHeader("Library Scanning") }
+            item { NavigationRow("Included Directories", "Choose which folders to scan for media", Icons.Default.Folder) {} }
+            item { ActionRow("Refresh Library", "Manually trigger a full library refresh and re-cache thumbnails", Icons.Default.Refresh) {} }
+            item { NavigationRow("Excluded Folders", "Manage list of ignored directories and .nomedia paths", Icons.Default.VisibilityOff) {} }
             item { 
                 var checked by remember { mutableStateOf(false) }
-                SettingItem(
-                    "Show hidden folders", 
-                    "Display folders starting with a dot", 
-                    Icons.Default.Visibility,
-                    trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }
+                ToggleRow(
+                    "Show Hidden Folders", 
+                    "Display system folders and directories starting with a dot", 
+                    checked = checked, 
+                    onCheckedChange = { checked = it }
                 ) 
             }
-            item { SettingSectionHeader("File Types") }
-            item { SettingItem("Include/Exclude file types", "Images, Videos, GIFs", Icons.Default.FilterList) }
+            item { SettingSectionHeader("Media Types") }
+            item { NavigationRow("Filter Media Types", "Toggle visibility for Images, Videos, and animated GIFs", Icons.Default.FilterList) {} }
         }
     }
 }
@@ -69,30 +69,24 @@ fun LibrarySettingsScreen(navController: NavController) {
 fun TaggingAISettingsScreen(navController: NavController) {
     SettingsSubScreen("Tagging & AI", navController) {
         LazyColumn {
-            item { SettingSectionHeader("AI Tagging") }
-            item { SettingItem("Tag suggestion confidence", "Low / Medium / High", Icons.Default.Psychology) }
-            item { SettingItem("Tag normalization", "Standardize tag formats", Icons.Default.TextFields) }
+            item { SettingSectionHeader("AI Analysis") }
+            item { ValueSelectorRow("Suggestion Confidence", "Medium", "Threshold for automatic tag proposals") {} }
             item { 
                 var checked by remember { mutableStateOf(true) }
-                SettingItem("Auto merge similar tags", "Groups synonyms automatically", trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }) 
+                ToggleRow("Auto-merge Synonyms", "Groups similar tags like 'cat' and 'feline' automatically", checked = checked, onCheckedChange = { checked = it }) 
             }
             item { 
                 var checked by remember { mutableStateOf(true) }
-                SettingItem("Related tag discovery", "Suggest tags based on content", trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }) 
-            }
-            item { 
-                var checked by remember { mutableStateOf(false) }
-                SettingItem("Enable co-occurrence suggestions", "Suggest tags often used together", trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }) 
+                ToggleRow("Discovery Mode", "Suggest tags based on visual content similarities", checked = checked, onCheckedChange = { checked = it }) 
             }
             item { 
                 var checked by remember { mutableStateOf(true) }
-                SettingItem("Auto-tag on import", "Analyze new media immediately", trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }) 
+                ToggleRow("Background Tagging", "Analyze new media immediately when added to gallery", checked = checked, onCheckedChange = { checked = it }) 
             }
             
-            item { SettingSectionHeader("Tag Management") }
-            item { SettingItem("Manage categories", "Organize tags into groups", Icons.Default.Category) }
-            item { SettingItem("Rebuild tag index", "Refresh tag database search index", Icons.Default.Build) }
-            item { SettingItem("Recompute tag relationships", "Recalculate AI suggestions", Icons.Default.AutoGraph) }
+            item { SettingSectionHeader("Tag Database") }
+            item { NavigationRow("Manage Categories", "Organize tags into custom groups and hierarchies", Icons.Default.Category) {} }
+            item { ActionRow("Rebuild Search Index", "Optimize the database for faster tag searching", Icons.Default.Build) {} }
         }
     }
 }
@@ -101,18 +95,24 @@ fun TaggingAISettingsScreen(navController: NavController) {
 fun DisplaySettingsScreen(navController: NavController) {
     SettingsSubScreen("Display Settings", navController) {
         LazyColumn {
-            item { SettingSectionHeader("Appearance") }
-            item { SettingItem("Grid size", "Small / Medium / Large", Icons.Default.GridView) }
+            item { SettingSectionHeader("Grid Layout") }
+            item { ValueSelectorRow("Grid Column Count", "3 Columns", "Adjust thumbnail size in the main gallery") {} }
             item { 
                 var checked by remember { mutableStateOf(false) }
-                SettingItem("Show metadata overlay", "Overlay file info on thumbnails", trailing = { Switch(checked = checked, onCheckedChange = { checked = it }) }) 
+                ToggleRow("Metadata Overlay", "Show file resolution and type icon on thumbnails", checked = checked, onCheckedChange = { checked = it }) 
             }
-            item { SettingItem("Default sort", "Date / Name / Size", Icons.AutoMirrored.Filled.Sort) }
+            item { ValueSelectorRow("Default Sort Order", "Date (Newest)", "Initial sorting for all folders") {} }
             
-            item { SettingSectionHeader("Theme") }
-            item { SettingItem("Animation speed", "UI transition speed", Icons.Default.Speed) }
-            item { SettingItem("System theme", "Dark / Light / Auto", Icons.Default.Brightness4) }
-            item { SettingItem("Accent Color", "Change app primary color", Icons.Default.Palette) }
+            item { SettingSectionHeader("Visual Theme") }
+            item { ValueSelectorRow("App Theme", "System Default", "Switch between Light, Dark, or Schedule-based") {} }
+            item { 
+                ValueSelectorRow(
+                    "Accent Color", 
+                    "Deep Orange", 
+                    "Choose the highlight color used for actions, tags, and switches"
+                ) {} 
+            }
+            item { ValueSelectorRow("Animation Scale", "1.0x", "Adjust speed of UI transitions and effects") {} }
         }
     }
 }
@@ -121,23 +121,30 @@ fun DisplaySettingsScreen(navController: NavController) {
 fun PerformanceSettingsScreen(navController: NavController) {
     SettingsSubScreen("Performance", navController) {
         LazyColumn {
-            item { SettingSectionHeader("Maintenance") }
+            item { SettingSectionHeader("Storage Maintenance") }
             item { 
-                SettingItem(
-                    "Clear thumbnail cache", 
-                    "Removes cached previews. Images will reload slower until rebuilt.", 
-                    Icons.Default.DeleteSweep
-                ) 
+                ActionRow(
+                    "Clear Thumbnail Cache", 
+                    "Removes cached previews to free up space. Images will reload slower temporarily.", 
+                    Icons.Default.DeleteSweep,
+                    iconColor = MaterialTheme.colorScheme.error
+                ) {}
             }
-            item { SettingItem("Database optimization", "Vacuum and rebuild database indexes", Icons.Default.Storage) }
-            
-            item { SettingSectionHeader("Advanced") }
             item { 
-                SettingItem(
-                    "Smart clean-up", 
-                    "Removes orphan tags, broken media references, and unused tag aliases.", 
+                ActionRow(
+                    "Optimize Database", 
+                    "Vacuum and rebuild indexes to improve app responsiveness", 
+                    Icons.Default.Storage
+                ) {}
+            }
+            
+            item { SettingSectionHeader("Advanced Cleanup") }
+            item { 
+                ActionRow(
+                    "Run Smart Clean-up", 
+                    "Removes orphan tags, broken media references, and unused tag aliases", 
                     Icons.Default.CleaningServices
-                ) 
+                ) {}
             }
         }
     }
@@ -148,9 +155,9 @@ fun PrivacySettingsScreen(navController: NavController) {
     SettingsSubScreen("Privacy", navController) {
         LazyColumn {
             item { SettingSectionHeader("Content Protection") }
-            item { SettingItem("Hide/Show sensitive Tags", "Manage tags that mark media as private", Icons.Default.NoEncryption) }
-            item { SettingItem("Lock app", "Screen Lock / Custom PIN", Icons.Default.Lock) }
-            item { SettingItem("Exclude folders from AI tagging", "Prevent AI from scanning specific folders", Icons.Default.PsychologyAlt) }
+            item { NavigationRow("Sensitive Tags", "Manage tags that mark media items as private", Icons.Default.NoEncryption) {} }
+            item { ValueSelectorRow("App Lock", "Fingerprint / PIN", "Secure access to the app with biometrics") {} }
+            item { NavigationRow("Excluded AI Paths", "Prevent AI from scanning specific sensitive folders", Icons.Default.PsychologyAlt) {} }
         }
     }
 }
@@ -159,31 +166,36 @@ fun PrivacySettingsScreen(navController: NavController) {
 fun BackupDataSettingsScreen(navController: NavController) {
     SettingsSubScreen("Backup & Data", navController) {
         LazyColumn {
-            item { SettingSectionHeader("Tags") }
-            item { SettingItem("Export tags", "Save tags to a file", Icons.Default.Upload) }
-            item { SettingItem("Import tags", "Restore tags from a file", Icons.Default.Download) }
+            item { SettingSectionHeader("Portability") }
+            item { ActionRow("Export Tag Metadata", "Save your tag assignments to a portable JSON file", Icons.Default.Upload) {} }
+            item { ActionRow("Import Tag Metadata", "Restore tag assignments from a previously exported file", Icons.Default.Download) {} }
             
-            item { SettingSectionHeader("Database") }
-            item { SettingItem("Backup database", "Create a full app data backup", Icons.Default.CloudUpload) }
-            item { SettingItem("Restore database", "Restore from a previous backup", Icons.Default.CloudDownload) }
+            item { SettingSectionHeader("Full Backups") }
+            item { ActionRow("Backup Database", "Create a full encrypted backup of all app settings and data", Icons.Default.CloudUpload) {} }
+            item { ActionRow("Restore Database", "Restore the entire app state from a backup file", Icons.Default.CloudDownload) {} }
         }
     }
 }
 
 @Composable
 fun AboutSettingsScreen(navController: NavController) {
-    SettingsSubScreen("About / Diagnostics", navController) {
+    SettingsSubScreen("App Information", navController) {
         LazyColumn {
-            item { SettingSectionHeader("Diagnostics") }
-            item { SettingItem("Database stats", "View internal table sizes", Icons.Default.Analytics) }
-            item { SettingItem("Number of media items", "1,234 items found", Icons.Default.Image) }
-            item { SettingItem("Number of tags", "567 tags created", Icons.AutoMirrored.Filled.Label) }
-            item { SettingItem("Cache usage", "128 MB used", Icons.Default.Dns) }
+            item { SettingSectionHeader("Storage") }
+            item { ActionRow("Cache Usage", "128 MB of storage used for previews", Icons.Default.Dns) {} }
             
-            item { SettingSectionHeader("Application") }
-            item { SettingItem("Version", "1.0.0 (Build 42)", Icons.Default.Info) }
-            item { SettingItem("Open source licenses", "Credits and legal info", Icons.Default.Description) }
-            item { SettingItem("Send debug report", "Share logs with developers", Icons.Default.BugReport) }
+            item { SettingSectionHeader("Stats") }
+            item { ActionRow("Database Statistics", "View internal table sizes and record counts", Icons.Default.Analytics) {} }
+            item { ActionRow("Library Size", "1,234 media items indexed", Icons.Default.Image) {} }
+            item { ActionRow("Total Tags", "567 unique tags defined", Icons.AutoMirrored.Filled.Label) {} }
+            
+            item { SettingSectionHeader("App Preferences") }
+            item { ActionRow("Version", "1.0.0 (Build 42)", Icons.Default.Info) {} }
+            item { ActionRow("Open Source Licenses", "Legal information and third-party credits", Icons.Default.Description) {} }
+            item { ActionRow("Debug Logging", "Generate and share logs for troubleshooting", Icons.Default.BugReport) {} }
+            
+            item { SettingSectionHeader("Support") }
+            item { ActionRow("Report an Issue", "Send feedback or bug reports to the developers", Icons.Default.Email) {} }
         }
     }
 }
