@@ -3,9 +3,11 @@ package com.example.boxpandora.ui.main.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -63,9 +65,18 @@ class FolderDetailViewModel(
             initialValue = emptyList()
         )
 
-    // Loaded lazily — only needed when copy/move dialogs open, not on screen entry.
-    val allAlbums = repository.getAlbumsFlow(true)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    // Loaded on-demand: only starts when loadAlbums() is called (i.e. copy/move dialog opens).
+    // Avoids an always-hot Flow that queries the albums table on every screen entry.
+    private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
+    val allAlbums: StateFlow<List<Album>> = _allAlbums
+    private var albumsJob: Job? = null
+
+    fun loadAlbums() {
+        if (albumsJob != null) return
+        albumsJob = viewModelScope.launch {
+            repository.getAlbumsFlow(true).collect { _allAlbums.value = it }
+        }
+    }
 
     fun setShowHidden(show: Boolean) {
         _showHidden.value = show

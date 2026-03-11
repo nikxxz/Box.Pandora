@@ -73,8 +73,8 @@ fun FolderDetailScreen(
                     when (action) {
                         "delete" -> showDeleteDialog = true
                         "rename" -> showRenameDialog = true
-                        "copy" -> showCopyDialog = true
-                        "move" -> showMoveDialog = true
+                        "copy" -> { viewModel.loadAlbums(); showCopyDialog = true }
+                        "move" -> { viewModel.loadAlbums(); showMoveDialog = true }
                         "hide_show" -> viewModel.toggleHiddenForSelected()
                         else -> viewModel.clearSelection()
                     }
@@ -103,7 +103,7 @@ fun FolderDetailScreen(
                         onLongPress = {
                             viewModel.toggleSelection(item.uri)
                         },
-                        modifier = Modifier.animateItemPlacement()
+                        modifier = Modifier
                     )
                 }
             }

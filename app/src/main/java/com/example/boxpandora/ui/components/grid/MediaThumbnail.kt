@@ -74,7 +74,12 @@ fun MediaThumbnail(
             // Only attach VideoFrameDecoder for actual video items — images don't need it
             // and the factory being present on every request adds overhead.
             .apply { if (item.mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
-            .crossfade(150)
+            // No crossfade in the grid: even a 150 ms fade is visible when Compose
+            // remaps cells after a list reorder, because items evicted from the memory
+            // cache reload from disk and the animation replays on every affected cell.
+            // Thumbnails appear instantly from cache; first-load cells pop in without
+            // animation but the placeholder already fills the space so there is no blank.
+            .crossfade(false)
             .build()
     }
 
