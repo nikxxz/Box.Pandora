@@ -43,8 +43,11 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_index WHERE album_id = :albumId")
     suspend fun getMediaByAlbum(albumId: Long): List<MediaItem>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(items: List<MediaItem>)
+
+    @Update
+    suspend fun updateAll(items: List<MediaItem>)
 
     @Query("DELETE FROM media_index WHERE uri IN (:uris)")
     suspend fun deleteByUris(uris: List<String>)

@@ -7,12 +7,8 @@ import androidx.room.withTransaction
 import com.example.boxpandora.data.local.AppDatabase
 import com.example.boxpandora.data.local.dao.AlbumDao
 import com.example.boxpandora.data.local.dao.FaceDao
-import com.example.boxpandora.data.local.dao.HeuristicTagDao
 import com.example.boxpandora.data.local.dao.ImageEmbeddingDao
 import com.example.boxpandora.data.local.dao.MediaItemDao
-import com.example.boxpandora.data.local.dao.MediaTagDao
-import com.example.boxpandora.data.local.dao.TagRejectionDao
-import com.example.boxpandora.data.local.dao.TagSuggestionDao
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.manager.FileSystemManager
@@ -27,12 +23,8 @@ class MediaRepository(
     private val database: AppDatabase,
     private val mediaItemDao: MediaItemDao,
     private val albumDao: AlbumDao,
-    private val mediaTagDao: MediaTagDao,
     private val imageEmbeddingDao: ImageEmbeddingDao,
     private val faceDao: FaceDao,
-    private val tagSuggestionDao: TagSuggestionDao,
-    private val heuristicTagDao: HeuristicTagDao,
-    private val tagRejectionDao: TagRejectionDao,
     private val mediaStoreRepository: MediaStoreRepository,
     private val thumbnailManager: ThumbnailManager,
     private val fileSystemManager: FileSystemManager,
@@ -152,34 +144,35 @@ class MediaRepository(
             notes      = oldItem.notes,
             isHidden   = oldItem.isHidden
         )
+        // Insert if new URI, update if already present (avoids CASCADE-deleting tags)
         mediaItemDao.insertAll(listOf(updatedNewItem))
+        mediaItemDao.updateAll(listOf(updatedNewItem))
 
         if (oldUri == newUri) return
 
-        val tags = mediaTagDao.getMediaTagsForUri(oldUri)
-        if (tags.isNotEmpty()) mediaTagDao.insertAll(tags.map { it.copy(mediaUri = newUri) })
+        database.withTransaction {
+            // Use TagRepository for all tag-related transfers
+            tagRepository.transferTagMetadata(oldUri, newUri)
 
-        val embeddings = imageEmbeddingDao.getForAsset(oldUri)
-        if (embeddings.isNotEmpty()) imageEmbeddingDao.insertAll(embeddings.map { it.copy(assetId = newUri) })
+            // Image Embeddings
+            val embeddings = imageEmbeddingDao.getForAsset(oldUri)
+            if (embeddings.isNotEmpty()) {
+                imageEmbeddingDao.insertAll(embeddings.map { it.copy(assetId = newUri) })
+            }
 
-        val faces = faceDao.getFacesForAsset(oldUri)
-        faces.forEach { face ->
-            val newFaceId = face.faceId.replace(oldUri, newUri)
-            val embedding = faceDao.getEmbeddingForFace(face.faceId)
-            faceDao.insertFace(face.copy(faceId = newFaceId, assetId = newUri))
-            embedding?.let { faceDao.insertEmbedding(it.copy(faceId = newFaceId)) }
+            // Face Embeddings
+            val faces = faceDao.getFacesForAsset(oldUri)
+            faces.forEach { face ->
+                val newFaceId = face.faceId.replace(oldUri, newUri)
+                val embedding = faceDao.getEmbeddingForFace(face.faceId)
+                faceDao.insertFace(face.copy(faceId = newFaceId, assetId = newUri))
+                embedding?.let { faceDao.insertEmbedding(it.copy(faceId = newFaceId)) }
+            }
+
+            if (deleteOld) {
+                mediaItemDao.deleteByUris(listOf(oldUri))
+            }
         }
-
-        val suggestions = tagSuggestionDao.getForAsset(oldUri)
-        if (suggestions.isNotEmpty()) tagSuggestionDao.insertAll(suggestions.map { it.copy(id = 0, assetId = newUri) })
-
-        val heuristicTags = heuristicTagDao.getForAsset(oldUri)
-        if (heuristicTags.isNotEmpty()) heuristicTagDao.insertAll(heuristicTags.map { it.copy(assetId = newUri) })
-
-        val rejections = tagRejectionDao.getForAsset(oldUri)
-        if (rejections.isNotEmpty()) tagRejectionDao.insertAll(rejections.map { it.copy(assetId = newUri) })
-
-        if (deleteOld) mediaItemDao.deleteByUris(listOf(oldUri))
     }
 
     suspend fun deleteAlbums(albumIds: List<Long>): Boolean = withContext(Dispatchers.IO) {
@@ -315,11 +308,14 @@ class MediaRepository(
             val albumIds = albums.map { it.id }
             if (albumIds.isNotEmpty()) albumDao.deleteStaleAlbums(albumIds) else albumDao.clearAll()
 
-            // 3. Upsert media items
+            // 3. Upsert media items — use INSERT IGNORE + UPDATE (never DELETE+INSERT)
+            // so that media_tags foreign key CASCADE never fires during a routine sync.
             val existingMetadata = mediaItemDao.getAllUserMetadata().associateBy { it.uri }
-            val mergedItems = allMediaItemsFromFilesystem.map { newItem ->
+            val toInsert = mutableListOf<MediaItem>()
+            val toUpdate = mutableListOf<MediaItem>()
+            for (newItem in allMediaItemsFromFilesystem) {
                 val meta = existingMetadata[newItem.uri]
-                if (meta != null) {
+                val merged = if (meta != null) {
                     newItem.copy(
                         rating     = meta.rating,
                         isFavorite = meta.favorite,
@@ -329,8 +325,10 @@ class MediaRepository(
                 } else {
                     newItem
                 }
+                if (meta != null) toUpdate.add(merged) else toInsert.add(merged)
             }
-            mediaItemDao.insertAll(mergedItems)
+            if (toInsert.isNotEmpty()) mediaItemDao.insertAll(toInsert)
+            if (toUpdate.isNotEmpty()) mediaItemDao.updateAll(toUpdate)
         }
     }
 }

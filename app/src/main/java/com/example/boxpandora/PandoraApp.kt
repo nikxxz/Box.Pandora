@@ -38,6 +38,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
         val thumbnailManager = ThumbnailManager(this)
         val mediaStoreRepository = MediaStoreRepository(this)
         val fileSystemManager = FileSystemManager(this)
+        
         val tagRepository = TagRepository(
             database = database,
             tagDao = database.tagDao(),
@@ -53,12 +54,8 @@ class PandoraApp : Application(), ImageLoaderFactory {
             database = database,
             mediaItemDao = database.mediaItemDao(),
             albumDao = database.albumDao(),
-            mediaTagDao = database.mediaTagDao(),
             imageEmbeddingDao = database.imageEmbeddingDao(),
             faceDao = database.faceDao(),
-            tagSuggestionDao = database.tagSuggestionDao(),
-            heuristicTagDao = database.heuristicTagDao(),
-            tagRejectionDao = database.tagRejectionDao(),
             mediaStoreRepository = mediaStoreRepository,
             thumbnailManager = thumbnailManager,
             fileSystemManager = fileSystemManager,
@@ -86,13 +83,6 @@ class PandoraApp : Application(), ImageLoaderFactory {
                 }
                 add(VideoFrameDecoder.Factory())
             }
-            // Cap the number of concurrent image/video decodes.
-            // VideoFrameDecoder creates a MediaMetadataRetriever per request which
-            // allocates a MediaCodec slot. On Qualcomm hardware, spawning many
-            // codec instances simultaneously causes all of them to stall until the
-            // hardware scheduler grants them time, producing the "blank then all
-            // pop in at once" effect. 4 concurrent decoders is a safe ceiling.
-            // decoderDispatcher is the Coil 2.x API (renamed to decoderCoroutineContext in 3.x)
             .decoderDispatcher(Dispatchers.IO.limitedParallelism(4))
             .memoryCache {
                 MemoryCache.Builder(this)

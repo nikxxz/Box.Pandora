@@ -5,13 +5,25 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -19,6 +31,7 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.ui.common.AppHeader
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
@@ -40,17 +53,19 @@ fun FolderDetailScreen(
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
     val viewModel: FolderDetailViewModel = viewModel(
-        factory = FolderDetailViewModelFactory(app.repository, albumId)
+        factory = FolderDetailViewModelFactory(app.repository, app.repository.tagRepository, albumId)
     )
     val pagingItems = viewModel.pagedMediaItems.collectAsLazyPagingItems()
     val allAlbums by viewModel.allAlbums.collectAsState()
     val selectedUris by viewModel.selectedUris.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    val allTags by viewModel.allTags.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
+    var showBulkTagDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
@@ -65,7 +80,6 @@ fun FolderDetailScreen(
     Scaffold(
         topBar = {
             val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
-                // Heuristic: check currently loaded items for hidden state
                 val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
                 if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
             }
@@ -84,6 +98,7 @@ fun FolderDetailScreen(
                         "copy" -> { viewModel.loadAlbums(); showCopyDialog = true }
                         "move" -> { viewModel.loadAlbums(); showMoveDialog = true }
                         "hide_show" -> viewModel.toggleHiddenForSelected()
+                        "tag" -> showBulkTagDialog = true
                         "share" -> {
                             val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
                             shareMediaItems(context, items)
@@ -133,7 +148,6 @@ fun FolderDetailScreen(
                             modifier = Modifier
                         )
                     } else {
-                        // Placeholder
                         Box(modifier = Modifier.aspectRatio(1f).padding(1.dp))
                     }
                 }
@@ -190,6 +204,144 @@ fun FolderDetailScreen(
             }
         )
     }
+
+    if (showBulkTagDialog) {
+        BulkTagDialog(
+            allTags = allTags,
+            onDismiss = { showBulkTagDialog = false },
+            onConfirm = { tags ->
+                viewModel.bulkAttachTags(tags)
+                showBulkTagDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun BulkTagDialog(
+    allTags: List<Tag>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit
+) {
+    var input by remember { mutableStateOf("") }
+    val selectedTagNames = remember { mutableStateListOf<String>() }
+    
+    val suggestions = remember(input, allTags) {
+        if (input.isBlank()) emptyList()
+        else allTags.filter { 
+            it.name.contains(input, ignoreCase = true) && 
+            !selectedTagNames.contains(it.name)
+        }.take(5)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1C1C1E),
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text("Bulk Tag", color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (selectedTagNames.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        selectedTagNames.forEach { tagName ->
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xFF48484A))
+                                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(tagName, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                                IconButton(
+                                    onClick = { selectedTagNames.remove(tagName) },
+                                    modifier = Modifier.size(20.dp)
+                                ) {
+                                    Icon(Icons.Default.Close, null, tint = Color(0xFF8E8E93), modifier = Modifier.size(12.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("New tag…", color = Color(0xFF8E8E93)) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.White.copy(alpha = 0.3f),
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color.White
+                            )
+                        )
+                        IconButton(
+                            onClick = {
+                                val tag = input.trim()
+                                if (tag.isNotEmpty() && !selectedTagNames.contains(tag)) {
+                                    selectedTagNames.add(tag)
+                                    input = ""
+                                }
+                            },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF48484A))
+                        ) {
+                            Icon(Icons.Default.Add, null, tint = Color.White)
+                        }
+                    }
+
+                    if (suggestions.isNotEmpty()) {
+                        Text("Suggestions", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8E8E93))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            suggestions.forEach { tag ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(Color.White.copy(alpha = 0.1f))
+                                        .clickable { 
+                                            selectedTagNames.add(tag.name)
+                                            input = ""
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(tag.name, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(selectedTagNames.toList()) }) { 
+                Text("Apply", color = Color.White) 
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { 
+                Text("Cancel", color = Color(0xFF8E8E93)) 
+            }
+        }
+    )
 }
 
 private fun shareMediaItems(context: Context, items: List<MediaItem>) {

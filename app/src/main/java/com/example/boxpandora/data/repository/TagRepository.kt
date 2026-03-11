@@ -209,6 +209,17 @@ class TagRepository(
     }
 
     /**
+     * Deletes a tag and all its associations.
+     */
+    suspend fun deleteTag(tagId: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            mediaTagDao.deleteByTagId(tagId)
+            tagAliasDao.deleteByTagId(tagId)
+            tagDao.deleteById(tagId)
+        }
+    }
+
+    /**
      * Fetches suggestion candidates for a given media item, filtered by rejections.
      */
     suspend fun getSuggestionsForMedia(mediaUri: String): List<String> = withContext(Dispatchers.IO) {
@@ -239,10 +250,44 @@ class TagRepository(
     }
 
     /**
+     * Transfers all tag-related metadata from one media URI to another.
+     * Used when a file is renamed or moved.
+     */
+    suspend fun transferTagMetadata(oldUri: String, newUri: String) = withContext(Dispatchers.IO) {
+        if (oldUri == newUri) return@withContext
+
+        database.withTransaction {
+            // 1. Tags
+            val tags = mediaTagDao.getMediaTagsForUri(oldUri)
+            if (tags.isNotEmpty()) {
+                mediaTagDao.insertAll(tags.map { it.copy(mediaUri = newUri) })
+            }
+
+            // 2. Suggestions
+            val suggestions = tagSuggestionDao.getForAsset(oldUri)
+            if (suggestions.isNotEmpty()) {
+                tagSuggestionDao.insertAll(suggestions.map { it.copy(id = 0, assetId = newUri) })
+            }
+
+            // 3. Heuristics
+            val heuristicTags = heuristicTagDao.getForAsset(oldUri)
+            if (heuristicTags.isNotEmpty()) {
+                heuristicTagDao.insertAll(heuristicTags.map { it.copy(assetId = newUri) })
+            }
+
+            // 4. Rejections
+            val rejections = tagRejectionDao.getForAsset(oldUri)
+            if (rejections.isNotEmpty()) {
+                tagRejectionDao.insertAll(rejections.map { it.copy(assetId = newUri) })
+            }
+        }
+    }
+
+    /**
      * Normalizes a tag name for lookup keys.
      * Trims, lowercases, collapses spaces, and strips punctuation.
      */
-    private fun normalizeTagName(name: String): String {
+    fun normalizeTagName(name: String): String {
         return name.trim()
             .lowercase(Locale.getDefault())
             .replace(Regex("[^\\p{L}\\p{N}\\s]"), "") // Strip punctuation

@@ -7,7 +7,9 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.repository.MediaRepository
+import com.example.boxpandora.data.repository.TagRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
@@ -15,6 +17,7 @@ import kotlinx.coroutines.launch
 
 class FolderDetailViewModel(
     private val repository: MediaRepository,
+    private val tagRepository: TagRepository,
     private val albumId: Long
 ) : ViewModel() {
 
@@ -37,6 +40,10 @@ class FolderDetailViewModel(
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
     val allAlbums: StateFlow<List<Album>> = _allAlbums
     private var albumsJob: Job? = null
+
+    val allTags = tagRepository.getAllTagsFlow().stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
 
     fun loadAlbums() {
         if (albumsJob != null) return
@@ -101,16 +108,28 @@ class FolderDetailViewModel(
             clearSelection()
         }
     }
+
+    fun bulkAttachTags(tagNames: List<String>) {
+        val uris = _selectedUris.value.toList()
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            if (tagNames.isNotEmpty()) {
+                tagRepository.bulkAttachTags(uris, tagNames)
+            }
+            clearSelection()
+        }
+    }
 }
 
 class FolderDetailViewModelFactory(
     private val repository: MediaRepository,
+    private val tagRepository: TagRepository,
     private val albumId: Long
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(FolderDetailViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return FolderDetailViewModel(repository, albumId) as T
+            return FolderDetailViewModel(repository, tagRepository, albumId) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }
