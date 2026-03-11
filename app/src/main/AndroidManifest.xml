@@ -2,19 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!--
-        MANAGE_EXTERNAL_STORAGE ("All Files Access") is required to:
-          • Read directories containing .nomedia (hidden folders are invisible to MediaStore)
-          • Scan the full filesystem tree for hidden albums
-        This supersedes READ_MEDIA_* on API 30+ — if granted the app can read
-        everything. The Play Store requires a privacy declaration for this permission.
-        tools:ignore="ScopedStorage" suppresses the lint warning.
-    -->
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
-    <!-- Fallback for API < 30 where MANAGE_EXTERNAL_STORAGE is not available -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
 
     <application
