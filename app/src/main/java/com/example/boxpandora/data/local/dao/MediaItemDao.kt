@@ -36,7 +36,7 @@ interface MediaItemDao {
         SELECT * FROM media_index
         WHERE album_id = :albumId
         AND (hidden = 0 OR :showHidden = 1)
-        ORDER BY device_created_at DESC
+        ORDER BY device_created_at DESC, uri DESC
     """)
     fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean): Flow<List<MediaItem>>
 

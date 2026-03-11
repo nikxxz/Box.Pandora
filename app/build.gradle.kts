@@ -27,6 +27,7 @@ android {
         release {
             isMinifyEnabled = true      // Remove dead code / reflection stubs
             isShrinkResources = true    // Strip unused drawables, strings, etc.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

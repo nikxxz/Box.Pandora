@@ -45,12 +45,13 @@ class FolderDetailViewModel(
         .flatMapLatest { (albumId, showHidden) ->
             if (albumId != null) {
                 repository.getMediaByAlbumIdFlow(albumId, showHidden)
-                    // Suppress re-renders when sync rewrites the same items (even if
-                    // it changes sort order by populating device_created_at for the
-                    // first time). Using toHashSet() makes the comparison ORDER-INDEPENDENT:
-                    // only re-emits when URIs are added/removed or hidden/favourite flips.
+                    // Suppress re-renders when sync rewrites the same items without
+                    // changing content or order. Comparison is ORDER-SENSITIVE so a
+                    // genuine reorder (e.g. new item inserted) does re-emit, but
+                    // identical DB re-reads do not. The DB query uses a deterministic
+                    // secondary sort (uri DESC) so the order is stable across re-queries.
                     .distinctUntilChangedBy { list ->
-                        list.map { Triple(it.uri, it.isHidden, it.isFavorite) }.toHashSet()
+                        list.map { Triple(it.uri, it.isHidden, it.isFavorite) }
                     }
             } else {
                 flowOf(emptyList())
