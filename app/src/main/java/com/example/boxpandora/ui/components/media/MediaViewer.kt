@@ -28,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -68,7 +69,7 @@ private val LabelColor = Color(0xFF8E8E93)
 // Velocity (px/s) required to trigger a fling open/close
 private const val FLING_VELOCITY = 500f
 // Fallback fraction when content height not yet measured
-private const val FallbackMaxFraction = 0.52f
+private const val FallbackMaxFraction = 0.45f
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -111,8 +112,9 @@ fun MediaViewer(
         val screenHeightPx = constraints.maxHeight.toFloat()
 
         // Dynamic max fraction: snaps panel to exactly the content height.
+        // Minimum 35%, Maximum 65% of the screen height.
         val maxFraction = if (contentHeightPx > 0f && screenHeightPx > 0f)
-            (contentHeightPx / screenHeightPx).coerceIn(0.28f, 0.88f)
+            (contentHeightPx / screenHeightPx).coerceIn(0.35f, 0.65f)
         else
             FallbackMaxFraction
 
@@ -345,6 +347,7 @@ private fun ZoomableImagePage(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .clipToBounds()
             .onSizeChanged { layoutSize = it }
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -479,6 +482,7 @@ private fun VideoPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .clipToBounds()
             // Velocity-aware vertical swipe for panel — taps pass through (no consume until slop)
             .pointerInput(Unit) {
                 awaitEachGesture {

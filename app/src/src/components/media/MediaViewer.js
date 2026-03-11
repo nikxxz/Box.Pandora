@@ -90,9 +90,9 @@ import { useToast } from '../../providers/ToastProvider';
 
 const { width: W, height: H } = Dimensions.get('window');
 const HIT = { top: 10, right: 10, bottom: 10, left: 10 };
-const MIN_PANEL = Math.round(H * 0.3);
+const MIN_PANEL = Math.round(H * 0.35);
 const MAX_PANEL = Math.round(H * 0.65);
-const DEFAULT_PANEL_H = Math.round(H * 0.35); // fallback for videos / unknown dims
+const DEFAULT_PANEL_H = Math.round(H * 0.45); // fallback for videos / unknown dims
 const PEEK_H = 76; // height of the peek strip shown in fullscreen mode
 // Session-level mute pref — resets on JS bundle reload.
 let sessionMuted = true;
@@ -968,11 +968,12 @@ export function MediaViewer({
     ({ item, index }) => {
       const itemIsVideo = item.type?.includes('video');
       const isActive = index === currentIndex;
-      // The panel is an absolute overlay — the image is always full-height.
-      // Always use 'contain' so the full image is visible without cropping.
-      const contentFit = 'contain';
+      // When the panel is open (!isMaximized), use 'cover' to fill the visible area
+      // and avoid black bars. In fullscreen mode (isMaximized), use 'contain'
+      // to show the full uncropped asset.
+      const contentFit = isMaximized ? 'contain' : 'cover';
       const contentPosition = 'center';
-      const videoResizeMode = 'contain';
+      const videoResizeMode = isMaximized ? 'contain' : 'cover';
       return itemIsVideo ? (
         <TouchableOpacity
           activeOpacity={1}
@@ -1076,6 +1077,7 @@ export function MediaViewer({
       videoReady,
       toggleControls,
       setIsZoomedIn,
+      isMaximized,
     ],
   );
 
@@ -1587,6 +1589,7 @@ const s = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
 
   videoThumbOverlay: {

@@ -1,7 +1,6 @@
 package com.example.boxpandora.ui.components.media
 
 import android.view.LayoutInflater
-import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
 import androidx.compose.foundation.clickable
@@ -16,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.boxpandora.R
 
@@ -99,6 +99,13 @@ fun VideoPlayer(
             val view = LayoutInflater.from(ctx).inflate(R.layout.player_view, frameLayout, false) as PlayerView
             view.player = exoPlayer
             view
+        },
+        update = { view ->
+            // RESIZE_MODE_ZOOM mimics "cover" behavior to fill the visible area without black bars.
+            view.resizeMode = if (cropToFill)
+                AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            else
+                AspectRatioFrameLayout.RESIZE_MODE_FIT
         },
         modifier = modifier
             .fillMaxSize()
