@@ -1,5 +1,10 @@
 package com.example.boxpandora.data.repository
 
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.room.withTransaction
+import com.example.boxpandora.data.local.AppDatabase
 import com.example.boxpandora.data.local.dao.AlbumDao
 import com.example.boxpandora.data.local.dao.FaceDao
 import com.example.boxpandora.data.local.dao.HeuristicTagDao
@@ -19,6 +24,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class MediaRepository(
+    private val database: AppDatabase,
     private val mediaItemDao: MediaItemDao,
     private val albumDao: AlbumDao,
     private val mediaTagDao: MediaTagDao,
@@ -33,7 +39,19 @@ class MediaRepository(
 ) {
     private val nomediaScanner = NomediaScanner()
 
-    fun getAllMediaPaged(showHidden: Boolean) = mediaItemDao.getAllMediaPaged(showHidden)
+    fun getAllMediaPaged(showHidden: Boolean): Flow<PagingData<MediaItem>> {
+        return Pager(
+            config = PagingConfig(pageSize = 60, enablePlaceholders = true),
+            pagingSourceFactory = { mediaItemDao.getAllMediaPaged(showHidden) }
+        ).flow
+    }
+
+    fun getMediaByAlbumPaged(albumId: Long, showHidden: Boolean): Flow<PagingData<MediaItem>> {
+        return Pager(
+            config = PagingConfig(pageSize = 60, enablePlaceholders = true),
+            pagingSourceFactory = { mediaItemDao.getMediaByAlbumPaged(albumId, showHidden) }
+        ).flow
+    }
 
     fun getAlbumsFlow(showHidden: Boolean): Flow<List<Album>> {
         return albumDao.getAlbumsFlow(showHidden)
@@ -257,66 +275,61 @@ class MediaRepository(
         val currentUris = mediaItemDao.getAllUris().toSet()
         val storeUris = allMediaItemsFromFilesystem.map { it.uri }.toSet()
 
-        // 1. Remove items deleted from the device
-        val deletedUris = currentUris.filter { !storeUris.contains(it) }
-        if (deletedUris.isNotEmpty()) {
-            mediaItemDao.deleteByUris(deletedUris)
-            deletedUris.forEach { thumbnailManager.deleteThumbnail(it) }
-        }
-
-        // 2. Upsert ALBUMS FIRST — MediaItem has a FK on album_id so parent rows
-        //    must exist before child rows are written. Violating this order
-        //    throws FOREIGN KEY constraint failed and leaves the DB empty.
-        val albums = allMediaItemsFromFilesystem
-            .filter { it.albumId != null }
-            .groupBy { it.albumId }
-            .map { (id, items) ->
-                val latest = items.maxByOrNull { it.deviceCreatedAt ?: 0L }
-                val dbAlbum = albumDao.getById(id!!)
-                val isHidden = scanResult.albums.any { it.id == id } || dbAlbum?.isHidden == true
-                Album(
-                    id             = id,
-                    name           = items.first().albumName ?: "Unknown",
-                    path           = items.firstOrNull { it.filePath != null }
-                                         ?.filePath?.let { java.io.File(it).parent },
-                    albumType      = if (isHidden) "Hidden" else "Album",
-                    mediaCount     = items.size,
-                    photoCount     = items.count { it.mediaType == "image" },
-                    videoCount     = items.count { it.mediaType == "video" },
-                    coverUri       = items.firstOrNull()?.uri,
-                    coverFilePath  = items.firstOrNull()?.filePath,
-                    photoCoverUri  = items.find { it.mediaType == "image" }?.uri,
-                    videoCoverUri  = items.find { it.mediaType == "video" }?.uri,
-                    lastModifiedAt = (latest?.deviceCreatedAt ?: 0L) * 1000L,
-                    lastScannedAt  = System.currentTimeMillis(),
-                    isHidden       = isHidden
-                )
+        database.withTransaction {
+            // 1. Remove items deleted from the device
+            val deletedUris = currentUris.filter { !storeUris.contains(it) }
+            if (deletedUris.isNotEmpty()) {
+                mediaItemDao.deleteByUris(deletedUris)
+                deletedUris.forEach { thumbnailManager.deleteThumbnail(it) }
             }
-        albumDao.upsertAll(albums)
 
-        val albumIds = albums.map { it.id }
-        if (albumIds.isNotEmpty()) albumDao.deleteStaleAlbums(albumIds) else albumDao.clearAll()
+            // 2. Upsert ALBUMS FIRST
+            val albums = allMediaItemsFromFilesystem
+                .filter { it.albumId != null }
+                .groupBy { it.albumId }
+                .map { (id, items) ->
+                    val latest = items.maxByOrNull { it.deviceCreatedAt ?: 0L }
+                    val dbAlbum = albumDao.getById(id!!)
+                    val isHidden = scanResult.albums.any { it.id == id } || dbAlbum?.isHidden == true
+                    Album(
+                        id             = id,
+                        name           = items.first().albumName ?: "Unknown",
+                        path           = items.firstOrNull { it.filePath != null }
+                                             ?.filePath?.let { java.io.File(it).parent },
+                        albumType      = if (isHidden) "Hidden" else "Album",
+                        mediaCount     = items.size,
+                        photoCount     = items.count { it.mediaType == "image" },
+                        videoCount     = items.count { it.mediaType == "video" },
+                        coverUri       = items.firstOrNull()?.uri,
+                        coverFilePath  = items.firstOrNull()?.filePath,
+                        photoCoverUri  = items.find { it.mediaType == "image" }?.uri,
+                        videoCoverUri  = items.find { it.mediaType == "video" }?.uri,
+                        lastModifiedAt = (latest?.deviceCreatedAt ?: 0L) * 1000L,
+                        lastScannedAt  = System.currentTimeMillis(),
+                        isHidden       = isHidden
+                    )
+                }
+            albumDao.upsertAll(albums)
 
-        // 3. Upsert media items in ONE batch — preserving user-editable fields.
-        //
-        // Use one SELECT + one insertAll instead of N individual getByUri() calls.
-        // Each individual insert triggers Room's InvalidationTracker, causing
-        // getMediaByAlbumFlow() to re-execute N times and the UI to stutter.
-        // One batch insert = one transaction = InvalidationTracker fires once.
-        val existingMetadata = mediaItemDao.getAllUserMetadata().associateBy { it.uri }
-        val mergedItems = allMediaItemsFromFilesystem.map { newItem ->
-            val meta = existingMetadata[newItem.uri]
-            if (meta != null) {
-                newItem.copy(
-                    rating     = meta.rating,
-                    isFavorite = meta.favorite,
-                    notes      = meta.notes,
-                    isHidden   = if (meta.hidden == 1 || newItem.isHidden == 1) 1 else 0
-                )
-            } else {
-                newItem
+            val albumIds = albums.map { it.id }
+            if (albumIds.isNotEmpty()) albumDao.deleteStaleAlbums(albumIds) else albumDao.clearAll()
+
+            // 3. Upsert media items
+            val existingMetadata = mediaItemDao.getAllUserMetadata().associateBy { it.uri }
+            val mergedItems = allMediaItemsFromFilesystem.map { newItem ->
+                val meta = existingMetadata[newItem.uri]
+                if (meta != null) {
+                    newItem.copy(
+                        rating     = meta.rating,
+                        isFavorite = meta.favorite,
+                        notes      = meta.notes,
+                        isHidden   = if (meta.hidden == 1 || newItem.isHidden == 1) 1 else 0
+                    )
+                } else {
+                    newItem
+                }
             }
+            mediaItemDao.insertAll(mergedItems)
         }
-        mediaItemDao.insertAll(mergedItems)
     }
 }

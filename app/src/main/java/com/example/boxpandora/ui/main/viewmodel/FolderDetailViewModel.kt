@@ -1,15 +1,15 @@
 package com.example.boxpandora.ui.main.viewmodel
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -28,24 +28,11 @@ class FolderDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val mediaItems: StateFlow<List<MediaItem>> = _showHidden
+    val pagedMediaItems: Flow<PagingData<MediaItem>> = _showHidden
         .flatMapLatest { showHidden ->
-            repository.getMediaByAlbumIdFlow(albumId, showHidden)
-                .distinctUntilChangedBy { list ->
-                    list.map { Triple(it.uri, it.isHidden, it.isFavorite) }
-                }
-                .transformLatest { list ->
-                    if (list.isEmpty()) {
-                        delay(300)
-                    }
-                    emit(list)
-                }
+            repository.getMediaByAlbumPaged(albumId, showHidden)
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .cachedIn(viewModelScope)
 
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
     val allAlbums: StateFlow<List<Album>> = _allAlbums
@@ -108,11 +95,8 @@ class FolderDetailViewModel(
 
     fun toggleHiddenForSelected() {
         val selectedUris = _selectedUris.value
-        val items = mediaItems.value.filter { it.uri in selectedUris }
-        if (items.isEmpty()) return
-        val targetHidden = items.any { it.isHidden == 0 }
         viewModelScope.launch {
-            repository.setMediaItemsHidden(selectedUris.toList(), targetHidden)
+            repository.setMediaItemsHidden(selectedUris.toList(), true)
             repository.syncMediaStore()
             clearSelection()
         }

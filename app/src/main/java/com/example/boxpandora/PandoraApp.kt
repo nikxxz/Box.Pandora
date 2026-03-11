@@ -36,6 +36,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
         val fileSystemManager = FileSystemManager(this)
 
         repository = MediaRepository(
+            database = database,
             mediaItemDao = database.mediaItemDao(),
             albumDao = database.albumDao(),
             mediaTagDao = database.mediaTagDao(),

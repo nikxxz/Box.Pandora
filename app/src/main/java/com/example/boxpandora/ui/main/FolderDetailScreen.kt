@@ -8,7 +8,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -16,6 +15,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.common.AppHeader
@@ -41,7 +42,7 @@ fun FolderDetailScreen(
     val viewModel: FolderDetailViewModel = viewModel(
         factory = FolderDetailViewModelFactory(app.repository, albumId)
     )
-    val mediaItems by viewModel.mediaItems.collectAsState()
+    val pagingItems = viewModel.pagedMediaItems.collectAsLazyPagingItems()
     val allAlbums by viewModel.allAlbums.collectAsState()
     val selectedUris by viewModel.selectedUris.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
@@ -63,9 +64,10 @@ fun FolderDetailScreen(
 
     Scaffold(
         topBar = {
-            val showHideLabel = remember(selectedUris, mediaItems) {
-                val selectedItems = mediaItems.filter { it.uri in selectedUris }
-                if (selectedItems.isNotEmpty() && selectedItems.all { it.isHidden == 1 }) "Show" else "Hide"
+            val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
+                // Heuristic: check currently loaded items for hidden state
+                val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
+                if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
             }
 
             AppHeader(
@@ -83,12 +85,12 @@ fun FolderDetailScreen(
                         "move" -> { viewModel.loadAlbums(); showMoveDialog = true }
                         "hide_show" -> viewModel.toggleHiddenForSelected()
                         "share" -> {
-                            val items = mediaItems.filter { it.uri in selectedUris }
+                            val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
                             shareMediaItems(context, items)
                             viewModel.clearSelection()
                         }
                         "open_with" -> {
-                            val item = mediaItems.find { it.uri in selectedUris }
+                            val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
                             item?.let { openMediaItem(context, it) }
                             viewModel.clearSelection()
                         }
@@ -105,26 +107,35 @@ fun FolderDetailScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(1.dp)
             ) {
-                itemsIndexed(mediaItems, key = { _, item -> item.uri }) { index, item ->
-                    MediaThumbnail(
-                        uri        = item.uri,
-                        filePath   = item.filePath,
-                        mediaType  = item.mediaType,
-                        duration   = item.duration,
-                        isFavorite = item.isFavorite,
-                        isSelected = item.uri in selectedUris,
-                        onPress = {
-                            if (isSelectionMode) {
+                items(
+                    count = pagingItems.itemCount,
+                    key = pagingItems.itemKey { it.uri }
+                ) { index ->
+                    val item = pagingItems[index]
+                    if (item != null) {
+                        MediaThumbnail(
+                            uri        = item.uri,
+                            filePath   = item.filePath,
+                            mediaType  = item.mediaType,
+                            duration   = item.duration,
+                            isFavorite = item.isFavorite,
+                            isSelected = item.uri in selectedUris,
+                            onPress = {
+                                if (isSelectionMode) {
+                                    viewModel.toggleSelection(item.uri)
+                                } else {
+                                    onMediaClick(pagingItems.itemSnapshotList.items.filterNotNull(), index)
+                                }
+                            },
+                            onLongPress = {
                                 viewModel.toggleSelection(item.uri)
-                            } else {
-                                onMediaClick(mediaItems, index)
-                            }
-                        },
-                        onLongPress = {
-                            viewModel.toggleSelection(item.uri)
-                        },
-                        modifier = Modifier
-                    )
+                            },
+                            modifier = Modifier
+                        )
+                    } else {
+                        // Placeholder
+                        Box(modifier = Modifier.aspectRatio(1f).padding(1.dp))
+                    }
                 }
             }
         }
@@ -143,7 +154,7 @@ fun FolderDetailScreen(
     }
 
     if (showRenameDialog) {
-        val item = mediaItems.find { it.uri in selectedUris }
+        val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
         item?.let {
             RenameDialog(
                 initialName = it.filename.substringBeforeLast("."),

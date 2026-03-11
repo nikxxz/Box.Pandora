@@ -11,11 +11,11 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MediaItemDao {
-    @Query("SELECT * FROM media_index WHERE (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC")
+    @Query("SELECT * FROM media_index WHERE (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC, uri DESC")
     fun getAllMediaPaged(showHidden: Boolean): PagingSource<Int, MediaItem>
 
-    @Query("SELECT * FROM media_index WHERE album_id = :albumId ORDER BY device_created_at DESC")
-    fun getMediaByAlbumPaged(albumId: Long): PagingSource<Int, MediaItem>
+    @Query("SELECT * FROM media_index WHERE album_id = :albumId AND (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC, uri DESC")
+    fun getMediaByAlbumPaged(albumId: Long, showHidden: Boolean): PagingSource<Int, MediaItem>
 
     // Legacy — kept for reference. Queries BOTH tables; any write to `albums`
     // re-fires this flow, causing thumbnail flashes while a sync runs.
