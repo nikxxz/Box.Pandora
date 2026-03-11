@@ -28,7 +28,7 @@ import com.example.boxpandora.data.local.util.Converters
         TagReviewQueue::class,
         TagChangeHistory::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -37,6 +37,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mediaItemDao(): MediaItemDao
     abstract fun tagDao(): TagDao
     abstract fun mediaTagDao(): MediaTagDao
+    abstract fun tagAliasDao(): TagAliasDao
+    abstract fun tagReviewQueueDao(): TagReviewQueueDao
+    abstract fun tagChangeHistoryDao(): TagChangeHistoryDao
+    abstract fun tagCooccurrenceDao(): TagCooccurrenceDao
+    abstract fun tagPrototypeDao(): TagPrototypeDao
     abstract fun imageEmbeddingDao(): ImageEmbeddingDao
     abstract fun faceDao(): FaceDao
     abstract fun tagSuggestionDao(): TagSuggestionDao

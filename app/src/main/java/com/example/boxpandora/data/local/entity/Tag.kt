@@ -8,12 +8,14 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "tags",
     indices = [
-        Index("usage_count")
+        Index("usage_count"),
+        Index(value = ["normalized_name"], unique = true)
     ]
 )
 data class Tag(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    @ColumnInfo(name = "name") val name: String,
+    @ColumnInfo(name = "name") val name: String, // Display name (e.g., "Dogs")
+    @ColumnInfo(name = "normalized_name") val normalizedName: String, // Lookup key (e.g., "dogs")
     @ColumnInfo(name = "color") val color: String = "#888888",
     @ColumnInfo(name = "icon") val icon: String? = null,
     @ColumnInfo(name = "category") val category: String = "misc",

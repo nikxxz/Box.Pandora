@@ -17,6 +17,7 @@ import com.example.boxpandora.data.manager.MediaContentObserver
 import com.example.boxpandora.data.manager.ThumbnailManager
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.MediaStoreRepository
+import com.example.boxpandora.data.repository.TagRepository
 
 class PandoraApp : Application(), ImageLoaderFactory {
     lateinit var database: AppDatabase
@@ -37,6 +38,16 @@ class PandoraApp : Application(), ImageLoaderFactory {
         val thumbnailManager = ThumbnailManager(this)
         val mediaStoreRepository = MediaStoreRepository(this)
         val fileSystemManager = FileSystemManager(this)
+        val tagRepository = TagRepository(
+            database = database,
+            tagDao = database.tagDao(),
+            mediaTagDao = database.mediaTagDao(),
+            tagAliasDao = database.tagAliasDao(),
+            tagSuggestionDao = database.tagSuggestionDao(),
+            heuristicTagDao = database.heuristicTagDao(),
+            tagRejectionDao = database.tagRejectionDao(),
+            tagChangeHistoryDao = database.tagChangeHistoryDao()
+        )
 
         repository = MediaRepository(
             database = database,
@@ -50,7 +61,8 @@ class PandoraApp : Application(), ImageLoaderFactory {
             tagRejectionDao = database.tagRejectionDao(),
             mediaStoreRepository = mediaStoreRepository,
             thumbnailManager = thumbnailManager,
-            fileSystemManager = fileSystemManager
+            fileSystemManager = fileSystemManager,
+            tagRepository = tagRepository
         )
 
         contentObserver = MediaContentObserver(this)

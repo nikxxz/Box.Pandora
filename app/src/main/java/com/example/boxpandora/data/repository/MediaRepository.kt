@@ -35,7 +35,8 @@ class MediaRepository(
     private val tagRejectionDao: TagRejectionDao,
     private val mediaStoreRepository: MediaStoreRepository,
     private val thumbnailManager: ThumbnailManager,
-    private val fileSystemManager: FileSystemManager
+    private val fileSystemManager: FileSystemManager,
+    val tagRepository: TagRepository
 ) {
     private val nomediaScanner = NomediaScanner()
 

@@ -1,0 +1,251 @@
+package com.example.boxpandora.data.repository
+
+import androidx.room.withTransaction
+import com.example.boxpandora.data.local.AppDatabase
+import com.example.boxpandora.data.local.dao.MediaTagDao
+import com.example.boxpandora.data.local.dao.TagAliasDao
+import com.example.boxpandora.data.local.dao.TagDao
+import com.example.boxpandora.data.local.dao.TagSuggestionDao
+import com.example.boxpandora.data.local.dao.HeuristicTagDao
+import com.example.boxpandora.data.local.dao.TagRejectionDao
+import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
+import com.example.boxpandora.data.local.entity.MediaTag
+import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.local.entity.TagAlias
+import com.example.boxpandora.data.local.entity.TagRejection
+import com.example.boxpandora.data.local.entity.TagChangeHistory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+import java.util.Locale
+
+class TagRepository(
+    private val database: AppDatabase,
+    private val tagDao: TagDao,
+    private val mediaTagDao: MediaTagDao,
+    private val tagAliasDao: TagAliasDao,
+    private val tagSuggestionDao: TagSuggestionDao,
+    private val heuristicTagDao: HeuristicTagDao,
+    private val tagRejectionDao: TagRejectionDao,
+    private val tagChangeHistoryDao: TagChangeHistoryDao
+) {
+
+    fun getAllTagsFlow(): Flow<List<Tag>> = tagDao.getAllTagsFlow()
+
+    fun getTagsByCategoryFlow(category: String): Flow<List<Tag>> = 
+        tagDao.getTagsByCategoryFlow(category)
+
+    fun getTagsForMedia(mediaUri: String): Flow<List<Tag>> = 
+        mediaTagDao.getTagsForMedia(mediaUri)
+
+    /**
+     * Resolves a tag by name, considering normalization and aliases.
+     */
+    suspend fun resolveTagByName(name: String): Tag? = withContext(Dispatchers.IO) {
+        val normalized = normalizeTagName(name)
+        
+        // 1. Exact normalized match
+        tagDao.getByNormalizedName(normalized)?.let { return@withContext it }
+        
+        // 2. Alias match
+        tagAliasDao.getByAlias(normalized)?.let { alias ->
+            return@withContext tagDao.getById(alias.tagId)
+        }
+        
+        null
+    }
+
+    /**
+     * Creates a new canonical tag if it doesn't exist.
+     * Uses the provided name for display but ensures a unique normalized key.
+     */
+    suspend fun getOrCreateTag(name: String, category: String = "misc"): Tag = withContext(Dispatchers.IO) {
+        resolveTagByName(name) ?: run {
+            val normalized = normalizeTagName(name)
+            // We use a properly formatted display name (e.g., "Dog" instead of "dog ")
+            val displayName = name.trim().split(" ").joinToString(" ") { it.replaceFirstChar { c -> c.uppercase() } }
+            
+            val newTag = Tag(
+                name = displayName,
+                normalizedName = normalized,
+                category = category
+            )
+            val id = tagDao.insert(newTag)
+            newTag.copy(id = id)
+        }
+    }
+
+    /**
+     * Attaches a tag to a media item.
+     */
+    suspend fun attachTagToMedia(mediaUri: String, tagName: String) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val tag = getOrCreateTag(tagName)
+            val existing = mediaTagDao.getMediaTagsForUri(mediaUri)
+            if (existing.none { it.tagId == tag.id }) {
+                mediaTagDao.insert(MediaTag(mediaUri, tag.id))
+                tagDao.updateUsageCount(tag.id, 1)
+            }
+        }
+    }
+
+    /**
+     * Detaches a tag from a media item.
+     */
+    suspend fun detachTagFromMedia(mediaUri: String, tagId: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val existing = mediaTagDao.getMediaTagsForUri(mediaUri)
+            if (existing.any { it.tagId == tagId }) {
+                mediaTagDao.delete(mediaUri, tagId)
+                tagDao.updateUsageCount(tagId, -1)
+            }
+        }
+    }
+
+    /**
+     * Bulk attach tags to many media items.
+     */
+    suspend fun bulkAttachTags(mediaUris: List<String>, tagNames: List<String>) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            val tags = tagNames.map { getOrCreateTag(it) }
+            for (uri in mediaUris) {
+                val existingTagIds = mediaTagDao.getMediaTagsForUri(uri).map { it.tagId }.toSet()
+                val toAdd = tags.filter { !existingTagIds.contains(it.id) }
+                
+                if (toAdd.isNotEmpty()) {
+                    mediaTagDao.insertAll(toAdd.map { MediaTag(uri, it.id) })
+                    toAdd.forEach { tagDao.updateUsageCount(it.id, 1) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Renames a canonical tag safely.
+     * If keepOldAsAlias is true, the old normalized name is added to the alias table.
+     */
+    suspend fun renameTag(tagId: Long, newName: String, keepOldAsAlias: Boolean = true) = withContext(Dispatchers.IO) {
+        val oldTag = tagDao.getById(tagId) ?: return@withContext
+        val normalized = normalizeTagName(newName)
+        val existing = resolveTagByName(normalized)
+        
+        database.withTransaction {
+            if (existing != null) {
+                if (existing.id != tagId) {
+                    mergeTags(sourceTagId = tagId, targetTagId = existing.id)
+                }
+            } else {
+                if (keepOldAsAlias) {
+                    tagAliasDao.insert(
+                        TagAlias(
+                            tagId = tagId,
+                            alias = oldTag.normalizedName,
+                            source = "user"
+                        )
+                    )
+                }
+                tagDao.updateName(tagId, newName.trim(), normalized)
+                
+                tagChangeHistoryDao.insert(
+                    TagChangeHistory(
+                        tagId = tagId,
+                        tagName = newName.trim(),
+                        fieldChanged = "name",
+                        oldValue = oldTag.name,
+                        newValue = newName.trim(),
+                        changeSource = "user",
+                        reviewQueueId = null
+                    )
+                )
+            }
+        }
+    }
+
+    /**
+     * Merges source tag into target tag and deletes source.
+     */
+    suspend fun mergeTags(sourceTagId: Long, targetTagId: Long) = withContext(Dispatchers.IO) {
+        if (sourceTagId == targetTagId) return@withContext
+        
+        val sourceTag = tagDao.getById(sourceTagId) ?: return@withContext
+        val targetTag = tagDao.getById(targetTagId) ?: return@withContext
+        
+        database.withTransaction {
+            // 1. Move all tag relations to target tag, ignoring duplicates
+            mediaTagDao.transferTags(sourceTagId, targetTagId)
+            
+            // 2. Delete any leftover relations for source tag (the ones that were duplicates)
+            mediaTagDao.deleteByTagId(sourceTagId)
+            
+            // 3. Recalculate target tag usage count
+            val newCount = mediaTagDao.getUsageCount(targetTagId)
+            tagDao.update(targetTag.copy(usageCount = newCount))
+            
+            // 4. Move aliases from source to target
+            val sourceAliases = tagAliasDao.getByTagId(sourceTagId)
+            sourceAliases.forEach { alias ->
+                tagAliasDao.insert(alias.copy(id = 0, tagId = targetTagId))
+            }
+            // Add the source tag's own name as an alias to the target tag
+            tagAliasDao.insert(TagAlias(tagId = targetTagId, alias = sourceTag.normalizedName, source = "user"))
+            tagAliasDao.deleteByTagId(sourceTagId)
+            
+            // 5. Log history
+            tagChangeHistoryDao.insert(
+                TagChangeHistory(
+                    tagId = targetTagId,
+                    tagName = targetTag.name,
+                    fieldChanged = "merged_from",
+                    oldValue = sourceTag.name,
+                    newValue = targetTag.name,
+                    changeSource = "user",
+                    reviewQueueId = null
+                )
+            )
+            
+            // 6. Delete source tag
+            tagDao.deleteById(sourceTagId)
+        }
+    }
+
+    /**
+     * Fetches suggestion candidates for a given media item, filtered by rejections.
+     */
+    suspend fun getSuggestionsForMedia(mediaUri: String): List<String> = withContext(Dispatchers.IO) {
+        val suggestions = tagSuggestionDao.getForAsset(mediaUri).map { it.tagKey }
+        val heuristics = heuristicTagDao.getForAsset(mediaUri).map { it.tagKey }
+        val rejections = tagRejectionDao.getForAsset(mediaUri).map { it.tagKey }.toSet()
+        val currentTags = mediaTagDao.getMediaTagsForUri(mediaUri).mapNotNull { tagDao.getById(it.tagId)?.normalizedName }.toSet()
+
+        (suggestions + heuristics)
+            .distinct()
+            .filter { it !in rejections && it !in currentTags }
+    }
+
+    /**
+     * Accepts a suggestion and turns it into a canonical tag attachment.
+     */
+    suspend fun acceptSuggestion(mediaUri: String, tagKey: String) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            attachTagToMedia(mediaUri, tagKey)
+        }
+    }
+
+    /**
+     * Rejects a suggestion and stores it in the rejection table to prevent it from reappearing.
+     */
+    suspend fun rejectSuggestion(mediaUri: String, tagKey: String) = withContext(Dispatchers.IO) {
+        tagRejectionDao.insertAll(listOf(TagRejection(tagKey = tagKey, assetId = mediaUri)))
+    }
+
+    /**
+     * Normalizes a tag name for lookup keys.
+     * Trims, lowercases, collapses spaces, and strips punctuation.
+     */
+    private fun normalizeTagName(name: String): String {
+        return name.trim()
+            .lowercase(Locale.getDefault())
+            .replace(Regex("[^\\p{L}\\p{N}\\s]"), "") // Strip punctuation
+            .replace(Regex("\\s+"), " ")              // Collapse duplicate spaces
+    }
+}

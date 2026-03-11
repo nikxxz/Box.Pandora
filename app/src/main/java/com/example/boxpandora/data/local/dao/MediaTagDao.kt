@@ -34,4 +34,13 @@ interface MediaTagDao {
 
     @Query("DELETE FROM media_tags WHERE media_uri IN (:uris)")
     suspend fun clearTagsForUris(uris: List<String>)
+
+    @Query("UPDATE OR IGNORE media_tags SET tag_id = :targetTagId WHERE tag_id = :sourceTagId")
+    suspend fun transferTags(sourceTagId: Long, targetTagId: Long)
+
+    @Query("DELETE FROM media_tags WHERE tag_id = :tagId")
+    suspend fun deleteByTagId(tagId: Long)
+
+    @Query("SELECT COUNT(*) FROM media_tags WHERE tag_id = :tagId")
+    suspend fun getUsageCount(tagId: Long): Int
 }

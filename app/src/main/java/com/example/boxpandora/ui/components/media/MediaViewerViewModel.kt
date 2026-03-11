@@ -9,22 +9,112 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.local.entity.TagChangeHistory
 import com.example.boxpandora.data.repository.MediaRepository
+import com.example.boxpandora.data.repository.TagRepository
+import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
+import com.example.boxpandora.data.local.dao.TagCooccurrenceDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
 
 class MediaViewerViewModel(
-    private val repository: MediaRepository
+    private val repository: MediaRepository,
+    private val tagRepository: TagRepository,
+    private val tagChangeHistoryDao: TagChangeHistoryDao,
+    private val tagCooccurrenceDao: TagCooccurrenceDao
 ) : ViewModel() {
 
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
     val allAlbums: StateFlow<List<Album>> = _allAlbums
 
+    val allTags = tagRepository.getAllTagsFlow().stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
+    )
+
     fun loadAlbums() {
         viewModelScope.launch {
             repository.getAlbumsFlow(true).collect { _allAlbums.value = it }
+        }
+    }
+
+    fun getTagsForMedia(uri: String) = tagRepository.getTagsForMedia(uri)
+
+    fun getSuggestionsForMedia(uri: String) = MutableStateFlow<List<String>>(emptyList()).apply {
+        viewModelScope.launch {
+            value = tagRepository.getSuggestionsForMedia(uri)
+        }
+    }
+
+    fun addTag(item: MediaItem, tagName: String) {
+        viewModelScope.launch {
+            tagRepository.attachTagToMedia(item.uri, tagName)
+            logTagHistory(item, tagName, "media_attached")
+            updateCooccurrences(item, tagName)
+        }
+    }
+
+    fun acceptSuggestion(item: MediaItem, tagKey: String) {
+        viewModelScope.launch {
+            tagRepository.acceptSuggestion(item.uri, tagKey)
+            logTagHistory(item, tagKey, "suggestion_accepted")
+            updateCooccurrences(item, tagKey)
+        }
+    }
+
+    fun rejectSuggestion(item: MediaItem, tagKey: String) {
+        viewModelScope.launch {
+            tagRepository.rejectSuggestion(item.uri, tagKey)
+            // No history log needed for rejection usually, but could be added.
+        }
+    }
+
+    private suspend fun logTagHistory(item: MediaItem, tagName: String, field: String) {
+        val tag = tagRepository.resolveTagByName(tagName)
+        if (tag != null) {
+            tagChangeHistoryDao.insert(
+                TagChangeHistory(
+                    tagId = tag.id,
+                    tagName = tag.name,
+                    fieldChanged = field,
+                    oldValue = null,
+                    newValue = item.uri,
+                    changeSource = "user",
+                    reviewQueueId = null
+                )
+            )
+        }
+    }
+
+    private suspend fun updateCooccurrences(item: MediaItem, tagName: String) {
+        val tag = tagRepository.resolveTagByName(tagName) ?: return
+        tagRepository.getTagsForMedia(item.uri).collect { currentTags ->
+            currentTags.forEach { other ->
+                if (other.id != tag.id) {
+                    tagCooccurrenceDao.recordCooccurrence(tag.id, other.id)
+                }
+            }
+        }
+    }
+
+    fun removeTag(item: MediaItem, tag: Tag) {
+        viewModelScope.launch {
+            tagRepository.detachTagFromMedia(item.uri, tag.id)
+            tagChangeHistoryDao.insert(
+                TagChangeHistory(
+                    tagId = tag.id,
+                    tagName = tag.name,
+                    fieldChanged = "media_detached",
+                    oldValue = item.uri,
+                    newValue = "",
+                    changeSource = "user",
+                    reviewQueueId = null
+                )
+            )
         }
     }
 
@@ -86,12 +176,20 @@ class MediaViewerViewModel(
 }
 
 class MediaViewerViewModelFactory(
-    private val repository: MediaRepository
+    private val repository: MediaRepository,
+    private val tagRepository: TagRepository,
+    private val tagChangeHistoryDao: TagChangeHistoryDao,
+    private val tagCooccurrenceDao: TagCooccurrenceDao
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MediaViewerViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MediaViewerViewModel(repository) as T
+            return MediaViewerViewModel(
+                repository,
+                tagRepository,
+                tagChangeHistoryDao,
+                tagCooccurrenceDao
+            ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

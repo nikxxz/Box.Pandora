@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
@@ -66,8 +67,6 @@ private var sharedVideoVolume by mutableFloatStateOf(0.5f)
 private val PanelBg    = Color(0xFF080808)
 private val CardBg     = Color(0xFF1C1C1E)
 
-// Session-scoped tags: key = filePath ?: uri, persists while app is alive.
-private val mediaTagsStore = mutableStateMapOf<String, SnapshotStateList<String>>()
 private val LabelColor = Color(0xFF8E8E93)
 
 private const val FLING_VELOCITY = 500f
@@ -91,7 +90,12 @@ fun MediaViewer(
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
     val viewModel: MediaViewerViewModel = viewModel(
-        factory = MediaViewerViewModelFactory(app.repository)
+        factory = MediaViewerViewModelFactory(
+            app.repository,
+            app.repository.tagRepository,
+            app.database.tagChangeHistoryDao(),
+            app.database.tagCooccurrenceDao()
+        )
     )
 
     val pagerState = rememberPagerState(initialPage = initialIndex) { items.size }
@@ -243,6 +247,7 @@ fun MediaViewer(
                 if (currentItem != null) {
                     InfoPanelContent(
                         item = currentItem,
+                        viewModel = viewModel,
                         onHeightMeasured = { if (it > 0f) contentHeightPx = it }
                     )
                 }
@@ -675,9 +680,9 @@ private fun VideoPage(
 }
 
 @Composable
-private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit) {
-    val key = item.filePath ?: item.uri
-    val tags = remember(key) { mediaTagsStore.getOrPut(key) { mutableStateListOf() } }
+private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, onHeightMeasured: (Float) -> Unit) {
+    val tags by viewModel.getTagsForMedia(item.uri).collectAsState(initial = emptyList())
+    val suggestions by viewModel.getSuggestionsForMedia(item.uri).collectAsState()
     var showTagsDialog by remember { mutableStateOf(false) }
 
     val timestampSec = remember(item.deviceCreatedAt, item.deviceModifiedAt) {
@@ -768,7 +773,36 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
-                    tags.forEach { tag -> TagPill(tag) }
+                    tags.forEach { tag -> 
+                        TagPill(tag.name) {
+                            viewModel.removeTag(item, tag)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (suggestions.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Suggested Tags", 
+                    style = MaterialTheme.typography.labelSmall, 
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    suggestions.forEach { tagKey ->
+                        SuggestionReviewChip(
+                            text = tagKey,
+                            onAccept = { viewModel.acceptSuggestion(item, tagKey) },
+                            onReject = { viewModel.rejectSuggestion(item, tagKey) }
+                        )
+                    }
                 }
             }
         }
@@ -786,25 +820,69 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
     }
 
     if (showTagsDialog) {
-        TagsDialog(tags = tags, onDismiss = { showTagsDialog = false })
+        TagsDialog(
+            item = item,
+            currentTags = tags,
+            viewModel = viewModel,
+            onDismiss = { showTagsDialog = false }
+        )
     }
 }
 
 @Composable
-private fun TagPill(text: String) {
+private fun TagPill(text: String, onRemove: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .background(Color(0xFF3A3A3C))
             .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clickable { onRemove() }
     ) {
         Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium))
     }
 }
 
 @Composable
-private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
+private fun SuggestionReviewChip(
+    text: String,
+    onAccept: () -> Unit,
+    onReject: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(0.1f))
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
+        IconButton(onClick = onAccept, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Check, null, tint = Color.Green.copy(0.7f), modifier = Modifier.size(16.dp))
+        }
+        IconButton(onClick = onReject, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, null, tint = Color.Red.copy(0.7f), modifier = Modifier.size(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun TagsDialog(
+    item: MediaItem,
+    currentTags: List<Tag>,
+    viewModel: MediaViewerViewModel,
+    onDismiss: () -> Unit
+) {
     var input by remember { mutableStateOf("") }
+    val allTags by viewModel.allTags.collectAsState()
+    
+    val suggestions = remember(input, allTags, currentTags) {
+        if (input.isBlank()) emptyList()
+        else allTags.filter { 
+            it.name.contains(input, ignoreCase = true) && 
+            currentTags.none { ct -> ct.id == it.id }
+        }.take(5)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -815,14 +893,14 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (tags.isNotEmpty()) {
+                if (currentTags.isNotEmpty()) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        tags.toList().forEach { tag ->
+                        currentTags.forEach { tag ->
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
@@ -831,9 +909,9 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Text(tag, color = Color.White, style = MaterialTheme.typography.labelMedium)
+                                Text(tag.name, color = Color.White, style = MaterialTheme.typography.labelMedium)
                                 IconButton(
-                                    onClick = { tags.remove(tag) },
+                                    onClick = { viewModel.removeTag(item, tag) },
                                     modifier = Modifier.size(20.dp)
                                 ) {
                                     Icon(Icons.Default.Close, null, tint = LabelColor, modifier = Modifier.size(12.dp))
@@ -843,36 +921,54 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        placeholder = { Text("New tag…", color = LabelColor) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.White.copy(alpha = 0.3f),
-                            unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = Color.White
-                        )
-                    )
-                    IconButton(
-                        onClick = {
-                            val tag = input.trim()
-                            if (tag.isNotEmpty() && !tags.contains(tag)) {
-                                tags.add(tag); input = ""
-                            }
-                        },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF48484A))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Add, null, tint = Color.White)
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            placeholder = { Text("New tag…", color = LabelColor) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.White.copy(alpha = 0.3f),
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                cursorColor = Color.White
+                            )
+                        )
+                        IconButton(
+                            onClick = {
+                                val tag = input.trim()
+                                if (tag.isNotEmpty()) {
+                                    viewModel.addTag(item, tag)
+                                    input = ""
+                                }
+                            },
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF48484A))
+                        ) {
+                            Icon(Icons.Default.Add, null, tint = Color.White)
+                        }
+                    }
+
+                    if (suggestions.isNotEmpty()) {
+                        Text("Suggestions", style = MaterialTheme.typography.labelSmall, color = LabelColor)
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            suggestions.forEach { tag ->
+                                SuggestionChip(tag.name) {
+                                    viewModel.addTag(item, tag.name)
+                                    input = ""
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -881,6 +977,19 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
             TextButton(onClick = onDismiss) { Text("Done", color = Color.White) }
         }
     )
+}
+
+@Composable
+private fun SuggestionChip(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.1f))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
+    }
 }
 
 @Composable
