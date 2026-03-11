@@ -137,6 +137,7 @@ fun FoldersScreen(
             selectionCount = selectedIds.size,
             onClearSelection = { viewModel.clearSelection() },
             showHideOption = showHideLabel,
+            allowOpenWith = false,
             onActionClick = { action ->
                 when (action) {
                     "delete" -> showDeleteDialog = true

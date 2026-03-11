@@ -24,6 +24,7 @@ fun AppHeader(
     selectionCount: Int = 0,
     onClearSelection: () -> Unit = {},
     showHideOption: String = "Hide", // "Hide" or "Show"
+    allowOpenWith: Boolean = true,
     onActionClick: (String) -> Unit = {}
 ) {
     val isSelectionMode = selectionCount > 0
@@ -130,7 +131,7 @@ fun AppHeader(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
-                        if (selectionCount == 1) {
+                        if (selectionCount == 1 && allowOpenWith) {
                             DropdownMenuItem(
                                 text = { Text("Open With") },
                                 onClick = { onActionClick("open_with"); showMenu = false }
