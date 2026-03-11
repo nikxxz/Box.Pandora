@@ -91,7 +91,11 @@ fun FolderDetailScreen(
             ) {
                 itemsIndexed(mediaItems, key = { _, item -> item.uri }) { index, item ->
                     MediaThumbnail(
-                        item = item,
+                        uri        = item.uri,
+                        filePath   = item.filePath,
+                        mediaType  = item.mediaType,
+                        duration   = item.duration,
+                        isFavorite = item.isFavorite,
                         isSelected = item.uri in selectedUris,
                         onPress = {
                             if (isSelectionMode) {

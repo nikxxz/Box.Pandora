@@ -1,6 +1,6 @@
 package com.example.boxpandora.ui.components.grid
 
-import androidx.compose.animation.animateColorAsState
+import android.util.Log
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -28,58 +28,86 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.painter.ColorPainter
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
+import coil.request.ErrorResult
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import coil.size.Size
-import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.util.Formatters
 import java.io.File
 
+private const val TAG = "MediaThumbnail"
+
+/**
+ * Grid thumbnail cell.
+ *
+ * Accepts individual stable primitive fields instead of a full MediaItem object.
+ * This makes the composable SKIPPABLE by the Compose compiler: if none of the
+ * declared parameters change between recompositions, Compose skips the body
+ * entirely — no request rebuild, no Coil lookup, no placeholder flash.
+ *
+ * Stability contract:
+ *   String / String? / Double? / Int / Boolean are all stable Compose types.
+ *   Lambdas are stable when they do not capture mutable state (they are hoisted
+ *   from the call site).
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaThumbnail(
-    item: MediaItem,
-    isSelected: Boolean = false,
+    uri: String,
+    filePath: String?,
+    mediaType: String,
+    duration: Double?,
+    isFavorite: Int,
+    isSelected: Boolean,
     onPress: () -> Unit,
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    val imageModel = remember(item.filePath, item.uri) {
-        item.filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: item.uri
+    // The cache key is the stable identity used by both Coil memory and disk caches.
+    // Computed from filePath (preferred) or uri (fallback) — identical logic to before,
+    // but now the remember key is the final string rather than derived inputs.
+    val cacheKey = remember(filePath, uri) { filePath?.takeIf { it.isNotEmpty() } ?: uri }
+
+    // imageModel is the data Coil actually loads from.  File is preferred over URI
+    // because it lets Coil skip ContentResolver overhead.
+    val imageModel = remember(cacheKey) {
+        filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: uri
     }
 
-    // Cache key uses only the file path (or URI as fallback) — stable across syncs.
-    // Including deviceModifiedAt/fileSize caused cache misses: after every sync
-    // the Room Flow re-emits a new MediaItem object; if those fields differed
-    // even slightly between the old DB value and the fresh MediaStore value, Coil
-    // would miss the memory cache, reload from disk (~300 ms), and show the
-    // placeholder — producing the "thumbnails flash blank" effect.
-    // The file path alone uniquely identifies the cached thumbnail.
-    val cacheKey = remember(item.filePath, item.uri) {
-        item.filePath ?: item.uri
-    }
-
-    val request = remember(imageModel, cacheKey) {
+    // The request is memoised by cacheKey alone.  As long as the file path / uri
+    // does not change, the exact same ImageRequest object is returned — Coil's
+    // AsyncImage uses referential equality on the model to decide whether to
+    // re-execute, so a stable reference here prevents spurious re-decodes.
+    val request = remember(cacheKey) {
         ImageRequest.Builder(context)
             .data(imageModel)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
-            // Explicit thumbnail size: lets Coil start decoding before Compose layout
-            // measurement completes, preventing decode-queue pileup during fast scroll.
+            // Fixed decode size prevents pileup during fast scroll — Coil can start
+            // decoding before Compose finishes measuring the cell.
             .size(Size(600, 600))
-            // Only attach VideoFrameDecoder for actual video items — images don't need it
-            // and the factory being present on every request adds overhead.
-            .apply { if (item.mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
-            // No crossfade in the grid: even a 150 ms fade is visible when Compose
-            // remaps cells after a list reorder, because items evicted from the memory
-            // cache reload from disk and the animation replays on every affected cell.
-            // Thumbnails appear instantly from cache; first-load cells pop in without
-            // animation but the placeholder already fills the space so there is no blank.
+            // VideoFrameDecoder is only needed for video items; attaching it to image
+            // requests adds unnecessary factory-probe overhead.
+            .apply { if (mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
+            // No crossfade: even 150 ms is visible when cells remap after a list
+            // update and some items reload from disk cache.
             .crossfade(false)
+            // --- TEMPORARY DEBUG LISTENER — remove once flash is confirmed fixed ---
+            .listener(object : ImageRequest.Listener {
+                override fun onStart(request: ImageRequest) {
+                    Log.d(TAG, "START  key=${cacheKey.takeLast(40)}")
+                }
+                override fun onSuccess(request: ImageRequest, result: SuccessResult) {
+                    Log.d(TAG, "HIT    key=${cacheKey.takeLast(40)} src=${result.dataSource}")
+                }
+                override fun onError(request: ImageRequest, result: ErrorResult) {
+                    Log.d(TAG, "ERROR  key=${cacheKey.takeLast(40)}")
+                }
+            })
             .build()
     }
 
@@ -100,22 +128,33 @@ fun MediaThumbnail(
                 scaleX = scale
                 scaleY = scale
             }
-            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent, RoundedCornerShape(if (isSelected) 12.dp else 0.dp))
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                RoundedCornerShape(if (isSelected) 12.dp else 0.dp)
+            )
             .combinedClickable(
                 onClick = onPress,
                 onLongClick = onLongPress
             )
     ) {
-        val placeholderColor = MaterialTheme.colorScheme.surfaceVariant
+        // Placeholder color lives here as a permanent background layer, NOT as the
+        // AsyncImage placeholder parameter.  This prevents Coil from ever "reverting"
+        // to a placeholder state during recomposition: the surfaceVariant colour is
+        // always visible underneath; the decoded image paints on top and stays there.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        )
+
         AsyncImage(
             model = request,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            // Show the theme surface colour immediately so the grid is never
-            // blank while Coil decodes. The crossfade in the request fades
-            // the real image in over the placeholder once ready.
-            placeholder = remember(placeholderColor) { ColorPainter(placeholderColor) },
-            error       = remember(placeholderColor) { ColorPainter(placeholderColor) },
+            // No placeholder or error painter: the surfaceVariant Box behind this
+            // composable is permanently visible and handles both states.  Passing
+            // placeholder here would let Coil swap back to it during recomposition,
+            // which is exactly the flash we are eliminating.
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -141,8 +180,8 @@ fun MediaThumbnail(
             )
         }
 
-        // Video Badge
-        if (item.mediaType == "video" && !isSelected) {
+        // Video badge
+        if (mediaType == "video" && !isSelected) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -159,7 +198,7 @@ fun MediaThumbnail(
                     )
                     Spacer(Modifier.width(2.dp))
                     Text(
-                        text = item.duration?.let { Formatters.formatDuration((it * 1000).toLong()) } ?: "0:00",
+                        text = duration?.let { Formatters.formatDuration((it * 1000).toLong()) } ?: "0:00",
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
@@ -168,8 +207,8 @@ fun MediaThumbnail(
             }
         }
 
-        // Favorite Badge
-        if (item.isFavorite == 1 && !isSelected) {
+        // Favorite badge
+        if (isFavorite == 1 && !isSelected) {
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = null,

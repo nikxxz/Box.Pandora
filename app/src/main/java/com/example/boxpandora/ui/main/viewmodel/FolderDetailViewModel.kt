@@ -1,5 +1,6 @@
 package com.example.boxpandora.ui.main.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -46,7 +47,18 @@ class FolderDetailViewModel(
     }
         .flatMapLatest { (albumId, showHidden) ->
             if (albumId != null) {
+                var emissionIndex = 0
                 repository.getMediaByAlbumIdFlow(albumId, showHidden)
+                    // --- TEMPORARY DEBUG LOG — remove once flash is confirmed fixed ---
+                    // Logs the first 20 URIs on the first two emissions so we can
+                    // confirm whether list order is identical between renders.
+                    .onEach { list ->
+                        val n = ++emissionIndex
+                        if (n <= 2) {
+                            Log.d("FolderDetailVM", "Emission #$n (${list.size} items) " +
+                                "first20=${list.take(20).map { it.uri.substringAfterLast('/') }}")
+                        }
+                    }
                     // Suppress re-renders when sync rewrites the same items without
                     // changing content or order. Comparison is ORDER-SENSITIVE so a
                     // genuine reorder (e.g. new item inserted) does re-emit, but
