@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -75,7 +76,7 @@ fun AppHeader(
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             if (!isSelectionMode) {
                 IconButton(onClick = onSearchClick) {
@@ -95,9 +96,35 @@ fun AppHeader(
                     }
                 }
             } else {
+                // Multi-select Icons
+                IconButton(onClick = { onActionClick("share") }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(22.dp))
+                }
+                
+                IconButton(onClick = { onActionClick("hide_show") }) {
+                    Icon(
+                        imageVector = if (showHideOption == "Show") Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                        contentDescription = showHideOption,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                
+                IconButton(onClick = { onActionClick("tag") }) {
+                    Icon(Icons.AutoMirrored.Filled.Label, contentDescription = "Tag", modifier = Modifier.size(22.dp))
+                }
+                
+                IconButton(onClick = { onActionClick("delete") }) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        modifier = Modifier.size(22.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 Box {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options", modifier = Modifier.size(22.dp))
                     }
                     DropdownMenu(
                         expanded = showMenu,
@@ -109,10 +136,6 @@ fun AppHeader(
                                 onClick = { onActionClick("open_with"); showMenu = false }
                             )
                         }
-                        DropdownMenuItem(
-                            text = { Text("Share") },
-                            onClick = { onActionClick("share"); showMenu = false }
-                        )
                         DropdownMenuItem(
                             text = { Text("Copy To") },
                             onClick = { onActionClick("copy"); showMenu = false }
@@ -126,25 +149,11 @@ fun AppHeader(
                                 text = { Text("Rename") },
                                 onClick = { onActionClick("rename"); showMenu = false }
                             )
-                        }
-                        DropdownMenuItem(
-                            text = { Text(showHideOption) },
-                            onClick = { onActionClick("hide_show"); showMenu = false }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Tag") },
-                            onClick = { onActionClick("tag"); showMenu = false }
-                        )
-                        if (selectionCount == 1) {
                             DropdownMenuItem(
                                 text = { Text("Properties") },
                                 onClick = { onActionClick("properties"); showMenu = false }
                             )
                         }
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            onClick = { onActionClick("delete"); showMenu = false }
-                        )
                     }
                 }
             }
