@@ -18,7 +18,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -126,6 +128,26 @@ fun FolderCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .blur(20.dp)
+            )
+
+            // Dark overlay and gradient scrim
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.28f))
+            )
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(cardHeight * 0.4f)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.45f))
+                        )
+                    )
             )
 
             // Selection Overlay
@@ -180,7 +202,7 @@ fun FolderCard(
                         }
                     } else {
                         Text(
-                            text = if (dateParts.year.isEmpty()) "--"
+                            text = if (dateParts.year.isEmpty() || dateParts.year == "1970") "--"
                                    else "${currentYear - dateParts.year.toInt()} years ago",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,

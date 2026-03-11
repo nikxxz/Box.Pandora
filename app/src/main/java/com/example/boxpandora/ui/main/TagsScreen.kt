@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -445,13 +446,13 @@ private fun FeaturedTagCard(
                 model               = item.coverMediaUri,
                 contentDescription  = null,
                 contentScale        = ContentScale.Crop,
-                modifier            = Modifier.fillMaxSize()
+                modifier            = Modifier.fillMaxSize().blur(12.dp)
             )
             // Dark overlay for text legibility
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.52f))
+                    .background(Color.Black.copy(alpha = 0.28f))
             )
         } else {
             Box(
@@ -478,7 +479,7 @@ private fun FeaturedTagCard(
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f))
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))
                     )
                 )
         )

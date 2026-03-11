@@ -26,9 +26,16 @@ object Formatters {
 
     data class DateParts(val month: String, val day: String, val year: String)
 
-    fun formatShortDateParts(timestampMs: Long?): DateParts {
-        if (timestampMs == null) return DateParts("", "--", "")
-        val date = Date(timestampMs)
+    fun formatShortDateParts(timestamp: Long?): DateParts {
+        // Treat null, 0, or dates near 1970 as invalid/dummy
+        if (timestamp == null || timestamp <= 0L) return DateParts("", "--", "")
+        
+        val millis = if (timestamp < 10_000_000_000L) timestamp * 1000 else timestamp
+        
+        // Additional guard: If the date is before year 2000, it's likely a system dummy
+        if (millis < 946684800000L) return DateParts("", "--", "")
+        
+        val date = Date(millis)
         val monthFormat = SimpleDateFormat("MMM", Locale.US)
         val dayFormat = SimpleDateFormat("dd", Locale.US)
         val yearFormat = SimpleDateFormat("yyyy", Locale.US)
