@@ -9,9 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowRight
 import androidx.compose.material.icons.filled.Brightness4
 import androidx.compose.material.icons.filled.Brightness7
 import androidx.compose.material.icons.filled.BrightnessAuto
@@ -59,12 +57,8 @@ fun MainScreen() {
     val currentRoute = navBackStackEntry?.destination?.route
 
     var activeMediaItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
-    // Simple boolean — no ModalNavigationDrawer, so no DrawerState needed.
-    // The sidebar is rendered as an overlay and is not in the layout at all
-    // when closed, eliminating the edge-fragment artefact.
     var isDrawerOpen by remember { mutableStateOf(false) }
 
-    // Close drawer on back press
     if (isDrawerOpen) {
         BackHandler { isDrawerOpen = false }
     }
@@ -72,11 +66,10 @@ fun MainScreen() {
     BoxPandoraTheme(themeMode = themeMode) {
         Box(modifier = Modifier.fillMaxSize()) {
 
-            // ── Main content ──────────────────────────────────────────────────
             Scaffold(
                 bottomBar = {
                     AnimatedVisibility(
-                        visible = currentRoute in bottomNavItems.map { it.route },
+                        visible = mainBottomNavItems.any { it.route == currentRoute },
                         enter = slideInVertically { it } + fadeIn(),
                         exit  = slideOutVertically { it } + fadeOut()
                     ) {
@@ -85,7 +78,7 @@ fun MainScreen() {
                             tonalElevation = 0.dp,
                             modifier = Modifier.height(80.dp)
                         ) {
-                            bottomNavItems.forEach { screen ->
+                            mainBottomNavItems.forEach { screen ->
                                 val selected = currentRoute == screen.route
                                 NavigationBarItem(
                                     selected = selected,
@@ -127,7 +120,7 @@ fun MainScreen() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            bottom = if (currentRoute in bottomNavItems.map { it.route })
+                            bottom = if (mainBottomNavItems.any { it.route == currentRoute })
                                 innerPadding.calculateBottomPadding() else 0.dp
                         )
                 ) {
@@ -141,7 +134,6 @@ fun MainScreen() {
                 }
             }
 
-            // ── Scrim — only present when drawer is open ──────────────────────
             AnimatedVisibility(
                 visible = isDrawerOpen,
                 enter   = fadeIn(tween(DRAWER_MS)),
@@ -150,7 +142,7 @@ fun MainScreen() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
+                        .background(Color.Black.copy(0.4f))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
@@ -158,161 +150,21 @@ fun MainScreen() {
                 )
             }
 
-            // ── Sidebar panel — slides in from right, not in layout when closed
             AnimatedVisibility(
-                visible  = isDrawerOpen,
-                enter    = slideInHorizontally(tween(DRAWER_MS)) { it } + fadeIn(tween(DRAWER_MS)),
-                exit     = slideOutHorizontally(tween(DRAWER_MS)) { it } + fadeOut(tween(DRAWER_MS)),
-                modifier = Modifier.align(Alignment.CenterEnd)
+                visible = isDrawerOpen,
+                enter   = slideInHorizontally(tween(DRAWER_MS)) { -it },
+                exit    = slideOutHorizontally(tween(DRAWER_MS)) { -it }
             ) {
-                Surface(
-                    modifier      = Modifier
-                        .fillMaxHeight()
-                        .fillMaxWidth(0.8f),
-                    color         = MaterialTheme.colorScheme.surface,
-                    shadowElevation = 16.dp
-                ) {
-                    Column(modifier = Modifier.systemBarsPadding()) {
-                        Spacer(Modifier.height(12.dp))
-
-                        Row(
-                            modifier          = Modifier
-                                .fillMaxWidth()
-                                .padding(start = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = { isDrawerOpen = false }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowRight,
-                                    contentDescription = "Close sidebar"
-                                )
-                            }
-                            Text(
-                                "PANDORA",
-                                modifier = Modifier.padding(8.dp),
-                                style = MaterialTheme.typography.headlineSmall.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = 2.sp
-                                )
-                            )
-                        }
-
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
-                        Text(
-                            "THEME",
-                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),
-                            style    = MaterialTheme.typography.labelMedium,
-                            color    = MaterialTheme.colorScheme.primary
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            ThemeButton(
-                                icon     = Icons.Default.Brightness7,
-                                label    = "LIGHT",
-                                selected = themeMode == ThemeMode.LIGHT,
-                                onClick  = { themeViewModel.setThemeMode(ThemeMode.LIGHT) }
-                            )
-                            ThemeButton(
-                                icon     = Icons.Default.Brightness4,
-                                label    = "DARK",
-                                selected = themeMode == ThemeMode.DARK,
-                                onClick  = { themeViewModel.setThemeMode(ThemeMode.DARK) }
-                            )
-                            ThemeButton(
-                                icon     = Icons.Default.BrightnessAuto,
-                                label    = "AUTO",
-                                selected = themeMode == ThemeMode.AUTO,
-                                onClick  = { themeViewModel.setThemeMode(ThemeMode.AUTO) }
-                            )
-                        }
-
-                        Spacer(Modifier.height(16.dp))
-                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
-                        NavigationDrawerItem(
-                            label    = { Text(if (showHidden) "HIDE HIDDEN" else "SHOW HIDDEN") },
-                            icon     = {
-                                Icon(
-                                    if (showHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null
-                                )
-                            },
-                            selected = false,
-                            onClick  = {
-                                themeViewModel.setShowHidden(!showHidden)
-                                isDrawerOpen = false
-                            },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                        )
-
-                        NavigationDrawerItem(
-                            label    = { Text("SETTINGS") },
-                            selected = false,
-                            onClick  = { },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                        )
-                        NavigationDrawerItem(
-                            label    = { Text("ABOUT") },
-                            selected = false,
-                            onClick  = { },
-                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-                        )
-                    }
-                }
+                SettingsDrawer(
+                    themeMode    = themeMode,
+                    showHidden   = showHidden,
+                    onThemeSet   = { themeViewModel.setThemeMode(it) },
+                    onToggleHide = { themeViewModel.setShowHidden(!showHidden) }
+                )
             }
         }
     }
 }
-
-// ─── Theme toggle button ──────────────────────────────────────────────────────
-
-@Composable
-fun ThemeButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val containerColor = if (selected)
-        MaterialTheme.colorScheme.primaryContainer
-    else
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-    val contentColor = if (selected)
-        MaterialTheme.colorScheme.onPrimaryContainer
-    else
-        MaterialTheme.colorScheme.onSurfaceVariant
-
-    Surface(
-        onClick      = onClick,
-        modifier     = Modifier.width(80.dp).height(64.dp),
-        shape        = RoundedCornerShape(12.dp),
-        color        = containerColor,
-        contentColor = contentColor
-    ) {
-        Column(
-            horizontalAlignment   = Alignment.CenterHorizontally,
-            verticalArrangement   = Arrangement.Center
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.height(4.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize   = 10.sp
-                )
-            )
-        }
-    }
-}
-
-// ─── Navigation graph ─────────────────────────────────────────────────────────
 
 @Composable
 fun NavigationGraph(
@@ -322,36 +174,32 @@ fun NavigationGraph(
     onUpdateMediaItems: (List<MediaItem>) -> Unit,
     showHidden: Boolean
 ) {
-    NavHost(
-        navController      = navController,
-        startDestination   = Screen.Folders.route,
-        enterTransition    = { fadeIn(tween(NAV_FADE_MS, easing = EaseIn)) },
-        exitTransition     = { fadeOut(tween(NAV_FADE_MS, easing = EaseOut)) },
-        popEnterTransition = { fadeIn(tween(NAV_FADE_MS, easing = EaseIn)) },
-        popExitTransition  = { fadeOut(tween(NAV_FADE_MS, easing = EaseOut)) }
-    ) {
-        composable(Screen.Folders.route) {
+    NavHost(navController = navController, startDestination = BottomNavScreen.Folders.route) {
+
+        composable(BottomNavScreen.Folders.route) {
             FoldersScreen(
                 showHidden    = showHidden,
-                onFolderClick = { album -> navController.navigate("folder_detail/${album.name}") },
+                onFolderClick = { album ->
+                    navController.navigate("folder_detail/${album.id}/${album.name}")
+                },
                 onOpenDrawer  = onOpenDrawer
             )
         }
-        composable(Screen.Favorites.route) {
-            Column {
-                AppHeader(onMenuClick = onOpenDrawer, onSearchClick = { })
-                EmptyScreen(title = "Favorites")
-            }
+
+        composable(BottomNavScreen.Search.route) {
+            EmptyScreen("Search")
         }
-        composable(Screen.Tags.route) {
-            Column {
-                AppHeader(onMenuClick = onOpenDrawer, onSearchClick = { })
-                EmptyScreen(title = "Tags")
-            }
+
+        composable(BottomNavScreen.AI.route) {
+            EmptyScreen("AI")
         }
 
         composable(
-            route           = "folder_detail/{albumName}",
+            route           = "folder_detail/{albumId}/{albumName}",
+            arguments       = listOf(
+                navArgument("albumId")   { type = NavType.LongType },
+                navArgument("albumName") { type = NavType.StringType }
+            ),
             enterTransition = {
                 slideIntoContainer(
                     towards       = AnimatedContentTransitionScope.SlideDirection.Start,
@@ -367,8 +215,10 @@ fun NavigationGraph(
                 ) + fadeOut(tween(NAV_SLIDE_MS))
             }
         ) { backStackEntry ->
+            val albumId   = backStackEntry.arguments?.getLong("albumId") ?: 0L
             val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
             FolderDetailScreen(
+                albumId      = albumId,
                 albumName    = albumName,
                 showHidden   = showHidden,
                 onBackClick  = { navController.popBackStack() },
@@ -409,7 +259,80 @@ fun NavigationGraph(
     }
 }
 
-// ─── Empty placeholder screen ─────────────────────────────────────────────────
+@Composable
+fun SettingsDrawer(
+    themeMode: ThemeMode,
+    showHidden: Boolean,
+    onThemeSet: (ThemeMode) -> Unit,
+    onToggleHide: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(280.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .statusBarsPadding()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Settings",
+            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
+        )
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Appearance", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
+        val modes = listOf(
+            Triple(ThemeMode.LIGHT, "Light", Icons.Default.Brightness7),
+            Triple(ThemeMode.DARK,  "Dark",  Icons.Default.Brightness4),
+            Triple(ThemeMode.AUTO,  "Auto",  Icons.Default.BrightnessAuto)
+        )
+
+        modes.forEach { (mode, label, icon) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onThemeSet(mode) }
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(16.dp))
+                    Text(label)
+                }
+                RadioButton(selected = themeMode == mode, onClick = { onThemeSet(mode) })
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+        Text("Visibility", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggleHide() }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (showHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(16.dp))
+                Text("Show Hidden Files")
+            }
+            Switch(checked = showHidden, onCheckedChange = { onToggleHide() })
+        }
+    }
+}
 
 @Composable
 fun EmptyScreen(title: String) {
@@ -418,12 +341,21 @@ fun EmptyScreen(title: String) {
         contentAlignment  = Alignment.Center
     ) {
         Text(
-            text  = title.uppercase(),
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.ExtraLight,
-                letterSpacing = 4.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.1f)
+            text  = title,
+            style = MaterialTheme.typography.displaySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
         )
     }
 }
+
+sealed class BottomNavScreen(val route: String, val label: String) {
+    object Folders : BottomNavScreen("folders", "Folders")
+    object Search  : BottomNavScreen("search",  "Search")
+    object AI      : BottomNavScreen("ai",      "AI")
+}
+
+val mainBottomNavItems = listOf(
+    BottomNavScreen.Folders,
+    BottomNavScreen.Search,
+    BottomNavScreen.AI
+)

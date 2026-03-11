@@ -292,7 +292,7 @@ class MediaRepository(
                     isHidden       = isHidden
                 )
             }
-        albumDao.insertAll(albums)
+        albumDao.upsertAll(albums)
 
         val albumIds = albums.map { it.id }
         if (albumIds.isNotEmpty()) albumDao.deleteStaleAlbums(albumIds) else albumDao.clearAll()

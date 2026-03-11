@@ -30,6 +30,7 @@ import java.io.File
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun FolderDetailScreen(
+    albumId: Long,
     albumName: String,
     showHidden: Boolean = false,
     onBackClick: () -> Unit,
@@ -38,7 +39,7 @@ fun FolderDetailScreen(
     val context = LocalContext.current
     val app = context.applicationContext as PandoraApp
     val viewModel: FolderDetailViewModel = viewModel(
-        factory = FolderDetailViewModelFactory(app.repository, albumName)
+        factory = FolderDetailViewModelFactory(app.repository, albumId)
     )
     val mediaItems by viewModel.mediaItems.collectAsState()
     val allAlbums by viewModel.allAlbums.collectAsState()
