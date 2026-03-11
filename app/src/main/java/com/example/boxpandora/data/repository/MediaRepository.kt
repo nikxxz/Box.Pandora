@@ -32,6 +32,67 @@ class MediaRepository(
 ) {
     private val nomediaScanner = NomediaScanner()
 
+    /**
+     * Parameters for media search. [terms] splits [query] on whitespace/commas.
+     * [isActive] is true if any filter differs from the default pass-through value.
+     */
+    data class MediaSearchParams(
+        val query: String = "",
+        val type: String = "all",        // "all" | "image" | "video"
+        val format: String = "all",      // "all" | "jpg" | "png" | "gif" | "mp4" | "webp"
+        val tagCategory: String = "All"
+    ) {
+        val terms: List<String> get() =
+            query.trim().split(Regex("[,\\s]+")).filter { it.isNotBlank() }
+
+        val isActive: Boolean get() =
+            query.isNotBlank() || type != "all" || format != "all" || tagCategory != "All"
+    }
+
+    /**
+     * Searches media using structural filters (type/format/tagCategory) and text query in SQL,
+     * then applies strict multi-term matching in memory (AND logic across terms).
+     * Pass albumId = null to search across all albums.
+     */
+    suspend fun searchMedia(
+        params: MediaSearchParams,
+        albumId: Long? = null,
+        showHidden: Boolean = false
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
+        // Use the full query for a broad SQL match to get candidates.
+        // This ensures relevant items (like 'cactus') aren't buried by LIMIT 500.
+        val candidates = mediaItemDao.searchFiltered(
+            showHidden  = showHidden,
+            albumId     = albumId ?: -1L,
+            type        = params.type,
+            format      = params.format.lowercase(),
+            tagCategory = params.tagCategory,
+            query       = params.query.trim()
+        )
+
+        if (candidates.isEmpty()) return@withContext emptyList()
+
+        val terms = params.terms
+        if (terms.isEmpty()) return@withContext candidates
+
+        // Build uri → tagNames map via one batch query
+        val uriTagMap = tagRepository.getTagNamesForUris(candidates.map { it.uri })
+            .groupBy { it.mediaUri }
+            .mapValues { (_, rows) ->
+                rows.flatMap { listOf(it.tagName.lowercase(), it.normalizedName.lowercase()) }.toSet()
+            }
+
+        // Each term must match filename or any attached tag (AND across terms)
+        candidates.filter { item ->
+            val fn   = item.filename.lowercase()
+            val tags = uriTagMap[item.uri] ?: emptySet()
+            terms.all { term ->
+                val t = term.lowercase()
+                fn.contains(t) || tags.any { it.contains(t) }
+            }
+        }
+    }
+
     fun getAllMediaPaged(showHidden: Boolean): Flow<PagingData<MediaItem>> {
         return Pager(
             config = PagingConfig(pageSize = 60, enablePlaceholders = true),

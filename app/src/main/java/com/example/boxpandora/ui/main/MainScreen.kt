@@ -32,7 +32,6 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
-import com.example.boxpandora.ui.common.AppHeader
 import com.example.boxpandora.ui.components.media.MediaViewer
 import com.example.boxpandora.ui.main.viewmodel.ThemeMode
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModel
@@ -71,7 +70,7 @@ fun MainScreen() {
             Scaffold(
                 bottomBar = {
                     AnimatedVisibility(
-                        visible = mainBottomNavItems.any { it.route == currentRoute },
+                        visible = bottomNavItems.any { it.route == currentRoute },
                         enter = slideInVertically(animationSpec = tween(200)) { it / 3 } + fadeIn(animationSpec = tween(200)),
                         exit  = slideOutVertically(animationSpec = tween(200)) { it / 3 } + fadeOut(animationSpec = tween(200))
                     ) {
@@ -80,7 +79,7 @@ fun MainScreen() {
                             tonalElevation = 0.dp,
                             modifier = Modifier.height(80.dp)
                         ) {
-                            mainBottomNavItems.forEach { screen ->
+                            bottomNavItems.forEach { screen ->
                                 val selected = currentRoute == screen.route
                                 NavigationBarItem(
                                     selected = selected,
@@ -122,7 +121,7 @@ fun MainScreen() {
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(
-                            bottom = if (mainBottomNavItems.any { it.route == currentRoute })
+                            bottom = if (bottomNavItems.any { it.route == currentRoute })
                                 innerPadding.calculateBottomPadding() else 0.dp
                         )
                 ) {
@@ -176,24 +175,28 @@ fun NavigationGraph(
     onUpdateMediaItems: (List<MediaItem>) -> Unit,
     showHidden: Boolean
 ) {
-    NavHost(navController = navController, startDestination = BottomNavScreen.Folders.route) {
+    NavHost(navController = navController, startDestination = Screen.Folders.route) {
 
-        composable(BottomNavScreen.Folders.route) {
+        composable(Screen.Folders.route) {
             FoldersScreen(
                 showHidden    = showHidden,
                 onFolderClick = { album ->
                     navController.navigate("folder_detail/${album.id}/${album.name}")
                 },
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                },
                 onOpenDrawer  = onOpenDrawer
             )
         }
 
-        composable(BottomNavScreen.Search.route) {
-            EmptyScreen("Search")
+        composable(Screen.Favorites.route) {
+            EmptyScreen("Favorites")
         }
 
-        composable(BottomNavScreen.AI.route) {
-            EmptyScreen("AI")
+        composable(Screen.Tags.route) {
+            TagsScreen()
         }
 
         composable(
@@ -349,15 +352,3 @@ fun EmptyScreen(title: String) {
         )
     }
 }
-
-sealed class BottomNavScreen(val route: String, val label: String) {
-    object Folders : BottomNavScreen("folders", "Folders")
-    object Search  : BottomNavScreen("search",  "Search")
-    object AI      : BottomNavScreen("ai",      "AI")
-}
-
-val mainBottomNavItems = listOf(
-    BottomNavScreen.Folders,
-    BottomNavScreen.Search,
-    BottomNavScreen.AI
-)

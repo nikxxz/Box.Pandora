@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -32,10 +33,7 @@ import androidx.paging.compose.itemKey
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
-import com.example.boxpandora.ui.common.AppHeader
-import com.example.boxpandora.ui.common.DeleteConfirmationDialog
-import com.example.boxpandora.ui.common.FolderSelectorDialog
-import com.example.boxpandora.ui.common.RenameDialog
+import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
@@ -61,6 +59,11 @@ fun FolderDetailScreen(
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
 
+    val isSearchOpen by viewModel.isSearchOpen.collectAsState()
+    val searchParams by viewModel.searchParams.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
@@ -77,78 +80,120 @@ fun FolderDetailScreen(
         }
     }
 
+    if (isSearchOpen) {
+        BackHandler {
+            viewModel.closeSearch()
+        }
+    }
+
     Scaffold(
         topBar = {
-            val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
-                val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
-                if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
-            }
-
-            AppHeader(
-                title = albumName,
-                onBackClick = onBackClick,
-                onSearchClick = { },
-                selectionCount = selectedUris.size,
-                onClearSelection = { viewModel.clearSelection() },
-                showHideOption = showHideLabel,
-                onActionClick = { action ->
-                    when (action) {
-                        "delete" -> showDeleteDialog = true
-                        "rename" -> showRenameDialog = true
-                        "copy" -> { viewModel.loadAlbums(); showCopyDialog = true }
-                        "move" -> { viewModel.loadAlbums(); showMoveDialog = true }
-                        "hide_show" -> viewModel.toggleHiddenForSelected()
-                        "tag" -> showBulkTagDialog = true
-                        "share" -> {
-                            val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
-                            shareMediaItems(context, items)
-                            viewModel.clearSelection()
-                        }
-                        "open_with" -> {
-                            val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
-                            item?.let { openMediaItem(context, it) }
-                            viewModel.clearSelection()
-                        }
-                        else -> viewModel.clearSelection()
-                    }
+            Column {
+                val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
+                    val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
+                    if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
                 }
-            )
+
+                AppHeader(
+                    title = albumName,
+                    onBackClick = onBackClick,
+                    onSearchClick = { viewModel.openSearch() },
+                    selectionCount = selectedUris.size,
+                    onClearSelection = { viewModel.clearSelection() },
+                    showHideOption = showHideLabel,
+                    onActionClick = { action ->
+                        when (action) {
+                            "delete" -> showDeleteDialog = true
+                            "rename" -> showRenameDialog = true
+                            "copy" -> {
+                                viewModel.loadAlbums(); showCopyDialog = true
+                            }
+                            "move" -> {
+                                viewModel.loadAlbums(); showMoveDialog = true
+                            }
+                            "hide_show" -> viewModel.toggleHiddenForSelected()
+                            "tag" -> showBulkTagDialog = true
+                            "share" -> {
+                                val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
+                                shareMediaItems(context, items)
+                                viewModel.clearSelection()
+                            }
+                            "open_with" -> {
+                                val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
+                                item?.let { openMediaItem(context, it) }
+                                viewModel.clearSelection()
+                            }
+                            else -> viewModel.clearSelection()
+                        }
+                    }
+                )
+
+                AnimatedVisibility(
+                    visible = isSearchOpen,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    MediaSearchPanel(
+                        params = searchParams,
+                        onParamsChange = { viewModel.updateSearchParams(it) },
+                        onClose = { viewModel.closeSearch() }
+                    )
+                }
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(1.dp)
-            ) {
-                items(
-                    count = pagingItems.itemCount,
-                    key = pagingItems.itemKey { it.uri }
-                ) { index ->
-                    val item = pagingItems[index]
-                    if (item != null) {
-                        MediaThumbnail(
-                            uri        = item.uri,
-                            filePath   = item.filePath,
-                            mediaType  = item.mediaType,
-                            duration   = item.duration,
-                            isFavorite = item.isFavorite,
-                            isSelected = item.uri in selectedUris,
-                            onPress = {
-                                if (isSelectionMode) {
+            if (isSearchOpen) {
+                SearchResultsGrid(
+                    results = searchResults,
+                    selectedUris = selectedUris,
+                    isLoading = isSearching,
+                    onPress = { item ->
+                        if (isSelectionMode) {
+                            viewModel.toggleSelection(item.uri)
+                        } else {
+                            onMediaClick(searchResults, searchResults.indexOf(item))
+                        }
+                    },
+                    onLongPress = { viewModel.toggleSelection(it.uri) }
+                )
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(1.dp)
+                ) {
+                    items(
+                        count = pagingItems.itemCount,
+                        key = pagingItems.itemKey { it.uri }
+                    ) { index ->
+                        val item = pagingItems[index]
+                        if (item != null) {
+                            MediaThumbnail(
+                                uri = item.uri,
+                                filePath = item.filePath,
+                                mediaType = item.mediaType,
+                                duration = item.duration,
+                                isFavorite = item.isFavorite,
+                                isSelected = item.uri in selectedUris,
+                                onPress = {
+                                    if (isSelectionMode) {
+                                        viewModel.toggleSelection(item.uri)
+                                    } else {
+                                        onMediaClick(pagingItems.itemSnapshotList.items.filterNotNull(), index)
+                                    }
+                                },
+                                onLongPress = {
                                     viewModel.toggleSelection(item.uri)
-                                } else {
-                                    onMediaClick(pagingItems.itemSnapshotList.items.filterNotNull(), index)
-                                }
-                            },
-                            onLongPress = {
-                                viewModel.toggleSelection(item.uri)
-                            },
-                            modifier = Modifier
-                        )
-                    } else {
-                        Box(modifier = Modifier.aspectRatio(1f).padding(1.dp))
+                                },
+                                modifier = Modifier
+                            )
+                        } else {
+                            Box(modifier = Modifier
+                                .aspectRatio(1f)
+                                .padding(1.dp))
+                        }
                     }
                 }
             }

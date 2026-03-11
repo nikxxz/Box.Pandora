@@ -11,10 +11,12 @@ import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
+@OptIn(FlowPreview::class)
 class FolderDetailViewModel(
     private val repository: MediaRepository,
     private val tagRepository: TagRepository,
@@ -44,6 +46,49 @@ class FolderDetailViewModel(
     val allTags = tagRepository.getAllTagsFlow().stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
+
+    // ── Search ────────────────────────────────────────────────────────────────
+    private val _searchParams = MutableStateFlow(MediaRepository.MediaSearchParams())
+    val searchParams: StateFlow<MediaRepository.MediaSearchParams> = _searchParams
+
+    private val _isSearchOpen = MutableStateFlow(false)
+    val isSearchOpen: StateFlow<Boolean> = _isSearchOpen
+
+    private val _searchResults = MutableStateFlow<List<MediaItem>>(emptyList())
+    val searchResults: StateFlow<List<MediaItem>> = _searchResults
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching
+
+    init {
+        viewModelScope.launch {
+            combine(
+                _searchParams.debounce(280L),
+                _showHidden,
+                _isSearchOpen
+            ) { params, hidden, isOpen ->
+                Triple(params, hidden, isOpen)
+            }.collectLatest { (params, hidden, isOpen) ->
+                if (isOpen) {
+                    _isSearching.value = true
+                    _searchResults.value = repository.searchMedia(params, albumId = albumId, showHidden = hidden)
+                    _isSearching.value = false
+                } else {
+                    _searchResults.value = emptyList()
+                    _isSearching.value = false
+                }
+            }
+        }
+    }
+
+    fun openSearch() { _isSearchOpen.value = true }
+    fun closeSearch() {
+        _isSearchOpen.value = false
+        _searchParams.value = MediaRepository.MediaSearchParams()
+    }
+    fun updateSearchParams(params: MediaRepository.MediaSearchParams) {
+        _searchParams.value = params
+    }
 
     fun loadAlbums() {
         if (albumsJob != null) return

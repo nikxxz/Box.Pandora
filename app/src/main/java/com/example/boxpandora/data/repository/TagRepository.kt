@@ -32,6 +32,14 @@ class TagRepository(
 
     fun getAllTagsFlow(): Flow<List<Tag>> = tagDao.getAllTagsFlow()
 
+    suspend fun getCoverForTag(tagId: Long): String? = withContext(Dispatchers.IO) {
+        mediaTagDao.getCoverMediaUri(tagId)
+    }
+
+    suspend fun getTagNamesForUris(uris: List<String>) = withContext(Dispatchers.IO) {
+        mediaTagDao.getTagNamesForUris(uris)
+    }
+
     fun getTagsByCategoryFlow(category: String): Flow<List<Tag>> = 
         tagDao.getTagsByCategoryFlow(category)
 

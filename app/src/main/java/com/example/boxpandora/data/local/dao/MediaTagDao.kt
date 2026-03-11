@@ -43,4 +43,27 @@ interface MediaTagDao {
 
     @Query("SELECT COUNT(*) FROM media_tags WHERE tag_id = :tagId")
     suspend fun getUsageCount(tagId: Long): Int
+
+    @Query("""
+        SELECT m.uri FROM media_index m
+        INNER JOIN media_tags mt ON m.uri = mt.media_uri
+        WHERE mt.tag_id = :tagId
+        ORDER BY m.device_created_at DESC
+        LIMIT 1
+    """)
+    suspend fun getCoverMediaUri(tagId: Long): String?
+
+    @Query("""
+        SELECT mt.media_uri AS mediaUri, t.name AS tagName, t.normalized_name AS normalizedName
+        FROM media_tags mt
+        INNER JOIN tags t ON mt.tag_id = t.id
+        WHERE mt.media_uri IN (:uris)
+    """)
+    suspend fun getTagNamesForUris(uris: List<String>): List<MediaUriTagName>
 }
+
+data class MediaUriTagName(
+    val mediaUri: String,
+    val tagName: String,
+    val normalizedName: String
+)

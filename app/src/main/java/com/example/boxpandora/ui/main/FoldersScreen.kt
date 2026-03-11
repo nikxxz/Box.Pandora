@@ -30,10 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.Album
-import com.example.boxpandora.ui.common.AppHeader
-import com.example.boxpandora.ui.common.DeleteConfirmationDialog
-import com.example.boxpandora.ui.common.FolderSelectorDialog
-import com.example.boxpandora.ui.common.RenameDialog
+import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.FolderCard
 import com.example.boxpandora.ui.main.viewmodel.FoldersViewModel
 import com.example.boxpandora.ui.main.viewmodel.FoldersViewModelFactory
@@ -52,6 +50,7 @@ private fun hasStorageAccess(): Boolean {
 fun FoldersScreen(
     showHidden: Boolean,
     onFolderClick: (Album) -> Unit,
+    onMediaClick: (List<MediaItem>, Int) -> Unit,
     onOpenDrawer: () -> Unit
 ) {
     val context = LocalContext.current
@@ -62,6 +61,11 @@ fun FoldersScreen(
     val albums by viewModel.albums.collectAsState()
     val selectedIds by viewModel.selectedAlbumIds.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+
+    val isSearchOpen by viewModel.isSearchOpen.collectAsState()
+    val searchParams by viewModel.searchParams.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -75,6 +79,12 @@ fun FoldersScreen(
     if (isSelectionMode) {
         BackHandler {
             viewModel.clearSelection()
+        }
+    }
+
+    if (isSearchOpen) {
+        BackHandler {
+            viewModel.closeSearch()
         }
     }
 
@@ -124,7 +134,7 @@ fun FoldersScreen(
 
         AppHeader(
             onMenuClick = onOpenDrawer,
-            onSearchClick = { },
+            onSearchClick = { viewModel.openSearch() },
             selectionCount = selectedIds.size,
             onClearSelection = { viewModel.clearSelection() },
             showHideOption = showHideLabel,
@@ -140,60 +150,83 @@ fun FoldersScreen(
             }
         )
 
+        AnimatedVisibility(
+            visible = isSearchOpen,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut()
+        ) {
+            MediaSearchPanel(
+                params = searchParams,
+                onParamsChange = { viewModel.updateSearchParams(it) },
+                onClose = { viewModel.closeSearch() }
+            )
+        }
+
         Box(modifier = Modifier.weight(1f)) {
-            AnimatedContent(
-                targetState = albums.isEmpty(),
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
-                    fadeOut(animationSpec = tween(90))
-                },
-                label = "FoldersContentTransition"
-            ) { isLoading ->
-                if (isLoading) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(
-                            horizontal = PandoraDimensions.gridPadding,
-                            vertical = 8.dp
-                        ),
-                        horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        items(albums, key = { it.id }) { album ->
-                            FolderCard(
-                                album = album,
-                                isSelected = album.id in selectedIds,
-                                onPress = {
-                                    if (isSelectionMode) {
+            if (isSearchOpen) {
+                SearchResultsGrid(
+                    results = searchResults,
+                    isLoading = isSearching,
+                    onPress = { item ->
+                        onMediaClick(searchResults, searchResults.indexOf(item))
+                    },
+                    onLongPress = { /* Search selection? Not yet implemented in VM */ }
+                )
+            } else {
+                AnimatedContent(
+                    targetState = albums.isEmpty(),
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
+                                fadeOut(animationSpec = tween(90))
+                    },
+                    label = "FoldersContentTransition"
+                ) { isLoading ->
+                    if (isLoading) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            contentPadding = PaddingValues(
+                                horizontal = PandoraDimensions.gridPadding,
+                                vertical = 8.dp
+                            ),
+                            horizontalArrangement = Arrangement.spacedBy(PandoraDimensions.gridGap),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(albums, key = { it.id }) { album ->
+                                FolderCard(
+                                    album = album,
+                                    isSelected = album.id in selectedIds,
+                                    onPress = {
+                                        if (isSelectionMode) {
+                                            viewModel.toggleSelection(album.id)
+                                        } else {
+                                            onFolderClick(album)
+                                        }
+                                    },
+                                    onLongPress = {
                                         viewModel.toggleSelection(album.id)
-                                    } else {
-                                        onFolderClick(album)
-                                    }
-                                },
-                                onLongPress = {
-                                    viewModel.toggleSelection(album.id)
-                                },
-                                modifier = Modifier.animateItemPlacement()
-                            )
+                                    },
+                                    modifier = Modifier.animateItemPlacement()
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-            if (!isSelectionMode) {
-                FloatingActionButton(
-                    onClick = { viewModel.refresh() },
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(16.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Sync")
+                if (!isSelectionMode) {
+                    FloatingActionButton(
+                        onClick = { viewModel.refresh() },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(16.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Sync")
+                    }
                 }
             }
         }
