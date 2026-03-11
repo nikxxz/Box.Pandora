@@ -73,6 +73,12 @@ private val LabelColor = Color(0xFF8E8E93)
 private const val FLING_VELOCITY = 500f
 private const val FallbackMaxFraction = 0.45f
 
+// Calmer animation spec for info panel
+private val PanelAnimationSpec = spring<Float>(
+    dampingRatio = Spring.DampingRatioNoBouncy,
+    stiffness = Spring.StiffnessLow
+)
+
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -131,10 +137,7 @@ fun MediaViewer(
                     panelFraction.value > maxFraction * 0.28f -> maxFraction
                     else -> 0f
                 }
-                panelFraction.animateTo(
-                    target,
-                    spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
-                )
+                panelFraction.animateTo(target, PanelAnimationSpec)
             }
         }
 
@@ -230,7 +233,7 @@ fun MediaViewer(
                                 scope.launch {
                                     panelFraction.animateTo(
                                         if (shouldClose) 0f else maxFraction,
-                                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+                                        PanelAnimationSpec
                                     )
                                 }
                             }
@@ -313,11 +316,20 @@ private fun ViewerHeader(
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val options = listOf("Open With", "Share", "Rename", "Copy To", "Move To", "Delete")
+    val density = LocalDensity.current
 
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn() + slideInVertically(),
-        exit = fadeOut() + slideOutVertically()
+        enter = fadeIn(animationSpec = tween(180)) +
+                slideInVertically(
+                    initialOffsetY = { with(density) { -24.dp.roundToPx() } },
+                    animationSpec = tween(180)
+                ),
+        exit = fadeOut(animationSpec = tween(150)) +
+               slideOutVertically(
+                   targetOffsetY = { with(density) { -24.dp.roundToPx() } },
+                   animationSpec = tween(150)
+               )
     ) {
         Box(
             modifier = Modifier
@@ -408,7 +420,7 @@ private fun ZoomableImagePage(
     val imageRequest = remember(item.filePath, item.uri, item.deviceModifiedAt) {
         ImageRequest.Builder(context)
             .data(item.filePath?.let { File(it) } ?: item.uri)
-            .crossfade(true)
+            .crossfade(false)
             .build()
     }
 

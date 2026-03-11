@@ -1,6 +1,5 @@
 package com.example.boxpandora.ui.components.grid
 
-import android.util.Log
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -30,14 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
-import coil.request.ErrorResult
 import coil.request.ImageRequest
-import coil.request.SuccessResult
 import coil.size.Size
 import com.example.boxpandora.data.util.Formatters
 import java.io.File
-
-private const val TAG = "MediaThumbnail"
 
 /**
  * Grid thumbnail cell.
@@ -46,11 +41,6 @@ private const val TAG = "MediaThumbnail"
  * This makes the composable SKIPPABLE by the Compose compiler: if none of the
  * declared parameters change between recompositions, Compose skips the body
  * entirely — no request rebuild, no Coil lookup, no placeholder flash.
- *
- * Stability contract:
- *   String / String? / Double? / Int / Boolean are all stable Compose types.
- *   Lambdas are stable when they do not capture mutable state (they are hoisted
- *   from the call site).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -68,46 +58,25 @@ fun MediaThumbnail(
     val context = LocalContext.current
 
     // The cache key is the stable identity used by both Coil memory and disk caches.
-    // Computed from filePath (preferred) or uri (fallback) — identical logic to before,
-    // but now the remember key is the final string rather than derived inputs.
     val cacheKey = remember(filePath, uri) { filePath?.takeIf { it.isNotEmpty() } ?: uri }
 
-    // imageModel is the data Coil actually loads from.  File is preferred over URI
-    // because it lets Coil skip ContentResolver overhead.
+    // imageModel is the data Coil actually loads from. File is preferred over URI.
     val imageModel = remember(cacheKey) {
         filePath?.takeIf { it.isNotEmpty() }?.let { File(it) } ?: uri
     }
 
-    // The request is memoised by cacheKey alone.  As long as the file path / uri
-    // does not change, the exact same ImageRequest object is returned — Coil's
-    // AsyncImage uses referential equality on the model to decide whether to
-    // re-execute, so a stable reference here prevents spurious re-decodes.
+    // The request is memoised by cacheKey alone to prevent spurious re-decodes.
     val request = remember(cacheKey) {
         ImageRequest.Builder(context)
             .data(imageModel)
             .memoryCacheKey(cacheKey)
             .diskCacheKey(cacheKey)
-            // Fixed decode size prevents pileup during fast scroll — Coil can start
-            // decoding before Compose finishes measuring the cell.
+            // Fixed decode size prevents pileup during fast scroll.
             .size(Size(600, 600))
-            // VideoFrameDecoder is only needed for video items; attaching it to image
-            // requests adds unnecessary factory-probe overhead.
+            // VideoFrameDecoder is only needed for video items.
             .apply { if (mediaType == "video") decoderFactory(VideoFrameDecoder.Factory()) }
-            // No crossfade: even 150 ms is visible when cells remap after a list
-            // update and some items reload from disk cache.
+            // No crossfade: prevents visible flashes during cell remapping.
             .crossfade(false)
-            // --- TEMPORARY DEBUG LISTENER — remove once flash is confirmed fixed ---
-            .listener(object : ImageRequest.Listener {
-                override fun onStart(request: ImageRequest) {
-                    Log.d(TAG, "START  key=${cacheKey.takeLast(40)}")
-                }
-                override fun onSuccess(request: ImageRequest, result: SuccessResult) {
-                    Log.d(TAG, "HIT    key=${cacheKey.takeLast(40)} src=${result.dataSource}")
-                }
-                override fun onError(request: ImageRequest, result: ErrorResult) {
-                    Log.d(TAG, "ERROR  key=${cacheKey.takeLast(40)}")
-                }
-            })
             .build()
     }
 
@@ -137,10 +106,7 @@ fun MediaThumbnail(
                 onLongClick = onLongPress
             )
     ) {
-        // Placeholder color lives here as a permanent background layer, NOT as the
-        // AsyncImage placeholder parameter.  This prevents Coil from ever "reverting"
-        // to a placeholder state during recomposition: the surfaceVariant colour is
-        // always visible underneath; the decoded image paints on top and stays there.
+        // Placeholder color as a permanent background layer to prevent "reverting" flashes.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -151,10 +117,6 @@ fun MediaThumbnail(
             model = request,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            // No placeholder or error painter: the surfaceVariant Box behind this
-            // composable is permanently visible and handles both states.  Passing
-            // placeholder here would let Coil swap back to it during recomposition,
-            // which is exactly the flash we are eliminating.
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {

@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.EaseIn
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,7 +41,8 @@ import com.example.boxpandora.ui.theme.BoxPandoraTheme
 
 private const val NAV_FADE_MS  = 300
 private const val NAV_SLIDE_MS = 400
-private const val DRAWER_MS    = 280
+private const val DRAWER_OVERLAY_MS = 150
+private const val DRAWER_PANEL_MS   = 200
 
 @Composable
 fun MainScreen() {
@@ -70,8 +72,8 @@ fun MainScreen() {
                 bottomBar = {
                     AnimatedVisibility(
                         visible = mainBottomNavItems.any { it.route == currentRoute },
-                        enter = slideInVertically { it } + fadeIn(),
-                        exit  = slideOutVertically { it } + fadeOut()
+                        enter = slideInVertically(animationSpec = tween(200)) { it / 3 } + fadeIn(animationSpec = tween(200)),
+                        exit  = slideOutVertically(animationSpec = tween(200)) { it / 3 } + fadeOut(animationSpec = tween(200))
                     ) {
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.background,
@@ -136,8 +138,8 @@ fun MainScreen() {
 
             AnimatedVisibility(
                 visible = isDrawerOpen,
-                enter   = fadeIn(tween(DRAWER_MS)),
-                exit    = fadeOut(tween(DRAWER_MS))
+                enter   = fadeIn(tween(DRAWER_OVERLAY_MS, easing = FastOutSlowInEasing)),
+                exit    = fadeOut(tween(DRAWER_OVERLAY_MS, easing = FastOutSlowInEasing))
             ) {
                 Box(
                     modifier = Modifier
@@ -152,8 +154,8 @@ fun MainScreen() {
 
             AnimatedVisibility(
                 visible = isDrawerOpen,
-                enter   = slideInHorizontally(tween(DRAWER_MS)) { -it },
-                exit    = slideOutHorizontally(tween(DRAWER_MS)) { -it }
+                enter   = slideInHorizontally(tween(DRAWER_PANEL_MS, easing = FastOutSlowInEasing)) { -it },
+                exit    = slideOutHorizontally(tween(DRAWER_PANEL_MS, easing = FastOutSlowInEasing)) { -it }
             ) {
                 SettingsDrawer(
                     themeMode    = themeMode,

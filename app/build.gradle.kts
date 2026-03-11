@@ -76,6 +76,7 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+    implementation(libs.coil.gif)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
