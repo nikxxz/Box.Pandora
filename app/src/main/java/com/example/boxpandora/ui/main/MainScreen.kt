@@ -196,7 +196,11 @@ fun NavigationGraph(
         }
 
         composable(Screen.Tags.route) {
-            TagsScreen()
+            TagsScreen(
+                onTagClick = { tag ->
+                    navController.navigate("tag_gallery/${tag.id}")
+                }
+            )
         }
 
         composable(
@@ -225,6 +229,38 @@ fun NavigationGraph(
             FolderDetailScreen(
                 albumId      = albumId,
                 albumName    = albumName,
+                showHidden   = showHidden,
+                onBackClick  = { navController.popBackStack() },
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                }
+            )
+        }
+
+        composable(
+            route           = Screen.TagGallery.route,
+            arguments       = listOf(
+                navArgument("tagId") { type = NavType.LongType }
+            ),
+            enterTransition = {
+                slideIntoContainer(
+                    towards       = AnimatedContentTransitionScope.SlideDirection.Start,
+                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)
+                ) + fadeIn(tween(NAV_SLIDE_MS))
+            },
+            exitTransition  = { fadeOut(tween(NAV_FADE_MS)) },
+            popEnterTransition = { fadeIn(tween(NAV_FADE_MS)) },
+            popExitTransition  = {
+                slideOutOfContainer(
+                    towards       = AnimatedContentTransitionScope.SlideDirection.End,
+                    animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)
+                ) + fadeOut(tween(NAV_SLIDE_MS))
+            }
+        ) { backStackEntry ->
+            val tagId = backStackEntry.arguments?.getLong("tagId") ?: 0L
+            TagGalleryScreen(
+                tagId        = tagId,
                 showHidden   = showHidden,
                 onBackClick  = { navController.popBackStack() },
                 onMediaClick = { items, index ->

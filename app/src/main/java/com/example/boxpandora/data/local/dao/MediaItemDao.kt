@@ -37,6 +37,15 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_index WHERE album_id = :albumId")
     suspend fun getMediaByAlbum(albumId: Long): List<MediaItem>
 
+    @Query("""
+        SELECT m.* FROM media_index m
+        INNER JOIN media_tags mt ON m.uri = mt.media_uri
+        WHERE mt.tag_id = :tagId
+        AND (m.hidden = 0 OR :showHidden = 1)
+        ORDER BY m.device_created_at DESC, m.uri DESC
+    """)
+    fun getMediaByTagFlow(tagId: Long, showHidden: Boolean): Flow<List<MediaItem>>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(items: List<MediaItem>)
 

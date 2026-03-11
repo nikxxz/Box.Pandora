@@ -2,35 +2,40 @@ package com.example.boxpandora.data.repository
 
 import androidx.room.withTransaction
 import com.example.boxpandora.data.local.AppDatabase
-import com.example.boxpandora.data.local.dao.MediaTagDao
-import com.example.boxpandora.data.local.dao.TagAliasDao
-import com.example.boxpandora.data.local.dao.TagDao
-import com.example.boxpandora.data.local.dao.TagSuggestionDao
-import com.example.boxpandora.data.local.dao.HeuristicTagDao
-import com.example.boxpandora.data.local.dao.TagRejectionDao
-import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
-import com.example.boxpandora.data.local.entity.MediaTag
-import com.example.boxpandora.data.local.entity.Tag
-import com.example.boxpandora.data.local.entity.TagAlias
-import com.example.boxpandora.data.local.entity.TagRejection
-import com.example.boxpandora.data.local.entity.TagChangeHistory
+import com.example.boxpandora.data.local.dao.*
+import com.example.boxpandora.data.local.entity.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
 class TagRepository(
-    private val database: AppDatabase,
+    val database: AppDatabase,
     private val tagDao: TagDao,
     private val mediaTagDao: MediaTagDao,
     private val tagAliasDao: TagAliasDao,
     private val tagSuggestionDao: TagSuggestionDao,
     private val heuristicTagDao: HeuristicTagDao,
     private val tagRejectionDao: TagRejectionDao,
-    private val tagChangeHistoryDao: TagChangeHistoryDao
+    private val tagChangeHistoryDao: TagChangeHistoryDao,
+    private val tagCooccurrenceDao: TagCooccurrenceDao
 ) {
 
     fun getAllTagsFlow(): Flow<List<Tag>> = tagDao.getAllTagsFlow()
+
+    fun getTagFlow(tagId: Long): Flow<Tag?> = tagDao.getByIdFlow(tagId)
+
+    fun getRelatedTagsFlow(tagId: Long, limit: Int = 8): Flow<List<RelatedTag>> {
+        return tagCooccurrenceDao.getRelatedTagsFlow(tagId, limit).map { cooccurrences ->
+            cooccurrences.mapNotNull { co ->
+                val relatedId = if (co.tagIdA == tagId) co.tagIdB else co.tagIdA
+                tagDao.getById(relatedId)?.let { tag ->
+                    RelatedTag(tag, co.count)
+                }
+            }
+        }
+    }
 
     suspend fun getCoverForTag(tagId: Long): String? = withContext(Dispatchers.IO) {
         mediaTagDao.getCoverMediaUri(tagId)
@@ -93,6 +98,11 @@ class TagRepository(
             if (existing.none { it.tagId == tag.id }) {
                 mediaTagDao.insert(MediaTag(mediaUri, tag.id))
                 tagDao.updateUsageCount(tag.id, 1)
+                
+                // Record co-occurrence with other tags on this media
+                existing.forEach { other ->
+                    tagCooccurrenceDao.recordCooccurrence(tag.id, other.tagId)
+                }
             }
         }
     }
@@ -123,6 +133,28 @@ class TagRepository(
                 if (toAdd.isNotEmpty()) {
                     mediaTagDao.insertAll(toAdd.map { MediaTag(uri, it.id) })
                     toAdd.forEach { tagDao.updateUsageCount(it.id, 1) }
+                    
+                    // Update co-occurrences
+                    val allCurrentIds = existingTagIds + toAdd.map { it.id }
+                    toAdd.forEach { newTag ->
+                        allCurrentIds.forEach { otherId ->
+                            if (newTag.id != otherId) {
+                                tagCooccurrenceDao.recordCooccurrence(newTag.id, otherId)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun removeTagFromMediaBulk(mediaUris: List<String>, tagId: Long) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            mediaUris.forEach { uri ->
+                val existing = mediaTagDao.getMediaTagsForUri(uri)
+                if (existing.any { it.tagId == tagId }) {
+                    mediaTagDao.delete(uri, tagId)
+                    tagDao.updateUsageCount(tagId, -1)
                 }
             }
         }
@@ -227,6 +259,21 @@ class TagRepository(
         }
     }
 
+    suspend fun updateDescription(tagId: Long, description: String?) = withContext(Dispatchers.IO) {
+        tagDao.updateDescription(tagId, description)
+    }
+
+    suspend fun updateCategory(tagId: Long, category: String) = withContext(Dispatchers.IO) {
+        tagDao.updateCategory(tagId, category)
+    }
+
+    suspend fun addAlias(tagId: Long, alias: String) = withContext(Dispatchers.IO) {
+        val normalized = normalizeTagName(alias)
+        if (resolveTagByName(normalized) == null) {
+            tagAliasDao.insert(TagAlias(tagId = tagId, alias = normalized, source = "user"))
+        }
+    }
+
     /**
      * Fetches suggestion candidates for a given media item, filtered by rejections.
      */
@@ -302,3 +349,5 @@ class TagRepository(
             .replace(Regex("\\s+"), " ")              // Collapse duplicate spaces
     }
 }
+
+data class RelatedTag(val tag: Tag, val cooccurrenceCount: Int)

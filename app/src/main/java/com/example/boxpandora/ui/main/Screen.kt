@@ -10,6 +10,9 @@ sealed class Screen(val route: String, val title: String, val label: String, val
     object Folders : Screen("folders", "Folders", "FOLDERS", Icons.Default.Home)
     object Favorites : Screen("favorites", "Favorites", "FAVORITES", Icons.Default.Favorite)
     object Tags : Screen("tags", "Tags", "TAGS", Icons.AutoMirrored.Filled.List)
+    
+    // Non-bottom-nav routes
+    object TagGallery : Screen("tag_gallery/{tagId}", "Tag Gallery", "TAG GALLERY", Icons.AutoMirrored.Filled.List)
 }
 
 val bottomNavItems = listOf(

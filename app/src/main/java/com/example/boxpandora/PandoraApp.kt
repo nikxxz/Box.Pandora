@@ -47,7 +47,8 @@ class PandoraApp : Application(), ImageLoaderFactory {
             tagSuggestionDao = database.tagSuggestionDao(),
             heuristicTagDao = database.heuristicTagDao(),
             tagRejectionDao = database.tagRejectionDao(),
-            tagChangeHistoryDao = database.tagChangeHistoryDao()
+            tagChangeHistoryDao = database.tagChangeHistoryDao(),
+            tagCooccurrenceDao = database.tagCooccurrenceDao()
         )
 
         repository = MediaRepository(
