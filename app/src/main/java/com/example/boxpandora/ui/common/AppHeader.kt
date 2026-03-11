@@ -103,6 +103,16 @@ fun AppHeader(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
+                        if (selectionCount == 1) {
+                            DropdownMenuItem(
+                                text = { Text("Open With") },
+                                onClick = { onActionClick("open_with"); showMenu = false }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Share") },
+                            onClick = { onActionClick("share"); showMenu = false }
+                        )
                         DropdownMenuItem(
                             text = { Text("Copy To") },
                             onClick = { onActionClick("copy"); showMenu = false }

@@ -1,5 +1,8 @@
 package com.example.boxpandora.ui.main
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -11,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
@@ -21,6 +25,7 @@ import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -76,6 +81,16 @@ fun FolderDetailScreen(
                         "copy" -> { viewModel.loadAlbums(); showCopyDialog = true }
                         "move" -> { viewModel.loadAlbums(); showMoveDialog = true }
                         "hide_show" -> viewModel.toggleHiddenForSelected()
+                        "share" -> {
+                            val items = mediaItems.filter { it.uri in selectedUris }
+                            shareMediaItems(context, items)
+                            viewModel.clearSelection()
+                        }
+                        "open_with" -> {
+                            val item = mediaItems.find { it.uri in selectedUris }
+                            item?.let { openMediaItem(context, it) }
+                            viewModel.clearSelection()
+                        }
                         else -> viewModel.clearSelection()
                     }
                 }
@@ -162,5 +177,46 @@ fun FolderDetailScreen(
                 showMoveDialog = false
             }
         )
+    }
+}
+
+private fun shareMediaItems(context: Context, items: List<MediaItem>) {
+    if (items.isEmpty()) return
+    
+    val intent = if (items.size == 1) {
+        val item = items[0]
+        val uri = getUriForFile(context, item) ?: return
+        Intent(Intent.ACTION_SEND).apply {
+            type = if (item.mediaType == "video") "video/*" else "image/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    } else {
+        val uris = ArrayList<Uri>(items.mapNotNull { getUriForFile(context, it) })
+        if (uris.isEmpty()) return
+        Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+            type = "*/*"
+            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+    context.startActivity(Intent.createChooser(intent, "Share via"))
+}
+
+private fun openMediaItem(context: Context, item: MediaItem) {
+    val uri = getUriForFile(context, item) ?: return
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, if (item.mediaType == "video") "video/*" else "image/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Open with"))
+}
+
+private fun getUriForFile(context: Context, item: MediaItem): Uri? {
+    val file = item.filePath?.let { File(it) } ?: return null
+    return try {
+        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    } catch (e: Exception) {
+        Uri.fromFile(file)
     }
 }

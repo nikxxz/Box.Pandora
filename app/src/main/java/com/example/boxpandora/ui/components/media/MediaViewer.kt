@@ -43,10 +43,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.util.Formatters
+import com.example.boxpandora.ui.common.DeleteConfirmationDialog
+import com.example.boxpandora.ui.common.FolderSelectorDialog
+import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.theme.PandoraSpacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,16 +67,11 @@ private val PanelBg    = Color(0xFF080808)
 private val CardBg     = Color(0xFF1C1C1E)
 
 // Session-scoped tags: key = filePath ?: uri, persists while app is alive.
-// mutableStateMapOf is snapshot-aware — avoids SnapshotStateList lock verification warnings.
 private val mediaTagsStore = mutableStateMapOf<String, SnapshotStateList<String>>()
 private val LabelColor = Color(0xFF8E8E93)
 
-// Velocity (px/s) required to trigger a fling open/close
 private const val FLING_VELOCITY = 500f
-// Fallback fraction when content height not yet measured
 private const val FallbackMaxFraction = 0.45f
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @OptIn(ExperimentalFoundationApi::class)
@@ -82,24 +82,32 @@ fun MediaViewer(
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as PandoraApp
+    val viewModel: MediaViewerViewModel = viewModel(
+        factory = MediaViewerViewModelFactory(app.repository)
+    )
+
     val pagerState = rememberPagerState(initialPage = initialIndex) { items.size }
     val currentItem = items.getOrNull(pagerState.currentPage)
     val scope = rememberCoroutineScope()
 
     var isControlsVisible by remember { mutableStateOf(true) }
     var isZoomed by remember { mutableStateOf(false) }
-
     val panelFraction = remember { Animatable(0f) }
-
-    // Measured natural height of the info panel content (px); drives the snap target.
     var contentHeightPx by remember { mutableFloatStateOf(0f) }
 
-    // Only reset zoom on page change — panel stays open across swipes
+    // Dialog states
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showCopyDialog by remember { mutableStateOf(false) }
+    var showMoveDialog by remember { mutableStateOf(false) }
+    val allAlbums by viewModel.allAlbums.collectAsState()
+
     LaunchedEffect(pagerState.currentPage) {
         isZoomed = false
     }
 
-    // Hide controls once panel starts opening
     LaunchedEffect(panelFraction.value) {
         if (panelFraction.value > 0.05f) isControlsVisible = false
     }
@@ -110,9 +118,6 @@ fun MediaViewer(
             .background(Color.Black)
     ) {
         val screenHeightPx = constraints.maxHeight.toFloat()
-
-        // Dynamic max fraction: snaps panel to exactly the content height.
-        // Minimum 35%, Maximum 65% of the screen height.
         val maxFraction = if (contentHeightPx > 0f && screenHeightPx > 0f)
             (contentHeightPx / screenHeightPx).coerceIn(0.35f, 0.65f)
         else
@@ -120,13 +125,11 @@ fun MediaViewer(
 
         fun snapPanel(velocityY: Float = 0f) {
             scope.launch {
-                // Panel is binary: open = maxFraction, closed = 0f
-                // Velocity check first; fall back to current position for borderline cases
                 val target = when {
-                    velocityY < -FLING_VELOCITY -> maxFraction   // fast swipe up  → open
-                    velocityY >  FLING_VELOCITY -> 0f            // fast swipe down → close
-                    panelFraction.value > maxFraction * 0.28f -> maxFraction // mostly open → open
-                    else -> 0f                                               // mostly closed → close
+                    velocityY < -FLING_VELOCITY -> maxFraction
+                    velocityY >  FLING_VELOCITY -> 0f
+                    panelFraction.value > maxFraction * 0.28f -> maxFraction
+                    else -> 0f
                 }
                 panelFraction.animateTo(
                     target,
@@ -139,11 +142,7 @@ fun MediaViewer(
             (screenHeightPx * panelFraction.value).toDp()
         }
 
-        // ── Column layout: media shrinks upward as panel grows ───────────────
-        // ContentScale.Crop fills whatever height remains — no black bars in either state.
         Column(modifier = Modifier.fillMaxSize()) {
-
-            // Media area — weight(1f) gives it all space minus the panel
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -170,22 +169,31 @@ fun MediaViewer(
                     )
                 }
 
-                // Header overlaid on media — standalone to avoid ColumnScope.AnimatedVisibility
                 ViewerHeader(
                     isVisible = isControlsVisible,
                     title = currentItem?.albumName?.uppercase() ?: "",
-                    onBackClick = onBackClick
+                    onBackClick = onBackClick,
+                    onAction = { action ->
+                        currentItem?.let { item ->
+                            when (action) {
+                                "Open With" -> viewModel.openWith(context, item)
+                                "Share" -> viewModel.shareItem(context, item)
+                                "Rename" -> showRenameDialog = true
+                                "Copy To" -> { viewModel.loadAlbums(); showCopyDialog = true }
+                                "Move To" -> { viewModel.loadAlbums(); showMoveDialog = true }
+                                "Delete" -> showDeleteDialog = true
+                            }
+                        }
+                    }
                 )
             }
 
-            // Info panel — grows from bottom, pushing media up
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(panelHeightDp)
                     .background(PanelBg)
                     .pointerInput(Unit) {
-                        // Panel drag: close on meaningful downward displacement OR fling — no resize
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val vt = VelocityTracker()
@@ -217,7 +225,6 @@ fun MediaViewer(
                             }
                             if (isVertical) {
                                 val velocity = vt.calculateVelocity().y
-                                // Close if swiped down meaningfully (displacement) OR fast fling down
                                 val shouldClose = totalDy > viewConfiguration.touchSlop * 4 ||
                                     velocity > FLING_VELOCITY / 2
                                 scope.launch {
@@ -233,21 +240,80 @@ fun MediaViewer(
                 if (currentItem != null) {
                     InfoPanelContent(
                         item = currentItem,
-                        // Never overwrite a real height with 0 (fires when panel Box collapses to 0)
                         onHeightMeasured = { if (it > 0f) contentHeightPx = it }
                     )
                 }
             }
         }
     }
+
+    // Dialogs
+    if (showDeleteDialog && currentItem != null) {
+        DeleteConfirmationDialog(
+            count = 1,
+            isFolder = false,
+            onDismiss = { showDeleteDialog = false },
+            onConfirm = {
+                viewModel.deleteItem(currentItem) {
+                    if (items.size <= 1) onBackClick()
+                }
+                showDeleteDialog = false
+            }
+        )
+    }
+
+    if (showRenameDialog && currentItem != null) {
+        RenameDialog(
+            initialName = currentItem.filename.substringBeforeLast("."),
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName ->
+                viewModel.renameItem(currentItem, newName)
+                showRenameDialog = false
+            }
+        )
+    }
+
+    if (showCopyDialog) {
+        FolderSelectorDialog(
+            title = "Copy to",
+            albums = allAlbums,
+            onDismiss = { showCopyDialog = false },
+            onConfirm = { album ->
+                currentItem?.let { item ->
+                    album.path?.let { viewModel.copyItem(item, it) }
+                }
+                showCopyDialog = false
+            }
+        )
+    }
+
+    if (showMoveDialog && currentItem != null) {
+        FolderSelectorDialog(
+            title = "Move to",
+            albums = allAlbums,
+            onDismiss = { showMoveDialog = false },
+            onConfirm = { album ->
+                album.path?.let { path ->
+                    viewModel.moveItem(currentItem, path) {
+                        if (items.size <= 1) onBackClick()
+                    }
+                }
+                showMoveDialog = false
+            }
+        )
+    }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Header — extracted to avoid ColumnScope.AnimatedVisibility
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
-private fun ViewerHeader(isVisible: Boolean, title: String, onBackClick: () -> Unit) {
+private fun ViewerHeader(
+    isVisible: Boolean,
+    title: String,
+    onBackClick: () -> Unit,
+    onAction: (String) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val options = listOf("Open With", "Share", "Rename", "Copy To", "Move To", "Delete")
+
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn() + slideInVertically(),
@@ -271,16 +337,29 @@ private fun ViewerHeader(isVisible: Boolean, title: String, onBackClick: () -> U
                     color = Color.White
                 )
             }
-            IconButton(onClick = { }, modifier = Modifier.align(Alignment.CenterEnd)) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
+            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier.background(CardBg)
+                ) {
+                    options.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option, color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                onAction(option)
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MediaPage dispatcher
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun MediaPage(
@@ -312,10 +391,6 @@ private fun MediaPage(
         )
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Zoomable image with direction-lock + velocity-aware swipe
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ZoomableImagePage(
@@ -419,10 +494,8 @@ private fun ZoomableImagePage(
                                             change.consume()
                                         }
                                         isVerticalGesture && directionLocked -> {
-                                            // Just consume — no live resize, snap happens on release
                                             change.consume()
                                         }
-                                        // Horizontal at scale=1 — don't consume; HorizontalPager navigates
                                     }
                                 }
                             }
@@ -440,7 +513,6 @@ private fun ZoomableImagePage(
         AsyncImage(
             model = imageRequest,
             contentDescription = null,
-            // Fullscreen: Fit (no cropping). Panel open: Crop (fills width, equal top/bottom crop, no side bars).
             contentScale = if (isPanelOpen) ContentScale.Crop else ContentScale.Fit,
             modifier = Modifier
                 .fillMaxSize()
@@ -452,10 +524,6 @@ private fun ZoomableImagePage(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Video page
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun VideoPage(
     item: MediaItem,
@@ -465,8 +533,6 @@ private fun VideoPage(
     onToggleUI: () -> Unit,
     onDragEnd: (velocityY: Float) -> Unit
 ) {
-    // Default paused — user must explicitly press play.
-    // Stop (but don't auto-start) when navigating away.
     var isPlaying by remember { mutableStateOf(false) }
     var progress by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
@@ -483,7 +549,6 @@ private fun VideoPage(
         modifier = Modifier
             .fillMaxSize()
             .clipToBounds()
-            // Velocity-aware vertical swipe for panel — taps pass through (no consume until slop)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -511,7 +576,6 @@ private fun VideoPage(
                                 }
                             }
                             if (isVertical && locked) {
-                                // Just consume — snap happens on release
                                 change.consume()
                             }
                             prevY = change.position.y
@@ -522,10 +586,6 @@ private fun VideoPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        // VideoPlayer stays composed for adjacent pages (beyondBoundsPageCount=1).
-        // Non-active pages have isPlaying=false so they don't consume audio/decode resources.
-        // Removing VideoPlayer from composition on each swipe caused MediaCodec dead-thread
-        // errors because native callbacks outlived the released ExoPlayer.
         VideoPlayer(
             uri = item.uri,
             isPlaying = isPlaying,
@@ -602,21 +662,15 @@ private fun VideoPage(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Info panel content — wrapContentHeight so panel matches content
-// ─────────────────────────────────────────────────────────────────────────────
-
 @Composable
 private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit) {
     val key = item.filePath ?: item.uri
     val tags = remember(key) { mediaTagsStore.getOrPut(key) { mutableStateListOf() } }
     var showTagsDialog by remember { mutableStateOf(false) }
 
-    // MediaStore stores timestamps in SECONDS (not milliseconds).
-    // Use deviceCreatedAt if valid (> year 2000 in seconds), fall back to deviceModifiedAt.
     val timestampSec = remember(item.deviceCreatedAt, item.deviceModifiedAt) {
         listOf(item.deviceCreatedAt, item.deviceModifiedAt)
-            .firstOrNull { it != null && it > 946_684_800L } // 946684800 = 2000-01-01 in seconds
+            .firstOrNull { it != null && it > 946_684_800L }
     }
 
     val dayOfWeek = remember(timestampSec) {
@@ -647,7 +701,6 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
             .padding(bottom = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Row 1: Day + time + favorite
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -674,7 +727,6 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
             }
         }
 
-        // Row 2: Tags — [+] [tag pill] [tag pill] …
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -709,13 +761,11 @@ private fun InfoPanelContent(item: MediaItem, onHeightMeasured: (Float) -> Unit)
             }
         }
 
-        // Row 3: Dimensions | Filename
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InfoCard(label = "DIMENSIONS", value = "${item.width} × ${item.height}", modifier = Modifier.weight(1f))
             InfoCard(label = "FILENAME", value = item.filename, modifier = Modifier.weight(1f))
         }
 
-        // Row 4: Type | Extension | File Size
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             InfoCard(label = "TYPE",      value = item.mediaType.uppercase(),  modifier = Modifier.weight(1f))
             InfoCard(label = "EXTENSION", value = item.extension.uppercase(),  modifier = Modifier.weight(1f))
@@ -753,7 +803,6 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Existing tags — scrollable row of removable pills
                 if (tags.isNotEmpty()) {
                     Row(
                         modifier = Modifier
@@ -782,7 +831,6 @@ private fun TagsDialog(tags: SnapshotStateList<String>, onDismiss: () -> Unit) {
                     }
                 }
 
-                // Add new tag
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -851,8 +899,6 @@ private fun formatFileSize(bytes: Long): String = when {
     bytes >= 1024L      -> "%.1f KB".format(bytes / 1024.0)
     else                -> "$bytes B"
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 private fun formatDuration(millis: Long): String {
     val s = (millis / 1000) % 60
