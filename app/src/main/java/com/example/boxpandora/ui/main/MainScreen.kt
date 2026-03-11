@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,7 @@ import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.ThemeMode
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModel
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
+import com.example.boxpandora.ui.settings.*
 import com.example.boxpandora.ui.theme.BoxPandoraTheme
 
 private const val NAV_FADE_MS  = 300
@@ -171,6 +173,10 @@ fun MainScreen() {
                     onToggleHide   = { themeViewModel.setShowHidden(!showHidden) },
                     onReindex      = { maintenanceViewModel.reindex() },
                     onForceRecheck = { maintenanceViewModel.forceRecheck() },
+                    onOpenFullSettings = {
+                        isDrawerOpen = false
+                        navController.navigate(Screen.Settings.route)
+                    },
                     onClose        = { isDrawerOpen = false }
                 )
             }
@@ -359,6 +365,16 @@ fun NavigationGraph(
                 onBackClick  = { navController.popBackStack() }
             )
         }
+
+        // Settings Routes
+        composable(Screen.Settings.route) { SettingsScreen(navController) }
+        composable(Screen.LibrarySettings.route) { LibrarySettingsScreen(navController) }
+        composable(Screen.TaggingAISettings.route) { TaggingAISettingsScreen(navController) }
+        composable(Screen.DisplaySettings.route) { DisplaySettingsScreen(navController) }
+        composable(Screen.PerformanceSettings.route) { PerformanceSettingsScreen(navController) }
+        composable(Screen.PrivacySettings.route) { PrivacySettingsScreen(navController) }
+        composable(Screen.BackupDataSettings.route) { BackupDataSettingsScreen(navController) }
+        composable(Screen.AboutSettings.route) { AboutSettingsScreen(navController) }
     }
 }
 
@@ -370,6 +386,7 @@ fun SettingsDrawer(
     onToggleHide: () -> Unit,
     onReindex: () -> Unit,
     onForceRecheck: () -> Unit,
+    onOpenFullSettings: () -> Unit,
     onClose: () -> Unit
 ) {
     val isAuto = themeMode == ThemeMode.AUTO
@@ -383,7 +400,7 @@ fun SettingsDrawer(
             .padding(24.dp)
     ) {
         Text(
-            text = "Settings",
+            text = "Options",
             style = MaterialTheme.typography.displaySmall.copy(
                 fontWeight = FontWeight.Bold,
                 fontSize = 32.sp
@@ -544,7 +561,7 @@ fun SettingsDrawer(
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text = "Maintenance",
+            text = "Application",
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
@@ -560,46 +577,20 @@ fun SettingsDrawer(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onReindex() }
+                        .clickable { onOpenFullSettings() }
                         .padding(vertical = 12.dp, horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(16.dp))
                     Column {
                         Text(
-                            "Media ReIndex",
+                            "Full Settings",
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Scan for new or changed media.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onForceRecheck() }
-                        .padding(vertical = 12.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            "Force Re-check",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            "Clear cache and deep scan everything.",
+                            "Configure library, AI, and performance.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                         )
