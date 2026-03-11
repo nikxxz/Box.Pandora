@@ -9,6 +9,7 @@ import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -41,35 +42,56 @@ class FolderDetailViewModel(
     // The previous getMediaByAlbumFlow used INNER JOIN with albums, meaning any
     // write to albums during a sync re-fired the flow → LazyGrid recomposed →
     // Coil reloaded thumbnails → visible flash. This flow never fires on album writes.
+    //
+    // Root-cause note — transient 0-item emission during sync:
+    //   syncMediaStore() inserts albums with OnConflictStrategy.REPLACE.
+    //   SQLite REPLACE = DELETE existing row + INSERT new row.
+    //   The DELETE fires a FK SET_NULL cascade on media_index.album_id,
+    //   which triggers Room's InvalidationTracker for media_index.
+    //   getMediaByAlbumIdFlow re-executes while album_id is still NULL and
+    //   returns 0 rows — visible as a grid flash — before the next insertAll
+    //   re-assigns the correct album_id and InvalidationTracker fires again.
+    //   The transformLatest debounce below absorbs this window (< 50 ms in practice).
     @OptIn(ExperimentalCoroutinesApi::class)
-    val mediaItems: StateFlow<List<MediaItem>> = combine(_albumId, _showHidden) { id, hidden ->
-        Pair(id, hidden)
-    }
+    val mediaItems: StateFlow<List<MediaItem>> =
+        // filterNotNull: hold until albumId is resolved — eliminates the initial
+        // flowOf(emptyList()) emission that the null-branch used to produce before
+        // the init coroutine finished.  stateIn(initialValue) still shows [] on
+        // first subscription; we just don't add a second redundant [] on top of it.
+        combine(_albumId.filterNotNull(), _showHidden) { id, hidden -> Pair(id, hidden) }
         .flatMapLatest { (albumId, showHidden) ->
-            if (albumId != null) {
-                var emissionIndex = 0
-                repository.getMediaByAlbumIdFlow(albumId, showHidden)
-                    // --- TEMPORARY DEBUG LOG — remove once flash is confirmed fixed ---
-                    // Logs the first 20 URIs on the first two emissions so we can
-                    // confirm whether list order is identical between renders.
-                    .onEach { list ->
-                        val n = ++emissionIndex
-                        if (n <= 2) {
-                            Log.d("FolderDetailVM", "Emission #$n (${list.size} items) " +
-                                "first20=${list.take(20).map { it.uri.substringAfterLast('/') }}")
-                        }
+            var rawCount = 0
+            repository.getMediaByAlbumIdFlow(albumId, showHidden)
+                // --- TEMPORARY DEBUG LOG — remove once flash is confirmed fixed ---
+                .onEach { list ->
+                    val n = ++rawCount
+                    if (n <= 3) {
+                        Log.d("FolderDetailVM", "DB raw #$n albumId=$albumId size=${list.size} " +
+                            "first10=${list.take(10).map { it.uri.substringAfterLast('/') }}")
                     }
-                    // Suppress re-renders when sync rewrites the same items without
-                    // changing content or order. Comparison is ORDER-SENSITIVE so a
-                    // genuine reorder (e.g. new item inserted) does re-emit, but
-                    // identical DB re-reads do not. The DB query uses a deterministic
-                    // secondary sort (uri DESC) so the order is stable across re-queries.
-                    .distinctUntilChangedBy { list ->
-                        list.map { Triple(it.uri, it.isHidden, it.isFavorite) }
+                }
+                // Suppress re-renders when sync rewrites the same items without
+                // changing content or order. Comparison is ORDER-SENSITIVE so a
+                // genuine reorder (e.g. new item inserted) does re-emit, but
+                // identical DB re-reads do not. The DB query uses a deterministic
+                // secondary sort (uri DESC) so the order is stable across re-queries.
+                .distinctUntilChangedBy { list ->
+                    list.map { Triple(it.uri, it.isHidden, it.isFavorite) }
+                }
+                // Absorb transient empty-list emissions caused by the FK SET_NULL cascade
+                // described above.  Empty lists are delayed 300 ms; if a non-empty list
+                // arrives before the delay expires (as it always does during a normal
+                // sync), the delay is cancelled and the empty is never emitted.
+                // Genuine empties (folder truly deleted/cleared) take 300 ms to appear —
+                // acceptable UX vs. the alternative of the grid flashing blank then back.
+                .transformLatest { list ->
+                    if (list.isEmpty()) {
+                        Log.d("FolderDetailVM", "⚠ empty list after distinct — debouncing 300ms")
+                        delay(300)
+                        Log.d("FolderDetailVM", "⚠ empty list emitted after debounce (genuine empty?)")
                     }
-            } else {
-                flowOf(emptyList())
-            }
+                    emit(list)
+                }
         }
         .stateIn(
             scope = viewModelScope,
