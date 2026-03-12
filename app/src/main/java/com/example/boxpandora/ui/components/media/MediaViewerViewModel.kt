@@ -12,10 +12,13 @@ import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.local.entity.TagChangeHistory
+import com.example.boxpandora.data.manager.FileConflictResolution
+import com.example.boxpandora.data.manager.PendingFileConflict
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
 import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
 import com.example.boxpandora.data.local.dao.TagCooccurrenceDao
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
@@ -46,7 +49,7 @@ class MediaViewerViewModel(
             tagRepository.getTagsForMedia(uri) 
         }
         .onEach { Log.d("MediaViewerVM", "Tags updated for current URI, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val suggestionsForSelectedMedia: StateFlow<List<String>> = _selectedMediaUri
         .filterNotNull()
@@ -55,9 +58,30 @@ class MediaViewerViewModel(
             flow { emit(tagRepository.getSuggestionsForMedia(uri)) }
         }
         .onEach { Log.d("MediaViewerVM", "Suggestions updated for current URI, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private var albumsJob: Job? = null
+
+    // ── File-conflict state ───────────────────────────────────────────────────
+    private val _pendingConflict = MutableStateFlow<PendingFileConflict?>(null)
+    val pendingConflict: StateFlow<PendingFileConflict?> = _pendingConflict
+
+    private var conflictDeferred: CompletableDeferred<FileConflictResolution>? = null
+
+    fun resolveConflict(resolution: FileConflictResolution, applyToAll: Boolean = false) {
+        _pendingConflict.value = null
+        conflictDeferred?.complete(resolution)
+        conflictDeferred = null
+    }
+
+    private suspend fun awaitConflictResolution(
+        fileName: String, destPath: String, itemIndex: Int, totalCount: Int
+    ): FileConflictResolution {
+        val deferred = CompletableDeferred<FileConflictResolution>()
+        conflictDeferred = deferred
+        _pendingConflict.value = PendingFileConflict(fileName, destPath, itemIndex, totalCount)
+        return try { deferred.await() } finally { _pendingConflict.value = null }
+    }
 
     fun loadAlbums() {
         if (albumsJob?.isActive == true) return
@@ -169,14 +193,22 @@ class MediaViewerViewModel(
 
     fun copyItem(item: MediaItem, destinationPath: String) {
         viewModelScope.launch {
-            repository.copyMediaItems(listOf(item.uri), destinationPath)
+            try {
+                repository.copyMediaItems(listOf(item.uri), destinationPath, ::awaitConflictResolution)
+            } finally {
+                _pendingConflict.value = null
+            }
         }
     }
 
     fun moveItem(item: MediaItem, destinationPath: String, onMoved: () -> Unit) {
         viewModelScope.launch {
-            if (repository.moveMediaItems(listOf(item.uri), destinationPath)) {
-                onMoved()
+            try {
+                if (repository.moveMediaItems(listOf(item.uri), destinationPath, ::awaitConflictResolution)) {
+                    onMoved()
+                }
+            } finally {
+                _pendingConflict.value = null
             }
         }
     }

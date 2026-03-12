@@ -39,6 +39,7 @@ import androidx.paging.compose.itemKey
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
@@ -73,6 +74,7 @@ fun FolderDetailScreen(
     val searchParams by viewModel.searchParams.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
+    val pendingConflict by viewModel.pendingConflict.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -310,6 +312,18 @@ fun FolderDetailScreen(
             onConfirm = { tags ->
                 viewModel.bulkAttachTags(tags)
                 showBulkTagDialog = false
+            }
+        )
+    }
+
+    pendingConflict?.let { conflict ->
+        FileConflictDialog(
+            conflict = conflict,
+            onResolve = { resolution, applyToAll ->
+                viewModel.resolveConflict(resolution, applyToAll)
+            },
+            onDismiss = {
+                viewModel.resolveConflict(FileConflictResolution.SKIP, false)
             }
         )
     }

@@ -1,16 +1,18 @@
 package com.example.boxpandora.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.boxpandora.ui.main.Screen
@@ -19,9 +21,7 @@ import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController) {
-    var searchQuery by remember { mutableStateOf("") }
     val tokens = boxPandoraModalTokens()
-    
     val settingsItems = remember {
         listOf(
             Screen.LibrarySettings,
@@ -32,18 +32,6 @@ fun SettingsScreen(navController: NavController) {
             Screen.BackupDataSettings,
             Screen.AboutSettings
         )
-    }
-
-    val filteredItems = remember(searchQuery) {
-        if (searchQuery.isBlank()) {
-            settingsItems
-        } else {
-            settingsItems.filter { screen ->
-                screen.title.contains(searchQuery, ignoreCase = true) ||
-                (getScreenSubtitle(screen)?.contains(searchQuery, ignoreCase = true) ?: false) ||
-                getScreenKeywords(screen).any { it.contains(searchQuery, ignoreCase = true) }
-            }
-        }
     }
 
     Scaffold(
@@ -57,70 +45,92 @@ fun SettingsScreen(navController: NavController) {
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = Color.Transparent
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = PaddingValues(bottom = 28.dp, top = 8.dp)
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                placeholder = { Text("Search settings...", style = MaterialTheme.typography.bodyMedium) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                trailingIcon = if (searchQuery.isNotEmpty()) {
-                    {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
+            item {
+                Surface(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(32.dp)),
+                    shape = RoundedCornerShape(32.dp),
+                    color = tokens.cardBackground.copy(alpha = 0.88f),
+                    border = BorderStroke(1.dp, tokens.border),
+                    tonalElevation = 0.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(44.dp)
+                                .height(4.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
+                                    shape = RoundedCornerShape(999.dp)
+                                )
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "Tune how Pandora scans, sorts, and protects your library.",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "A quieter control surface built around neutral black and white panels, with accent used only as detail.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f)
+                            )
                         }
-                    }
-                } else null,
-                shape = MaterialTheme.shapes.large,
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = tokens.iconBackgroundNeutral,
-                    focusedContainerColor = tokens.iconBackgroundNeutral,
-                    unfocusedBorderColor = tokens.border,
-                    focusedBorderColor = tokens.border,
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            )
 
-            HorizontalDivider(
-                modifier = Modifier.padding(top = 8.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f)
-            )
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 20.dp, top = 6.dp)
-            ) {
-                items(filteredItems) { screen ->
-                    SettingsNavigationRow(screen, navController)
-                }
-                
-                if (filteredItems.isEmpty()) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Text("No results found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SettingsMetaChip("Library")
+                            SettingsMetaChip("Display")
+                            SettingsMetaChip("Support")
                         }
                     }
                 }
             }
+
+            item {
+                SettingSectionHeader(
+                    title = "Controls",
+                    subtitle = "Core library, styling, performance, and support"
+                )
+            }
+
+            items(settingsItems) { screen ->
+                SettingsNavigationRow(screen, navController)
+            }
         }
+    }
+}
+
+@Composable
+private fun SettingsMetaChip(label: String) {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
+        tonalElevation = 0.dp
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }

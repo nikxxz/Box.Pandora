@@ -61,22 +61,33 @@ class FileSystemManager(private val context: Context) {
         null
     }
 
-    suspend fun copyMediaItems(items: List<MediaItem>, destinationFolder: File): List<Pair<MediaItem, File>> = withContext(Dispatchers.IO) {
+    suspend fun copyMediaItems(
+        items: List<MediaItem>,
+        destinationFolder: File,
+        onConflict: suspend (fileName: String, destPath: String, itemIndex: Int, totalCount: Int) -> FileConflictResolution =
+            { _, _, _, _ -> FileConflictResolution.AUTO_RENAME }
+    ): List<Pair<MediaItem, File>> = withContext(Dispatchers.IO) {
         val results = mutableListOf<Pair<MediaItem, File>>()
         if (!destinationFolder.exists()) destinationFolder.mkdirs()
 
-        items.forEach { item ->
+        for ((index, item) in items.withIndex()) {
             try {
-                val sourceFile = item.filePath?.let { File(it) } ?: return@forEach
+                val sourceFile = item.filePath?.let { File(it) } ?: continue
                 var destFile = File(destinationFolder, sourceFile.name)
-                
+
                 if (destFile.exists()) {
-                    val baseName = sourceFile.nameWithoutExtension
-                    val ext = sourceFile.extension
-                    var counter = 1
-                    while (destFile.exists()) {
-                        destFile = File(destinationFolder, "${baseName}_$counter.$ext")
-                        counter++
+                    when (onConflict(sourceFile.name, destinationFolder.absolutePath, index + 1, items.size)) {
+                        FileConflictResolution.REPLACE -> { /* keep original name — FileOutputStream will overwrite */ }
+                        FileConflictResolution.AUTO_RENAME -> {
+                            val baseName = sourceFile.nameWithoutExtension
+                            val ext = sourceFile.extension
+                            var counter = 1
+                            while (destFile.exists()) {
+                                destFile = File(destinationFolder, "${baseName}_$counter.$ext")
+                                counter++
+                            }
+                        }
+                        FileConflictResolution.SKIP -> continue
                     }
                 }
 
@@ -94,25 +105,36 @@ class FileSystemManager(private val context: Context) {
         results
     }
 
-    suspend fun moveMediaItems(items: List<MediaItem>, destinationFolder: File): List<Pair<MediaItem, File>> = withContext(Dispatchers.IO) {
+    suspend fun moveMediaItems(
+        items: List<MediaItem>,
+        destinationFolder: File,
+        onConflict: suspend (fileName: String, destPath: String, itemIndex: Int, totalCount: Int) -> FileConflictResolution =
+            { _, _, _, _ -> FileConflictResolution.AUTO_RENAME }
+    ): List<Pair<MediaItem, File>> = withContext(Dispatchers.IO) {
         val results = mutableListOf<Pair<MediaItem, File>>()
         if (!destinationFolder.exists()) destinationFolder.mkdirs()
 
-        items.forEach { item ->
+        for ((index, item) in items.withIndex()) {
             try {
-                val sourceFile = item.filePath?.let { File(it) } ?: return@forEach
+                val sourceFile = item.filePath?.let { File(it) } ?: continue
                 var destFile = File(destinationFolder, sourceFile.name)
-                
+
                 if (destFile.exists()) {
-                    val baseName = sourceFile.nameWithoutExtension
-                    val ext = sourceFile.extension
-                    var counter = 1
-                    while (destFile.exists()) {
-                        destFile = File(destinationFolder, "${baseName}_$counter.$ext")
-                        counter++
+                    when (onConflict(sourceFile.name, destinationFolder.absolutePath, index + 1, items.size)) {
+                        FileConflictResolution.REPLACE -> { /* keep original name — will overwrite */ }
+                        FileConflictResolution.AUTO_RENAME -> {
+                            val baseName = sourceFile.nameWithoutExtension
+                            val ext = sourceFile.extension
+                            var counter = 1
+                            while (destFile.exists()) {
+                                destFile = File(destinationFolder, "${baseName}_$counter.$ext")
+                                counter++
+                            }
+                        }
+                        FileConflictResolution.SKIP -> continue
                     }
                 }
-                
+
                 if (sourceFile.renameTo(destFile)) {
                     scanFile(sourceFile)
                     scanFile(destFile)

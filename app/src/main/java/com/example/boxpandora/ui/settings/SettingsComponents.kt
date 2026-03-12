@@ -1,7 +1,7 @@
 package com.example.boxpandora.ui.settings
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,6 +27,7 @@ fun SettingsNavigationRow(screen: Screen, navController: NavController) {
         title = screen.title,
         subtitle = getScreenSubtitle(screen),
         icon = screen.icon,
+        iconColor = screenAccentColor(screen),
         onClick = { navController.navigate(screen.route) }
     )
 }
@@ -57,20 +59,29 @@ fun NavigationRow(
     title: String,
     subtitle: String? = null,
     icon: ImageVector? = null,
+    iconColor: Color? = null,
     onClick: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
     SettingsListRow(
         title = title,
         subtitle = subtitle,
         icon = icon,
+        iconColor = iconColor,
         onClick = onClick,
         trailing = {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.9f)
-            )
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = tokens.iconBackgroundNeutral,
+                tonalElevation = 0.dp
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.padding(7.dp).size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
+                )
+            }
         }
     )
 }
@@ -110,6 +121,7 @@ fun ValueSelectorRow(
     subtitle: String? = null,
     onClick: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
     SettingsListRow(
         title = title,
         subtitle = subtitle,
@@ -122,7 +134,18 @@ fun ValueSelectorRow(
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
                 )
                 Spacer(Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.9f))
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = tokens.iconBackgroundNeutral,
+                    tonalElevation = 0.dp
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = Modifier.padding(7.dp).size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
+                    )
+                }
             }
         }
     )
@@ -147,20 +170,20 @@ fun ActionRow(
 
 @Composable
 fun SettingSectionHeader(title: String, subtitle: String? = null) {
-    Column(modifier = Modifier.padding(start = 20.dp, top = 28.dp, end = 20.dp, bottom = 10.dp)) {
+    Column(modifier = Modifier.padding(start = 18.dp, top = 26.dp, end = 18.dp, bottom = 8.dp)) {
         Text(
             text = title.uppercase(),
             style = MaterialTheme.typography.labelMedium.copy(
                 letterSpacing = 1.4.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
         )
         if (subtitle != null) {
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f),
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
@@ -177,34 +200,44 @@ private fun SettingsListRow(
     trailing: @Composable (() -> Unit)? = null
 ) {
     val tokens = boxPandoraModalTokens()
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val resolvedIconColor = iconColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
+    val cardColor = tokens.cardBackground.copy(alpha = if (isDark) 0.84f else 0.94f)
+    val iconChipColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.08f else 0.05f)
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
         Surface(
             onClick = onClick,
-            color = Color.Transparent,
+            color = cardColor,
             tonalElevation = 0.dp,
+            shape = RoundedCornerShape(26.dp),
+            border = BorderStroke(1.dp, tokens.border),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 72.dp)
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .heightIn(min = 82.dp)
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 icon?.let {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .background(tokens.iconBackgroundNeutral, RoundedCornerShape(12.dp)),
+                            .size(46.dp)
+                            .background(iconChipColor, RoundedCornerShape(16.dp)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = it,
                             contentDescription = null,
-                            tint = iconColor ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
-                            modifier = Modifier.size(20.dp)
+                            tint = resolvedIconColor,
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
@@ -230,10 +263,17 @@ private fun SettingsListRow(
                 trailing?.invoke()
             }
         }
-
-        HorizontalDivider(
-            modifier = Modifier.padding(start = if (icon != null) 74.dp else 20.dp, end = 20.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
-        )
     }
+}
+
+@Composable
+private fun screenAccentColor(screen: Screen): Color = when (screen) {
+    Screen.LibrarySettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
+    Screen.TaggingAISettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
+    Screen.DisplaySettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
+    Screen.PerformanceSettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+    Screen.PrivacySettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
+    Screen.BackupDataSettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
+    Screen.AboutSettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
 }

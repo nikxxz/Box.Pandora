@@ -43,9 +43,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.compose.collectAsLazyPagingItems
-import com.example.boxpandora.PandoraApp
+
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.common.*
@@ -72,13 +71,10 @@ fun FoldersScreen(
     showHidden: Boolean,
     onFolderClick: (Album) -> Unit,
     onMediaClick: (List<MediaItem>, Int) -> Unit,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    viewModel: FoldersViewModel
 ) {
     val context = LocalContext.current
-    val app = context.applicationContext as PandoraApp
-    val viewModel: FoldersViewModel = viewModel(
-        factory = FoldersViewModelFactory(app.repository)
-    )
     val albums by viewModel.albums.collectAsState()
     val totalCount by viewModel.totalMediaCount.collectAsState()
     val selectedIds by viewModel.selectedAlbumIds.collectAsState()

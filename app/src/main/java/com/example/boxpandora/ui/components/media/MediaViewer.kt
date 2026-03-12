@@ -62,10 +62,12 @@ import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.util.Formatters
+import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.ui.common.AppDialog
 import com.example.boxpandora.ui.common.AppContextMenu
 import com.example.boxpandora.ui.common.AppContextMenuItem
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
+import com.example.boxpandora.ui.common.FileConflictDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
 import com.example.boxpandora.ui.common.ModalChip
 import com.example.boxpandora.ui.common.ModalTextField
@@ -148,6 +150,7 @@ fun MediaViewer(
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
     val allAlbums by viewModel.allAlbums.collectAsState()
+    val pendingConflict by viewModel.pendingConflict.collectAsState()
 
     LaunchedEffect(pagerState.currentPage) {
         isZoomed = false
@@ -323,6 +326,18 @@ fun MediaViewer(
                         if (items.size <= 1) onBackClick()
                     }
                 }
+            }
+        )
+    }
+
+    pendingConflict?.let { conflict ->
+        FileConflictDialog(
+            conflict = conflict,
+            onResolve = { resolution, applyToAll ->
+                viewModel.resolveConflict(resolution, applyToAll)
+            },
+            onDismiss = {
+                viewModel.resolveConflict(FileConflictResolution.SKIP, false)
             }
         )
     }

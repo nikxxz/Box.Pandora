@@ -25,6 +25,7 @@ private const val TAG = "PandoraApp"
 class PandoraApp : Application(), ImageLoaderFactory {
     lateinit var database: AppDatabase
     lateinit var repository: MediaRepository
+    lateinit var thumbnailManager: ThumbnailManager
     private lateinit var contentObserver: MediaContentObserver
 
     override fun onCreate() {
@@ -40,7 +41,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()
 
-        val thumbnailManager = ThumbnailManager(this)
+        thumbnailManager = ThumbnailManager(this)
         val mediaStoreRepository = MediaStoreRepository(this)
         val fileSystemManager = FileSystemManager(this)
         

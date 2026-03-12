@@ -2,12 +2,16 @@ package com.example.boxpandora.ui.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
@@ -64,6 +68,10 @@ fun MainScreen() {
     val maintenanceViewModel: MaintenanceViewModel = viewModel(
         factory = MaintenanceViewModelFactory(app.repository)
     )
+    val foldersViewModel: FoldersViewModel = viewModel(
+        factory = FoldersViewModelFactory(app.repository)
+    )
+    val homeTab by foldersViewModel.currentTab.collectAsState()
 
     val themeMode    by themeViewModel.themeMode.collectAsState()
     val showHidden   by themeViewModel.showHidden.collectAsState()
@@ -118,18 +126,36 @@ fun MainScreen() {
                                         }
                                     },
                                     icon = {
-                                        Text(
-                                            text = screen.label,
-                                            style = MaterialTheme.typography.labelLarge.copy(
-                                                fontWeight = FontWeight.W800,
-                                                letterSpacing = 2.sp,
-                                                fontSize = 14.sp
-                                            ),
-                                            color = if (selected)
-                                                MaterialTheme.colorScheme.primary
-                                            else
-                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        )
+                                        val navLabelText = if (screen == Screen.Folders) {
+                                            if (homeTab == HomeTab.ALL_MEDIA) "MEDIA" else "FOLDERS"
+                                        } else {
+                                            screen.label
+                                        }
+                                        AnimatedContent(
+                                            targetState = navLabelText,
+                                            transitionSpec = {
+                                                val toMedia = targetState == "MEDIA"
+                                                (slideInHorizontally(animationSpec = tween(PandoraMotion.Standard)) { if (toMedia) it else -it } +
+                                                    fadeIn(animationSpec = tween(PandoraMotion.Standard))).togetherWith(
+                                                    slideOutHorizontally(animationSpec = tween(PandoraMotion.Standard)) { if (toMedia) -it else it } +
+                                                        fadeOut(animationSpec = tween(PandoraMotion.Quick))
+                                                )
+                                            },
+                                            label = "navLabel"
+                                        ) { displayText ->
+                                            Text(
+                                                text = displayText,
+                                                style = MaterialTheme.typography.labelLarge.copy(
+                                                    fontWeight = FontWeight.W800,
+                                                    letterSpacing = 2.sp,
+                                                    fontSize = 14.sp
+                                                ),
+                                                color = if (selected)
+                                                    MaterialTheme.colorScheme.primary
+                                                else
+                                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
+                                        }
                                     },
                                     colors = NavigationBarItemDefaults.colors(
                                         indicatorColor = Color.Transparent
@@ -153,7 +179,8 @@ fun MainScreen() {
                         onOpenDrawer       = { isDrawerOpen = true },
                         activeMediaItems   = activeMediaItems,
                         onUpdateMediaItems = { activeMediaItems = it },
-                        showHidden         = showHidden
+                        showHidden         = showHidden,
+                        foldersViewModel   = foldersViewModel
                     )
                 }
             }
@@ -292,190 +319,262 @@ fun SettingsDrawer(
         modifier = Modifier
             .fillMaxHeight()
             .width(296.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = Color.Transparent,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            // ── Header ─────────────────────────────────────────────────────
-            Column(
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 18.dp)
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
+                color = tokens.cardBackground.copy(alpha = 0.94f),
+                border = BorderStroke(1.dp, tokens.border),
+                tonalElevation = 0.dp
             ) {
-                Text(
-                    text = "pandora",
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontWeight = FontWeight.W200,
-                        letterSpacing = 4.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Display & library controls",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                )
-            }
-
-            HorizontalDivider(color = tokens.divider)
-
-            // ── Appearance ─────────────────────────────────────────────────
-            Column(
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp)
-            ) {
-                QuickSectionHeader("Appearance")
-                SegmentedSelector(
-                    label = "Theme Mode",
-                    options = listOf(ThemeMode.AUTO, ThemeMode.LIGHT, ThemeMode.DARK),
-                    selected = themeMode,
-                    onSelected = onThemeSet
-                ) { mode ->
-                    when (mode) {
-                        ThemeMode.AUTO  -> "Auto"
-                        ThemeMode.LIGHT -> "Light"
-                        ThemeMode.DARK  -> "Dark"
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .clickable { showAccentPicker = true }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
+                        border = BorderStroke(1.dp, tokens.border),
+                        tonalElevation = 0.dp
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(42.dp)
+                                    .height(4.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
+                                        shape = RoundedCornerShape(999.dp)
+                                    )
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                text = "pandora",
+                                style = MaterialTheme.typography.displaySmall.copy(
+                                    fontWeight = FontWeight.W200,
+                                    letterSpacing = 4.sp
+                                ),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Display and library controls framed with the same monochrome restraint as the media viewer.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
+                            )
+                        }
+                    }
+
+                    DrawerSectionCard(title = "Appearance") {
+                        SegmentedSelector(
+                            label = "Theme Mode",
+                            options = listOf(ThemeMode.AUTO, ThemeMode.LIGHT, ThemeMode.DARK),
+                            selected = themeMode,
+                            onSelected = onThemeSet
+                        ) { mode ->
+                            when (mode) {
+                                ThemeMode.AUTO  -> "Auto"
+                                ThemeMode.LIGHT -> "Light"
+                                ThemeMode.DARK  -> "Dark"
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Surface(
+                            onClick = { showAccentPicker = true },
+                            shape = RoundedCornerShape(20.dp),
+                            color = tokens.iconBackgroundNeutral,
+                            border = BorderStroke(1.dp, tokens.border),
+                            tonalElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(accentColor.colorLong))
+                                    )
+                                }
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "ACCENT COLOR",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            letterSpacing = 1.1.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                                    )
+                                    Text(
+                                        text = accentColor.displayName,
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        CompactToggleRow(
+                            title = "Subtle background gradient",
+                            checked = showGradient,
+                            onCheckedChange = { onToggleGradient() }
+                        )
+                    }
+
+                    DrawerSectionCard(title = "Content") {
+                        CompactToggleRow(
+                            title = "Show hidden files",
+                            checked = showHidden,
+                            onCheckedChange = { onToggleHide() }
+                        )
+                        Spacer(Modifier.height(14.dp))
                         Text(
-                            text  = "ACCENT COLOR",
+                            text = "Sort by",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 letterSpacing = 1.1.sp,
-                                fontWeight    = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold
                             ),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                            modifier = Modifier.padding(horizontal = 2.dp)
                         )
-                        Text(
-                            text  = accentColor.displayName,
-                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                            color = Color(accentColor.colorLong)
+                        Spacer(Modifier.height(10.dp))
+                        val sortOptions = listOf(
+                            SortOrder.DATE_DESC to "Activity",
+                            SortOrder.NAME_ASC to "Name",
+                            SortOrder.COUNT_DESC to "Items",
+                            SortOrder.SIZE_DESC to "Size"
                         )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            sortOptions.forEach { (order, label) ->
+                                val isSelected = sortOrder == order
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSortOrderSet(order) },
+                                    label = { Text(label, fontSize = 12.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                        selectedLabelColor = MaterialTheme.colorScheme.onSurface,
+                                        containerColor = tokens.iconBackgroundNeutral,
+                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = isSelected,
+                                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f),
+                                        selectedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f)
+                                    )
+                                )
+                            }
+                        }
                     }
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(Color(accentColor.colorLong))
-                            .border(2.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f), CircleShape)
-                    )
-                }
-                Spacer(Modifier.height(4.dp))
-            }
 
-            // CompactToggleRow is full-width with internal h-padding and bottom divider
-            CompactToggleRow(
-                title = "Subtle background gradient",
-                checked = showGradient,
-                onCheckedChange = { onToggleGradient() }
-            )
-
-            HorizontalDivider(color = tokens.divider)
-
-            // ── Content ────────────────────────────────────────────────────
-            Column(
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 4.dp)
-            ) {
-                QuickSectionHeader("Content")
-            }
-
-            CompactToggleRow(
-                title = "Show hidden files",
-                checked = showHidden,
-                onCheckedChange = { onToggleHide() }
-            )
-
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-            ) {
-                Text(
-                    text = "Sort by",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        letterSpacing = 1.1.sp,
-                        fontWeight    = FontWeight.SemiBold
-                    ),
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
-                    modifier = Modifier.padding(bottom = 10.dp)
-                )
-                val sortOptions = listOf(
-                    SortOrder.DATE_DESC  to "Activity",
-                    SortOrder.NAME_ASC   to "Name",
-                    SortOrder.COUNT_DESC to "Items",
-                    SortOrder.SIZE_DESC  to "Size"
-                )
-                FlowRow(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement   = Arrangement.spacedBy(8.dp)
-                ) {
-                    sortOptions.forEach { (order, label) ->
-                        val isSelected = sortOrder == order
-                        FilterChip(
-                            selected = isSelected,
-                            onClick  = { onSortOrderSet(order) },
-                            label    = { Text(label, fontSize = 12.sp) },
-                            colors   = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedLabelColor     = MaterialTheme.colorScheme.onPrimaryContainer
+                    Surface(
+                        onClick = onOpenFullSettings,
+                        shape = RoundedCornerShape(24.dp),
+                        color = tokens.cardBackground.copy(alpha = 0.82f),
+                        border = BorderStroke(1.dp, tokens.border),
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = "Settings",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Open the full control surface",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
-                        )
+                        }
                     }
                 }
             }
+        }
+    }
+}
 
-            HorizontalDivider(color = tokens.divider)
+@Composable
+private fun DrawerSectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val tokens = boxPandoraModalTokens()
 
-            // ── Settings ───────────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOpenFullSettings() }
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector        = Icons.Default.Settings,
-                        contentDescription = null,
-                        modifier           = Modifier.size(18.dp),
-                        tint               = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Text(
-                    text     = "Settings",
-                    style    = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color    = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(
-                    imageVector        = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    modifier           = Modifier.size(18.dp),
-                    tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                )
-            }
-
-            HorizontalDivider(color = tokens.divider)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        color = tokens.cardBackground.copy(alpha = 0.82f),
+        border = BorderStroke(1.dp, tokens.border),
+        tonalElevation = 0.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+        ) {
+            QuickSectionHeader(title)
+            content()
         }
     }
 }
@@ -645,7 +744,8 @@ fun NavigationGraph(
     onOpenDrawer: () -> Unit,
     activeMediaItems: List<MediaItem>,
     onUpdateMediaItems: (List<MediaItem>) -> Unit,
-    showHidden: Boolean
+    showHidden: Boolean,
+    foldersViewModel: FoldersViewModel
 ) {
     NavHost(navController = navController, startDestination = Screen.Folders.route) {
         composable(Screen.Folders.route) {
@@ -658,7 +758,8 @@ fun NavigationGraph(
                     onUpdateMediaItems(items)
                     navController.navigate("media_viewer/$index")
                 },
-                onOpenDrawer  = onOpenDrawer
+                onOpenDrawer  = onOpenDrawer,
+                viewModel     = foldersViewModel
             )
         }
         composable(Screen.Favorites.route) {

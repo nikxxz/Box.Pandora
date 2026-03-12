@@ -12,6 +12,7 @@ import com.example.boxpandora.data.local.dao.ImageEmbeddingDao
 import com.example.boxpandora.data.local.dao.MediaItemDao
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
+import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.data.manager.FileSystemManager
 import com.example.boxpandora.data.manager.ThumbnailManager
 import com.example.boxpandora.data.util.NomediaScanner
@@ -148,10 +149,15 @@ class MediaRepository(
         }
     }
 
-    suspend fun copyMediaItems(uris: List<String>, destinationPath: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun copyMediaItems(
+        uris: List<String>,
+        destinationPath: String,
+        onConflict: suspend (fileName: String, destPath: String, itemIndex: Int, totalCount: Int) -> FileConflictResolution =
+            { _, _, _, _ -> FileConflictResolution.AUTO_RENAME }
+    ): Boolean = withContext(Dispatchers.IO) {
         val items = uris.mapNotNull { mediaItemDao.getByUri(it) }
         val destFolder = File(destinationPath)
-        val results = fileSystemManager.copyMediaItems(items, destFolder)
+        val results = fileSystemManager.copyMediaItems(items, destFolder, onConflict)
         results.forEach { (oldItem, newFile) ->
             val newUri = fileSystemManager.scanFileWait(newFile)
             if (newUri != null) {
@@ -165,10 +171,15 @@ class MediaRepository(
         results.isNotEmpty()
     }
 
-    suspend fun moveMediaItems(uris: List<String>, destinationPath: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun moveMediaItems(
+        uris: List<String>,
+        destinationPath: String,
+        onConflict: suspend (fileName: String, destPath: String, itemIndex: Int, totalCount: Int) -> FileConflictResolution =
+            { _, _, _, _ -> FileConflictResolution.AUTO_RENAME }
+    ): Boolean = withContext(Dispatchers.IO) {
         val items = uris.mapNotNull { mediaItemDao.getByUri(it) }
         val destFolder = File(destinationPath)
-        val results = fileSystemManager.moveMediaItems(items, destFolder)
+        val results = fileSystemManager.moveMediaItems(items, destFolder, onConflict)
         results.forEach { (oldItem, newFile) ->
             val newUri = fileSystemManager.scanFileWait(newFile)
             if (newUri != null) {
@@ -486,5 +497,56 @@ class MediaRepository(
             excludedPaths = excludedPaths,
             onProgress = onProgress
         )
+    }
+
+    // ─── Performance maintenance ──────────────────────────────────────────────
+
+    /** Delete all cached thumbnail files on disk and clear persisted thumb URIs in the DB. */
+    suspend fun clearThumbnailCache() = withContext(Dispatchers.IO) {
+        thumbnailManager.clearAll()
+        database.openHelper.writableDatabase
+            .execSQL("UPDATE media_index SET thumb_uri = NULL")
+    }
+
+    /** Run VACUUM + ANALYZE to compact and re-optimise the SQLite database. */
+    suspend fun optimizeDatabase() = withContext(Dispatchers.IO) {
+        val db = database.openHelper.writableDatabase
+        db.execSQL("VACUUM")
+        db.execSQL("ANALYZE")
+    }
+
+    /**
+     * Remove orphaned rows from auxiliary tables whose media_uri no longer
+     * exists in media_index.  Returns the total number of rows deleted.
+     */
+    suspend fun runSmartCleanup(): Int = withContext(Dispatchers.IO) {
+        val db = database.openHelper.writableDatabase
+        var removed = 0
+
+        // Orphaned tag assignments (media_tags.media_uri → media_index.uri)
+        db.execSQL(
+            "DELETE FROM media_tags WHERE media_uri NOT IN (SELECT uri FROM media_index)"
+        )
+        removed += db.compileStatement("SELECT changes()").simpleQueryForLong().toInt()
+
+        // Orphaned AI tag suggestions (tag_suggestions.asset_id → media_index.uri)
+        db.execSQL(
+            "DELETE FROM tag_suggestions WHERE asset_id NOT IN (SELECT uri FROM media_index)"
+        )
+        removed += db.compileStatement("SELECT changes()").simpleQueryForLong().toInt()
+
+        // Orphaned embedding rows (image_embeddings.asset_id → media_index.uri)
+        db.execSQL(
+            "DELETE FROM image_embeddings WHERE asset_id NOT IN (SELECT uri FROM media_index)"
+        )
+        removed += db.compileStatement("SELECT changes()").simpleQueryForLong().toInt()
+
+        // Orphaned heuristic tag rows (heuristic_tags.asset_id → media_index.uri)
+        db.execSQL(
+            "DELETE FROM heuristic_tags WHERE asset_id NOT IN (SELECT uri FROM media_index)"
+        )
+        removed += db.compileStatement("SELECT changes()").simpleQueryForLong().toInt()
+
+        removed
     }
 }

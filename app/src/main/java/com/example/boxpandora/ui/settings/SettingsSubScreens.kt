@@ -40,37 +40,60 @@ import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.SortOrder
 import com.example.boxpandora.ui.main.viewmodel.ThemeMode
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModel
+import com.example.boxpandora.ui.main.viewmodel.AboutStats
+import com.example.boxpandora.ui.main.viewmodel.AboutViewModel
+import com.example.boxpandora.ui.main.viewmodel.AboutViewModelFactory
+import com.example.boxpandora.ui.main.viewmodel.BackupDataViewModel
+import com.example.boxpandora.ui.main.viewmodel.BackupDataViewModelFactory
+import com.example.boxpandora.ui.main.viewmodel.BackupOpState
+import com.example.boxpandora.ui.main.viewmodel.PerformanceOpState
+import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModel
+import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsSubScreen(
     title: String,
     navController: NavController,
+    snackbarHostState: SnackbarHostState? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.padding(start = 8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(tokens.iconBackgroundNeutral)
+                                .border(1.dp, tokens.border, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
                 )
             )
         },
-        containerColor = MaterialTheme.colorScheme.background
+        snackbarHost = { snackbarHostState?.let { SnackbarHost(it) } },
+        containerColor = Color.Transparent
     ) { padding ->
         Column(
             modifier = Modifier
@@ -727,32 +750,63 @@ private fun AccentSwatch(color: AccentColor, isSelected: Boolean, onClick: () ->
 
 @Composable
 fun PerformanceSettingsScreen(navController: NavController) {
-    SettingsSubScreen("Performance", navController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app = activity.application as PandoraApp
+    val vm: PerformanceViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = PerformanceViewModelFactory(app.repository)
+    )
+
+    val opState by vm.opState.collectAsState()
+    val isRunning = opState is PerformanceOpState.Running
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Surface result messages via snackbar, then return to Idle
+    LaunchedEffect(opState) {
+        when (val s = opState) {
+            is PerformanceOpState.Done  -> { snackbarHostState.showSnackbar(s.message); vm.clearResult() }
+            is PerformanceOpState.Error -> { snackbarHostState.showSnackbar(s.message);  vm.clearResult() }
+            else -> {}
+        }
+    }
+
+    SettingsSubScreen("Performance", navController, snackbarHostState) {
+        // Progress bar spans the full width while any operation is in flight
+        if (isRunning) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Storage Maintenance", "Keep the app running smoothly") }
-            item { 
+            item {
                 ActionRow(
-                    "Clear Thumbnail Cache", 
-                    "Removes cached previews to free up space", 
-                    Icons.Default.DeleteSweep,
+                    title     = "Clear Thumbnail Cache",
+                    subtitle  = if (isRunning && opState is PerformanceOpState.Running &&
+                                    (opState as PerformanceOpState.Running).label.contains("cache", ignoreCase = true))
+                                    "Working…" else "Removes cached previews to free up space",
+                    icon      = Icons.Default.DeleteSweep,
                     iconColor = MaterialTheme.colorScheme.error
-                ) {}
+                ) { if (!isRunning) vm.clearThumbnailCache() }
             }
-            item { 
+            item {
                 ActionRow(
-                    "Optimize Database", 
-                    "Vacuum and rebuild indexes for better speed", 
-                    Icons.Default.Storage
-                ) {}
+                    title    = "Optimize Database",
+                    subtitle = if (isRunning && opState is PerformanceOpState.Running &&
+                                   (opState as PerformanceOpState.Running).label.contains("Optimis", ignoreCase = true))
+                                   "Working…" else "Vacuum and rebuild indexes for better speed",
+                    icon     = Icons.Default.Storage
+                ) { if (!isRunning) vm.optimizeDatabase() }
             }
-            
+
             item { SettingSectionHeader("Advanced Cleanup", "Deep maintenance tasks") }
-            item { 
+            item {
                 ActionRow(
-                    "Run Smart Clean-up", 
-                    "Removes orphan tags and broken references", 
-                    Icons.Default.CleaningServices
-                ) {}
+                    title    = "Run Smart Clean-up",
+                    subtitle = if (isRunning && opState is PerformanceOpState.Running &&
+                                   (opState as PerformanceOpState.Running).label.contains("clean", ignoreCase = true))
+                                   "Working…" else "Removes orphan tags and broken references",
+                    icon     = Icons.Default.CleaningServices
+                ) { if (!isRunning) vm.runSmartCleanup() }
             }
         }
     }
@@ -772,37 +826,187 @@ fun PrivacySettingsScreen(navController: NavController) {
 
 @Composable
 fun BackupDataSettingsScreen(navController: NavController) {
-    SettingsSubScreen("Backup & Data", navController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app      = activity.application as PandoraApp
+    val vm: BackupDataViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = BackupDataViewModelFactory(
+            context       = activity,
+            database      = app.database,
+            tagRepository = app.repository.tagRepository
+        )
+    )
+
+    val opState  by vm.opState.collectAsState()
+    val isRunning = opState is BackupOpState.Running
+    val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(opState) {
+        when (val s = opState) {
+            is BackupOpState.Done  -> { snackbar.showSnackbar(s.message); vm.clearResult() }
+            is BackupOpState.Error -> { snackbar.showSnackbar(s.message); vm.clearResult() }
+            else -> {}
+        }
+    }
+
+    // ── SAF launchers (must be declared outside click handlers) ──────────────
+    val exportTagsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { vm.exportTagMetadata(it) } }
+
+    val importTagsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.importTagMetadata(it) } }
+
+    val backupDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri -> uri?.let { vm.backupDatabase(it) } }
+
+    val restoreDbLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { vm.restoreDatabase(it) } }
+
+    SettingsSubScreen("Backup & Data", navController, snackbar) {
+        if (isRunning) {
+            val label = (opState as? BackupOpState.Running)?.label ?: "Working…"
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            Text(
+                text     = label,
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp)
+            )
+        }
+
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
-            item { SettingSectionHeader("Portability", "Export or import your metadata") }
-            item { ActionRow("Export Tag Metadata", "Save tag assignments to a JSON file", Icons.Default.Upload) {} }
-            item { ActionRow("Import Tag Metadata", "Restore assignments from a file", Icons.Default.Download) {} }
-            
-            item { SettingSectionHeader("Full Backups", "Secure your entire database") }
-            item { ActionRow("Backup Database", "Create an encrypted backup of all data", Icons.Default.CloudUpload) {} }
-            item { ActionRow("Restore Database", "Restore app state from a backup", Icons.Default.CloudDownload) {} }
+
+            // ── Portability ────────────────────────────────────────────────
+            item { SettingSectionHeader("Portability", "Export or import your tag metadata") }
+            item {
+                ActionRow(
+                    title    = "Export Tag Metadata",
+                    subtitle = "Save all tag assignments to a JSON file",
+                    icon     = Icons.Default.Upload
+                ) { if (!isRunning) exportTagsLauncher.launch(vm.suggestedTagsExportName()) }
+            }
+            item {
+                ActionRow(
+                    title    = "Import Tag Metadata",
+                    subtitle = "Restore tag assignments from a previously exported file",
+                    icon     = Icons.Default.Download
+                ) { if (!isRunning) importTagsLauncher.launch(arrayOf("application/json", "*/*")) }
+            }
+
+            // ── Full Backups ───────────────────────────────────────────────
+            item { SettingSectionHeader("Full Backups", "Back up or restore the entire database") }
+            item {
+                ActionRow(
+                    title    = "Backup Database",
+                    subtitle = "Copy the full database to a file you choose",
+                    icon     = Icons.Default.CloudUpload
+                ) { if (!isRunning) backupDbLauncher.launch(vm.suggestedDbBackupName()) }
+            }
+            item {
+                ActionRow(
+                    title    = "Restore Database",
+                    subtitle = "Replace the database from a backup — app will restart",
+                    icon     = Icons.Default.CloudDownload
+                ) { if (!isRunning) restoreDbLauncher.launch(arrayOf("application/octet-stream", "*/*")) }
+            }
         }
     }
 }
 
 @Composable
 fun AboutSettingsScreen(navController: NavController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app = activity.application as PandoraApp
+    val vm: AboutViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = AboutViewModelFactory(activity, app.database, app.thumbnailManager)
+    )
+    val stats by vm.stats.collectAsState()
+
     SettingsSubScreen("App Information", navController) {
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
+
+            // ─── Storage ──────────────────────────────────────────────────
             item { SettingSectionHeader("Storage", "Disk space usage") }
-            item { ActionRow("Cache Usage", "128 MB used for previews", Icons.Default.Dns) {} }
-            
-            item { SettingSectionHeader("Stats", "Library overview") }
-            item { ActionRow("Library Size", "1,234 media items indexed", Icons.Default.Image) {} }
-            item { ActionRow("Total Tags", "567 unique tags defined", Icons.AutoMirrored.Filled.Label) {} }
-            
-            item { SettingSectionHeader("App Preferences", "Technical details") }
-            item { ActionRow("Version", "1.0.0 (Build 42)", Icons.Default.Info) {} }
-            item { ActionRow("Open Source Licenses", "Legal information", Icons.Default.Description) {} }
-            item { ActionRow("Debug Logging", "Troubleshooting tools", Icons.Default.BugReport) {} }
-            
+            item {
+                ActionRow(
+                    title    = "Thumbnail Cache",
+                    subtitle = if (!stats.isLoaded) "Loading…"
+                               else "${formatBytes(stats.cacheSizeBytes)} · ${stats.cacheFileCount} file(s)",
+                    icon     = Icons.Default.Dns
+                ) {}
+            }
+            item {
+                ActionRow(
+                    title    = "Database Size",
+                    subtitle = if (!stats.isLoaded) "Loading…"
+                               else formatBytes(stats.dbSizeBytes),
+                    icon     = Icons.Default.Storage
+                ) {}
+            }
+
+            // ─── Library stats ────────────────────────────────────────────
+            item { SettingSectionHeader("Library", "Your media & tag overview") }
+            item {
+                ActionRow(
+                    title    = "Media Items",
+                    subtitle = if (!stats.isLoaded) "Loading…"
+                               else "${stats.mediaCount} item(s) indexed",
+                    icon     = Icons.Default.Image
+                ) {}
+            }
+            item {
+                ActionRow(
+                    title    = "Tags Defined",
+                    subtitle = if (!stats.isLoaded) "Loading…"
+                               else "${stats.tagCount} unique tag(s)",
+                    icon     = Icons.AutoMirrored.Filled.Label
+                ) {}
+            }
+
+            // ─── App info ─────────────────────────────────────────────────
+            item { SettingSectionHeader("App", "Technical information") }
+            item {
+                ActionRow(
+                    title    = "Version",
+                    subtitle = if (!stats.isLoaded) "Loading…"
+                               else "${stats.versionName} (build ${stats.versionCode})",
+                    icon     = Icons.Default.Info
+                ) {}
+            }
+            item {
+                ActionRow(
+                    title    = "Open Source Licenses",
+                    subtitle = "Third-party library attributions",
+                    icon     = Icons.Default.Description
+                ) {}
+            }
+
+            // ─── Support ──────────────────────────────────────────────────
             item { SettingSectionHeader("Support", "Get in touch") }
-            item { ActionRow("Report an Issue", "Send feedback to the developers", Icons.Default.Email) {} }
+            item {
+                ActionRow(
+                    title    = "Report an Issue",
+                    subtitle = "Send feedback to the developers",
+                    icon     = Icons.Default.Email
+                ) {}
+            }
         }
     }
+}
+
+/** Format a byte count into a human-readable string (KB / MB / GB). */
+private fun formatBytes(bytes: Long): String = when {
+    bytes < 1_024L               -> "$bytes B"
+    bytes < 1_048_576L           -> "${ "%.1f".format(bytes / 1_024f) } KB"
+    bytes < 1_073_741_824L       -> "${ "%.1f".format(bytes / 1_048_576f) } MB"
+    else                         -> "${ "%.2f".format(bytes / 1_073_741_824f) } GB"
 }

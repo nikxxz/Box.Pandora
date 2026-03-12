@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DriveFileMoveRtl
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
@@ -20,7 +23,10 @@ import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Style
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -29,11 +35,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.manager.FileConflictResolution
+import com.example.boxpandora.data.manager.PendingFileConflict
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 @Composable
@@ -300,5 +310,93 @@ private fun DialogActionRow(
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
             )
         }
+    }
+}
+
+/**
+ * Shows when a copy or move destination file already exists.
+ *
+ * For a single-file operation the "Apply to all" row is hidden.
+ * For multi-file batches the checkbox lets the user apply their choice to all
+ * remaining conflicts without being asked again.
+ *
+ * @param conflict       Describes which file caused the conflict.
+ * @param onResolve      Called when the user picks a resolution.
+ *                       [applyToAll] is only meaningful when [PendingFileConflict.totalCount] > 1.
+ * @param onDismiss      Called when the user taps outside the dialog or the Skip row.
+ *                       Callers should treat dismiss as [FileConflictResolution.SKIP].
+ */
+@Composable
+fun FileConflictDialog(
+    conflict: PendingFileConflict,
+    onResolve: (resolution: FileConflictResolution, applyToAll: Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val tokens = boxPandoraModalTokens()
+    val isMulti = conflict.totalCount > 1
+    var applyToAll by remember { mutableStateOf(false) }
+
+    AppDialog(onDismiss = onDismiss) {
+        // ── Header ────────────────────────────────────────────────────────────
+        val progress = if (isMulti) " (${conflict.currentIndex} of ${conflict.totalCount})" else ""
+        ModalHeader(
+            title = "File Already Exists$progress",
+            subtitle = "\"${conflict.fileName}\" already exists in the destination folder."
+        )
+
+        // ── Options ───────────────────────────────────────────────────────────
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            ModalActionRow(
+                label = "Replace",
+                supportingText = "The existing file will be overwritten",
+                icon = Icons.Default.DriveFileMoveRtl,
+                iconTint = tokens.destructiveAccent,
+                destructive = false,
+                onClick = { onResolve(FileConflictResolution.REPLACE, applyToAll) }
+            )
+            ModalDivider(modifier = Modifier.padding(start = 56.dp))
+            ModalActionRow(
+                label = "Keep Both",
+                supportingText = "A new name will be assigned automatically",
+                icon = Icons.Default.ContentCopy,
+                iconTint = tokens.selectedAccent,
+                onClick = { onResolve(FileConflictResolution.AUTO_RENAME, applyToAll) }
+            )
+            ModalDivider(modifier = Modifier.padding(start = 56.dp))
+            ModalActionRow(
+                label = "Skip",
+                supportingText = "Leave the existing file untouched",
+                icon = Icons.Default.SkipNext,
+                iconTint = tokens.secondaryText,
+                onClick = { onResolve(FileConflictResolution.SKIP, applyToAll) }
+            )
+        }
+
+        // ── "Apply to all" (multi-file only) ─────────────────────────────────
+        if (isMulti) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Checkbox(
+                    checked = applyToAll,
+                    onCheckedChange = { applyToAll = it },
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = tokens.selectedAccent,
+                        checkmarkColor = tokens.background
+                    )
+                )
+                Text(
+                    text = "Apply to all remaining files",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.bodyText
+                )
+            }
+        }
+
+        ModalFooterAction(label = "Cancel", onClick = onDismiss)
     }
 }

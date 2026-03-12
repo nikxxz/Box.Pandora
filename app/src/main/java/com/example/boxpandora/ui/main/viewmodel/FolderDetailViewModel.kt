@@ -8,8 +8,11 @@ import androidx.paging.cachedIn
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.manager.FileConflictResolution
+import com.example.boxpandora.data.manager.PendingFileConflict
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -127,11 +130,46 @@ class FolderDetailViewModel(
         }
     }
 
+    // ── File-conflict state ───────────────────────────────────────────────────
+    private val _pendingConflict = MutableStateFlow<PendingFileConflict?>(null)
+    val pendingConflict: StateFlow<PendingFileConflict?> = _pendingConflict
+
+    private var conflictDeferred: CompletableDeferred<FileConflictResolution>? = null
+    private var bulkConflictResolution: FileConflictResolution? = null
+
+    /**
+     * Called from the UI (main thread) when the user picks a resolution for the shown conflict.
+     * @param applyToAll when true, the same resolution is used for all remaining files silently.
+     */
+    fun resolveConflict(resolution: FileConflictResolution, applyToAll: Boolean) {
+        if (applyToAll) bulkConflictResolution = resolution
+        _pendingConflict.value = null
+        conflictDeferred?.complete(resolution)
+        conflictDeferred = null
+    }
+
+    /** Suspends the IO coroutine until the user makes a choice. */
+    private suspend fun awaitConflictResolution(
+        fileName: String, destPath: String, itemIndex: Int, totalCount: Int
+    ): FileConflictResolution {
+        bulkConflictResolution?.let { return it }
+        val deferred = CompletableDeferred<FileConflictResolution>()
+        conflictDeferred = deferred
+        _pendingConflict.value = PendingFileConflict(fileName, destPath, itemIndex, totalCount)
+        return try { deferred.await() } finally { _pendingConflict.value = null }
+    }
+
     fun copySelectedItems(destinationPath: String) {
         val uris = _selectedUris.value.toList()
         if (uris.isEmpty()) return
+        bulkConflictResolution = null
         viewModelScope.launch {
-            repository.copyMediaItems(uris, destinationPath)
+            try {
+                repository.copyMediaItems(uris, destinationPath, ::awaitConflictResolution)
+            } finally {
+                bulkConflictResolution = null
+                _pendingConflict.value = null
+            }
             clearSelection()
         }
     }
@@ -139,8 +177,14 @@ class FolderDetailViewModel(
     fun moveSelectedItems(destinationPath: String) {
         val uris = _selectedUris.value.toList()
         if (uris.isEmpty()) return
+        bulkConflictResolution = null
         viewModelScope.launch {
-            repository.moveMediaItems(uris, destinationPath)
+            try {
+                repository.moveMediaItems(uris, destinationPath, ::awaitConflictResolution)
+            } finally {
+                bulkConflictResolution = null
+                _pendingConflict.value = null
+            }
             clearSelection()
         }
     }

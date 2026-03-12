@@ -83,4 +83,12 @@ class ThumbnailManager(private val context: Context) {
     fun clearAll() {
         thumbDir.listFiles()?.forEach { it.delete() }
     }
+
+    /** Returns the total bytes occupied by all cached thumbnail files. */
+    fun cacheSize(): Long =
+        thumbDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+
+    /** Returns the number of thumbnail files currently on disk. */
+    fun cacheFileCount(): Int =
+        thumbDir.listFiles()?.size ?: 0
 }
