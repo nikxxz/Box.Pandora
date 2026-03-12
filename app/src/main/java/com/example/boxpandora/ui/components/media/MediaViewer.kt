@@ -82,6 +82,8 @@ import java.time.format.TextStyle as DateTimeTextStyle
 import java.util.Locale
 
 private var sharedVideoVolume by mutableFloatStateOf(0.5f)
+// Default videos to start muted on app start; runtime-global (not persisted)
+private var sharedVideoMuted by mutableStateOf(true)
 
 // Modal/visual tokens are provided via `boxPandoraModalTokens()` to support day/night theming.
 
@@ -115,7 +117,18 @@ fun MediaViewer(
         )
     )
 
-    val pagerState = rememberPagerState(initialPage = initialIndex) { items.size }
+    if (items.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text = "No media items", style = MaterialTheme.typography.titleMedium)
+            IconButton(onClick = onBackClick, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        }
+        return
+    }
+
+    val safeInitial = initialIndex.coerceIn(0, items.size - 1)
+    val pagerState = rememberPagerState(initialPage = safeInitial) { items.size }
     val currentItem = items.getOrNull(pagerState.currentPage)
     val scope = rememberCoroutineScope()
 
@@ -284,7 +297,6 @@ fun MediaViewer(
                         if (items.size <= 1) onBackClick()
                     }
                 }
-                showMoveDialog = false
             }
         )
     }
@@ -297,56 +309,44 @@ private fun ViewerHeader(
     onBackClick: () -> Unit,
     onAction: (String) -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
-    val options = listOf("Open With", "Share", "Rename", "Copy To", "Move To", "Delete")
-    val density = LocalDensity.current
-
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn(animationSpec = tween(180)) +
-                slideInVertically(
-                    initialOffsetY = { with(density) { -24.dp.roundToPx() } },
-                    animationSpec = tween(180)
-                ),
-        exit = fadeOut(animationSpec = tween(150)) +
-               slideOutVertically(
-                   targetOffsetY = { with(density) { -24.dp.roundToPx() } },
-                   animationSpec = tween(150)
-               )
+        enter = fadeIn() + slideInVertically(),
+        exit = fadeOut() + slideOutVertically()
     ) {
-        Box(
+        val tokens = boxPandoraModalTokens()
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(boxPandoraModalTokens().scrim.copy(alpha = 0.6f), Color.Transparent)))
                 .statusBarsPadding()
-                .padding(PandoraSpacing.md)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val tokens = boxPandoraModalTokens()
-            IconButton(onClick = onBackClick, modifier = Modifier.align(Alignment.CenterStart)) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = tokens.titleText)
+            IconButton(onClick = onBackClick) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
-            if (title.isNotEmpty()) {
-                Text(
-                    text = title,
-                    modifier = Modifier.align(Alignment.Center),
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 2.sp),
-                    color = tokens.titleText
-                )
-            }
-            Box(modifier = Modifier.align(Alignment.CenterEnd)) {
+            Text(
+                text = title,
+                color = Color.White,
+                style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
+            )
+            var showMenu by remember { mutableStateOf(false) }
+            Box {
                 IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = tokens.titleText)
+                    Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
                 }
                 AppContextMenu(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    AppContextMenuItem("Open With", onClick = { showMenu = false; onAction("Open With") }, icon = Icons.AutoMirrored.Filled.OpenInNew)
-                    AppContextMenuItem("Share", onClick = { showMenu = false; onAction("Share") }, icon = Icons.Default.Share)
-                    AppContextMenuItem("Rename", onClick = { showMenu = false; onAction("Rename") }, icon = Icons.Default.Edit)
-                    AppContextMenuItem("Copy To", onClick = { showMenu = false; onAction("Copy To") }, icon = Icons.Default.ContentCopy)
-                    AppContextMenuItem("Move To", onClick = { showMenu = false; onAction("Move To") }, icon = Icons.Default.FolderOpen)
-                    AppContextMenuItem("Delete", onClick = { showMenu = false; onAction("Delete") }, icon = Icons.Default.Delete, destructive = true)
+                    AppContextMenuItem("Rename", onClick = { onAction("Rename"); showMenu = false }, icon = Icons.Default.Edit)
+                    AppContextMenuItem("Open With", onClick = { onAction("Open With"); showMenu = false }, icon = Icons.Default.OpenInNew)
+                    AppContextMenuItem("Copy To", onClick = { onAction("Copy To"); showMenu = false }, icon = Icons.Default.ContentCopy)
+                    AppContextMenuItem("Move To", onClick = { onAction("Move To"); showMenu = false }, icon = Icons.AutoMirrored.Default.ArrowBack)
+                    AppContextMenuItem("Share", onClick = { onAction("Share"); showMenu = false }, icon = Icons.Default.Share)
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = tokens.divider)
+                    AppContextMenuItem("Delete", onClick = { onAction("Delete"); showMenu = false }, icon = Icons.Default.Delete, destructive = true)
                 }
             }
         }
@@ -532,7 +532,13 @@ private fun VideoPage(
     var progress by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var seekToRequest by remember { mutableStateOf<Long?>(null) }
-    var isMuted by remember { mutableStateOf(false) }
+    var isMuted by remember { mutableStateOf(sharedVideoMuted) }
+    val context = LocalContext.current
+    
+    // Keep local state in sync if another video control changed the global mute
+    LaunchedEffect(sharedVideoMuted) {
+        if (isMuted != sharedVideoMuted) isMuted = sharedVideoMuted
+    }
 
     LaunchedEffect(isActive) { if (!isActive) isPlaying = false }
 
@@ -565,7 +571,7 @@ private fun VideoPage(
                             if (!locked) {
                                 val ay = kotlin.math.abs(dy)
                                 val ax = kotlin.math.abs(dx)
-                                if (ay > viewConfiguration.touchSlop || ax > viewConfiguration.touchSlop) {
+                                if (ay > viewConfiguration.touchSlop || ay > ax * 1.3f) {
                                     isVertical = ay > ax * 1.3f
                                     locked = true
                                 }
@@ -581,25 +587,50 @@ private fun VideoPage(
             },
         contentAlignment = Alignment.Center
     ) {
-        VideoPlayer(
-            uri = item.uri,
-            isPlaying = isPlaying,
-            isMuted = isMuted,
-            volume = sharedVideoVolume,
-            seekTo = seekToRequest,
-            cropToFill = isPanelOpen,
-            onVideoClick = { onToggleUI() },
-            onProgress = { p, d -> progress = p; duration = d }
-        )
+        if (isActive) {
+            VideoPlayer(
+                uri = item.uri,
+                isPlaying = isPlaying,
+                isMuted = isMuted,
+                volume = sharedVideoVolume,
+                seekTo = seekToRequest,
+                cropToFill = isPanelOpen,
+                onVideoClick = { onToggleUI() },
+                onProgress = { p, d -> progress = p; duration = d }
+            )
+        } else {
+            // Lightweight placeholder for non-active pages to avoid creating ExoPlayer instances.
+            val thumbRequest = remember(item.filePath, item.uri, item.deviceModifiedAt) {
+                ImageRequest.Builder(context)
+                    .data(item.filePath?.let { File(it) } ?: item.uri)
+                    .crossfade(false)
+                    .build()
+            }
+            AsyncImage(
+                model = thumbRequest,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
 
         LaunchedEffect(seekToRequest) { if (seekToRequest != null) seekToRequest = null }
 
         AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
             val tokens = boxPandoraModalTokens()
+            val isSplit = isPanelOpen
+            // Always show white icons regardless of theme
+            val iconTint = Color.White
+            val primaryIconTint = Color.White
+            val bottomPadding = if (isSplit) 18.dp else 32.dp
+            val playButtonSize = if (isSplit) 56.dp else 72.dp
+            val playIconSize = if (isSplit) 28.dp else 40.dp
+            val smallIconSize = if (isSplit) 24.dp else 32.dp
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(tokens.scrim)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xAAB0B0B0))))
             ) {
                 Column(
                     modifier = Modifier
@@ -607,9 +638,9 @@ private fun VideoPage(
                         .fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Color.Transparent, tokens.scrim)))
                         .padding(horizontal = 24.dp)
-                        .padding(bottom = 32.dp)
+                        .padding(bottom = bottomPadding)
                         .navigationBarsPadding(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(if (isSplit) 12.dp else 16.dp)
                 ) {
                     Column {
                         Slider(
@@ -618,14 +649,14 @@ private fun VideoPage(
                             onValueChangeFinished = { seekToRequest = progress },
                             valueRange = 0f..(if (duration > 0) duration.toFloat() else 1f),
                             colors = SliderDefaults.colors(
-                                thumbColor = tokens.titleText,
-                                activeTrackColor = tokens.titleText,
-                                inactiveTrackColor = tokens.titleText.copy(alpha = 0.32f)
+                                thumbColor = primaryIconTint,
+                                activeTrackColor = primaryIconTint,
+                                inactiveTrackColor = primaryIconTint.copy(alpha = 0.32f)
                             )
                         )
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(formatDuration(progress), color = tokens.bodyText, style = MaterialTheme.typography.labelSmall)
-                            Text(formatDuration(duration), color = tokens.bodyText, style = MaterialTheme.typography.labelSmall)
+                            Text(formatDuration(progress), color = iconTint, style = MaterialTheme.typography.labelSmall)
+                            Text(formatDuration(duration), color = iconTint, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     Row(
@@ -633,23 +664,23 @@ private fun VideoPage(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { isMuted = !isMuted }) {
-                            Icon(if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = tokens.bodyText)
+                        IconButton(onClick = { isMuted = !isMuted; sharedVideoMuted = isMuted }) {
+                            Icon(if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp, null, tint = iconTint, modifier = Modifier.size(if (isSplit) 20.dp else 24.dp))
                         }
                         IconButton(onClick = { seekToRequest = (progress - 10000).coerceAtLeast(0) }) {
-                            Icon(Icons.Default.Replay10, null, tint = tokens.bodyText, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.Replay10, null, tint = iconTint, modifier = Modifier.size(smallIconSize))
                         }
                         IconButton(
                             onClick = { isPlaying = !isPlaying },
-                            modifier = Modifier.size(72.dp).background(tokens.iconBackgroundNeutral, CircleShape)
+                            modifier = Modifier.size(playButtonSize).background(tokens.iconBackgroundNeutral, CircleShape)
                         ) {
-                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = tokens.titleText, modifier = Modifier.size(40.dp))
+                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = primaryIconTint, modifier = Modifier.size(playIconSize))
                         }
                         IconButton(onClick = { seekToRequest = (progress + 10000).coerceAtMost(duration) }) {
-                            Icon(Icons.Default.Forward10, null, tint = tokens.bodyText, modifier = Modifier.size(32.dp))
+                            Icon(Icons.Default.Forward10, null, tint = iconTint, modifier = Modifier.size(smallIconSize))
                         }
                         IconButton(onClick = { }) {
-                            Icon(Icons.Default.Repeat, null, tint = tokens.bodyText)
+                            Icon(Icons.Default.Repeat, null, tint = iconTint, modifier = Modifier.size(if (isSplit) 20.dp else 24.dp))
                         }
                     }
                 }
@@ -1113,6 +1144,7 @@ private fun SuggestionReviewChip(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TagActionChip(
     text: String,
