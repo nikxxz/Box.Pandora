@@ -2,6 +2,7 @@ package com.example.boxpandora
 
 import android.app.Application
 import android.os.Build.VERSION.SDK_INT
+import android.util.Log
 import androidx.room.Room
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -19,6 +20,8 @@ import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.MediaStoreRepository
 import com.example.boxpandora.data.repository.TagRepository
 
+private const val TAG = "PandoraApp"
+
 class PandoraApp : Application(), ImageLoaderFactory {
     lateinit var database: AppDatabase
     lateinit var repository: MediaRepository
@@ -26,6 +29,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "onCreate: Initializing PandoraApp")
 
         database = Room.databaseBuilder(
             this,
@@ -65,6 +69,10 @@ class PandoraApp : Application(), ImageLoaderFactory {
 
         contentObserver = MediaContentObserver(this)
         contentObserver.register()
+
+        // Trigger startup resync fallback
+        Log.d(TAG, "Triggering startup resync fallback")
+        contentObserver.triggerSync("App Startup")
     }
 
     override fun onTerminate() {

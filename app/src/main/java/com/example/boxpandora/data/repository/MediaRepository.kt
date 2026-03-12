@@ -1,5 +1,6 @@
 package com.example.boxpandora.data.repository
 
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -18,6 +19,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
+
+private const val TAG = "MediaRepository"
 
 class MediaRepository(
     private val database: AppDatabase,
@@ -336,20 +339,19 @@ class MediaRepository(
                 urisToDelete.forEach { thumbnailManager.deleteThumbnail(it) }
             }
 
-            onProgress?.invoke("Updating media index...", 0.7f)
-            mediaItemDao.insertAll(allScannedItems)
-            mediaItemDao.updateAll(allScannedItems)
-
-            onProgress?.invoke("Updating albums...", 0.9f)
+            // FIX 1: Build and upsert albums BEFORE writing media items.
+            // MediaItem.album_id has a FK → Album.id. Inserting/updating media items before
+            // the referenced Album row exists causes a foreign key constraint violation.
+            onProgress?.invoke("Updating albums...", 0.6f)
             val albums = allScannedItems.groupBy { it.albumId to it.albumName }
                 .mapNotNull { (key, items) ->
                     val (albumId, albumName) = key
                     if (albumId == null || albumName == null) return@mapNotNull null
-                    
+
                     val coverItem = items.maxByOrNull { it.deviceCreatedAt ?: 0L } ?: items.first()
                     val photoItems = items.filter { it.mediaType == "image" }
                     val videoItems = items.filter { it.mediaType == "video" }
-                    
+
                     Album(
                         id = albumId,
                         name = albumName,
@@ -365,8 +367,51 @@ class MediaRepository(
                         isHidden = items.any { it.isHidden == 1 }
                     )
                 }
-
+            // All FK parent rows now exist in the albums table before any child media rows
+            // reference them.
             albumDao.upsertAll(albums)
+
+            onProgress?.invoke("Updating media index...", 0.8f)
+
+            // Diagnostic: warn on any scanned item whose albumId is not in the current scan
+            // set (edge case: e.g. a nomedia item whose hashCode ID was not collected above).
+            val scannedAlbumIds = albums.map { it.id }.toSet()
+            allScannedItems.forEach { item ->
+                if (item.albumId != null && item.albumId !in scannedAlbumIds) {
+                    Log.w(TAG, "Scanned item references albumId absent from current scan — " +
+                        "uri=${item.uri} albumId=${item.albumId} albumName=${item.albumName} " +
+                        "bucket=${item.filePath?.let { File(it).parent }} filename=${item.filename}")
+                }
+            }
+
+            // Log newly discovered items so the bucket/folder context is always visible.
+            val newUris = allScannedUris - existingUris
+            allScannedItems.filter { it.uri in newUris }.forEach { item ->
+                Log.d(TAG, "New media item discovered: uri=${item.uri} albumId=${item.albumId} " +
+                    "albumName=${item.albumName} " +
+                    "bucket=${item.filePath?.let { File(it).parent }} " +
+                    "filename=${item.filename} ext=${item.extension}")
+            }
+
+            // FIX 2: Preserve user-mutable fields (rating, favorites, hidden, notes) so that
+            // updateAll does not clobber values the user set between scans. Fresh items from
+            // MediaStore always carry default zeros/nulls.
+            val userMetaMap = mediaItemDao.getAllUserMetadata().associateBy { it.uri }
+            val itemsForUpdate = allScannedItems.map { item ->
+                val meta = userMetaMap[item.uri]
+                if (meta != null) item.copy(
+                    rating     = meta.rating,
+                    isFavorite = meta.favorite,
+                    isHidden   = meta.hidden,
+                    notes      = meta.notes
+                ) else item
+            }
+
+            mediaItemDao.insertAll(allScannedItems)       // IGNORE: new rows only
+            mediaItemDao.updateAll(itemsForUpdate)         // @Update: existing rows, user metadata preserved
+
+            // Delete stale albums last. The SET_NULL cascade on media_index.album_id fires
+            // automatically for any remaining media rows still pointing to removed albums.
             if (albums.isNotEmpty()) {
                 albumDao.deleteStaleAlbums(albums.map { it.id })
             }
