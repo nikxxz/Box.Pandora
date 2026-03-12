@@ -1,10 +1,12 @@
 package com.example.boxpandora.ui.components.media
 
 import android.annotation.SuppressLint
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -20,7 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -59,8 +60,6 @@ import com.example.boxpandora.ui.common.AppContextMenuItem
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
 import com.example.boxpandora.ui.common.ModalChip
-import com.example.boxpandora.ui.common.ModalHeader
-import com.example.boxpandora.ui.common.ModalSection
 import com.example.boxpandora.ui.common.ModalTextField
 import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.theme.PandoraSpacing
@@ -96,6 +95,7 @@ fun MediaViewer(
     items: List<MediaItem>,
     initialIndex: Int,
     onBackClick: () -> Unit,
+    onNavigateToTag: (Long) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -211,54 +211,14 @@ fun MediaViewer(
                     .fillMaxWidth()
                     .height(panelHeightDp)
                     .background(PanelBg)
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val vt = VelocityTracker()
-                            vt.addPosition(down.uptimeMillis, down.position)
-                            var prevY = down.position.y
-                            var totalDy = 0f
-                            var isVertical = false
-                            var locked = false
-
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val active = event.changes.filter { it.pressed }
-                                if (active.isEmpty()) break
-                                if (active.size == 1) {
-                                    val change = active[0]
-                                    vt.addPosition(change.uptimeMillis, change.position)
-                                    val dy = change.position.y - prevY
-                                    if (!locked) {
-                                        if (kotlin.math.abs(dy) > viewConfiguration.touchSlop) {
-                                            isVertical = true; locked = true
-                                        }
-                                    }
-                                    if (isVertical) {
-                                        totalDy += dy
-                                        change.consume()
-                                    }
-                                    prevY = change.position.y
-                                }
-                            }
-                            if (isVertical) {
-                                val velocity = vt.calculateVelocity().y
-                                val shouldClose = totalDy > viewConfiguration.touchSlop * 4 ||
-                                    velocity > FLING_VELOCITY / 2
-                                scope.launch {
-                                    panelFraction.animateTo(
-                                        if (shouldClose) 0f else maxFraction,
-                                        PanelAnimationSpec
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    .clipToBounds()
             ) {
                 if (currentItem != null) {
                     InfoPanelContent(
                         item = currentItem,
                         viewModel = viewModel,
+                        onNavigateToTag = onNavigateToTag,
+                        onDragPanel = { velocityY -> snapPanel(velocityY) },
                         onHeightMeasured = { if (it > 0f) contentHeightPx = it }
                     )
                 }
@@ -687,10 +647,19 @@ private fun VideoPage(
 }
 
 @Composable
-private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, onHeightMeasured: (Float) -> Unit) {
+private fun InfoPanelContent(
+    item: MediaItem,
+    viewModel: MediaViewerViewModel,
+    onNavigateToTag: (Long) -> Unit,
+    onDragPanel: (Float) -> Unit,
+    onHeightMeasured: (Float) -> Unit
+) {
     val tags by viewModel.getTagsForMedia(item.uri).collectAsState(initial = emptyList())
     val suggestions by viewModel.getSuggestionsForMedia(item.uri).collectAsState()
-    var showTagsDialog by remember { mutableStateOf(false) }
+    val allTags by viewModel.allTags.collectAsState()
+    var showTagPopup by remember { mutableStateOf(false) }
+    var tagQuery by remember { mutableStateOf("") }
+    var pendingRemovalTagId by remember { mutableStateOf<Long?>(null) }
     val albumLabel = item.albumName ?: "Library"
     val aspectRatio = remember(item.width, item.height) { formatAspectRatio(item.width, item.height) }
     val orientation = remember(item.width, item.height) {
@@ -704,6 +673,25 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
     val modifiedLabel = remember(item.deviceModifiedAt) { formatMediaTimestamp(item.deviceModifiedAt) }
     val addedLabel = remember(item.indexedAt) { formatIndexedTimestamp(item.indexedAt) }
     val tokens = boxPandoraModalTokens()
+    val context = LocalContext.current
+    val tagMatches = remember(tagQuery, allTags, tags) {
+        val query = tagQuery.trim()
+        if (query.isBlank()) {
+            emptyList()
+        } else {
+            allTags.filter { tag ->
+                tag.name.contains(query, ignoreCase = true) &&
+                    tags.none { currentTag -> currentTag.id == tag.id }
+            }.take(8)
+        }
+    }
+
+    LaunchedEffect(pendingRemovalTagId) {
+        if (pendingRemovalTagId != null) {
+            delay(2200)
+            pendingRemovalTagId = null
+        }
+    }
 
     val timestampSec = remember(item.deviceCreatedAt, item.deviceModifiedAt) {
         listOf(item.deviceCreatedAt, item.deviceModifiedAt)
@@ -730,14 +718,17 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .wrapContentHeight()
+            .verticalScroll(rememberScrollState())
             .onSizeChanged { if (it.height > 0) onHeightMeasured(it.height.toFloat()) }
             .padding(horizontal = 18.dp)
             .padding(top = 10.dp)
+            .imePadding()
             .navigationBarsPadding()
             .padding(bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        PanelDragHandle(onDragEnd = onDragPanel)
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -768,36 +759,56 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             StatusPill(icon = Icons.Default.Folder, label = albumLabel)
-            StatusPill(icon = Icons.AutoMirrored.Filled.Label, label = if (tags.isEmpty()) "No tags" else "${tags.size} tag${if (tags.size == 1) "" else "s"}")
             if (item.mediaType == "video" && item.duration != null) {
                 StatusPill(icon = Icons.Default.PlayArrow, label = formatDuration(item.duration.toLong()))
             }
         }
 
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            ManageTagsButton(onClick = { showTagsDialog = true })
+            Text(
+                text = "TAGS",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    letterSpacing = 1.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+
             Row(
                 modifier = Modifier
-                    .weight(1f)
+                    .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                ManageTagsButton(onClick = { showTagPopup = true })
+
                 if (tags.isEmpty()) {
                     Text(
-                        text = "Manage tags",
+                        text = "No tags yet",
                         color = LabelColor.copy(alpha = 0.5f),
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
-                    tags.forEach { tag -> 
-                        TagPill(tag.name) {
-                            viewModel.removeTag(item, tag)
-                        }
+                    tags.forEach { tag ->
+                        TagActionChip(
+                            text = tag.name,
+                            confirmRemoval = pendingRemovalTagId == tag.id,
+                            onLongPress = { onNavigateToTag(tag.id) },
+                            onRemoveClick = {
+                                if (pendingRemovalTagId == tag.id) {
+                                    viewModel.removeTag(item, tag)
+                                    pendingRemovalTagId = null
+                                    Toast.makeText(context, "Removed ${tag.name}", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    pendingRemovalTagId = tag.id
+                                    Toast.makeText(context, "Press again to remove ${tag.name}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -852,26 +863,80 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
         }
     }
 
-    if (showTagsDialog) {
-        TagsDialog(
-            item = item,
-            currentTags = tags,
-            viewModel = viewModel,
-            onDismiss = { showTagsDialog = false }
+    if (showTagPopup) {
+        ManageTagsPopup(
+            query = tagQuery,
+            onQueryChange = { tagQuery = it },
+            matches = tagMatches,
+            suggestions = suggestions,
+            onDismiss = {
+                showTagPopup = false
+                tagQuery = ""
+            },
+            onAddTypedTag = {
+                val newTag = tagQuery.trim()
+                if (newTag.isNotEmpty()) {
+                    viewModel.addTag(item, newTag)
+                    tagQuery = ""
+                }
+            },
+            onSelectTag = { tagName ->
+                viewModel.addTag(item, tagName)
+                tagQuery = ""
+            },
+            onAcceptSuggestion = { tagName -> viewModel.acceptSuggestion(item, tagName) },
+            onRejectSuggestion = { tagName -> viewModel.rejectSuggestion(item, tagName) }
         )
     }
 }
 
 @Composable
-private fun TagPill(text: String, onRemove: () -> Unit) {
+private fun PanelDragHandle(onDragEnd: (Float) -> Unit) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFF202024))
-            .padding(horizontal = 12.dp, vertical = 7.dp)
-            .clickable { onRemove() }
+            .fillMaxWidth()
+            .padding(bottom = 6.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium))
+        Box(
+            modifier = Modifier
+                .size(width = 42.dp, height = 20.dp)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val vt = VelocityTracker()
+                        vt.addPosition(down.uptimeMillis, down.position)
+                        var isVertical = false
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val active = event.changes.filter { it.pressed }
+                            if (active.isEmpty()) break
+                            val change = active.first()
+                            vt.addPosition(change.uptimeMillis, change.position)
+                            val dy = change.position.y - down.position.y
+                            if (!isVertical && kotlin.math.abs(dy) > viewConfiguration.touchSlop) {
+                                isVertical = true
+                            }
+                            if (isVertical) {
+                                change.consume()
+                            }
+                        }
+
+                        if (isVertical) {
+                            onDragEnd(vt.calculateVelocity().y)
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 42.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.22f))
+            )
+        }
     }
 }
 
@@ -900,111 +965,155 @@ private fun SuggestionReviewChip(
 }
 
 @Composable
-private fun TagsDialog(
-    item: MediaItem,
-    currentTags: List<Tag>,
-    viewModel: MediaViewerViewModel,
-    onDismiss: () -> Unit
+private fun TagActionChip(
+    text: String,
+    confirmRemoval: Boolean,
+    onLongPress: () -> Unit,
+    onRemoveClick: () -> Unit
 ) {
-    var input by remember { mutableStateOf("") }
-    val allTags by viewModel.allTags.collectAsState()
-    val tokens = boxPandoraModalTokens()
-    
-    val suggestions = remember(input, allTags, currentTags) {
-        if (input.isBlank()) emptyList()
-        else allTags.filter { 
-            it.name.contains(input, ignoreCase = true) && 
-            currentTags.none { ct -> ct.id == it.id }
-        }.take(5)
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (confirmRemoval) Color(0xFF3A171C) else Color(0xFF202024))
+            .combinedClickable(onClick = {}, onLongClick = onLongPress)
+            .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = text,
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+        )
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(if (confirmRemoval) Color(0xFFEF5A5A) else Color.White.copy(alpha = 0.12f))
+                .clickable(onClick = onRemoveClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Remove tag",
+                tint = if (confirmRemoval) Color.Black else Color.White.copy(alpha = 0.88f),
+                modifier = Modifier.size(12.dp)
+            )
+        }
     }
+}
 
-    AppDialog(onDismiss = onDismiss) {
-        ModalHeader(title = "Tags")
+@Composable
+private fun ManageTagsButton(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(CardBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            Icons.Default.Tune,
+            contentDescription = "Manage tags",
+            tint = Color.White.copy(alpha = 0.9f),
+            modifier = Modifier.size(15.dp)
+        )
+        Text(
+            text = "Manage",
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+        )
+    }
+}
 
-        if (currentTags.isNotEmpty()) {
-            ModalSection(title = "Current") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    currentTags.forEach { tag ->
-                        ModalChip(
-                            label = tag.name,
-                            trailingIcon = Icons.Default.Close,
-                            trailingTint = tokens.secondaryText,
-                            onClick = { viewModel.removeTag(item, tag) }
-                        )
-                    }
-                }
+@Composable
+private fun ManageTagsPopup(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    matches: List<Tag>,
+    suggestions: List<String>,
+    onDismiss: () -> Unit,
+    onAddTypedTag: () -> Unit,
+    onSelectTag: (String) -> Unit,
+    onAcceptSuggestion: (String) -> Unit,
+    onRejectSuggestion: (String) -> Unit
+) {
+    AppDialog(
+        onDismiss = onDismiss,
+        modifier = Modifier.padding(horizontal = 8.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        Text(
+            text = "Manage Tags",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            ModalTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = "Search or create tag",
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onAddTypedTag) {
+                Icon(Icons.Default.Add, contentDescription = "Add tag", tint = boxPandoraModalTokens().selectedAccent)
             }
         }
 
-        ModalSection {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                ModalTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = "New tag",
-                    modifier = Modifier.weight(1f)
+        if (query.isNotBlank()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Matches",
+                    color = LabelColor,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
                 )
-                IconButton(onClick = {
-                    val tag = input.trim()
-                    if (tag.isNotEmpty()) {
-                        viewModel.addTag(item, tag)
-                        input = ""
-                    }
-                }) {
-                    Icon(Icons.Default.Add, null, tint = tokens.selectedAccent)
-                }
-            }
-
-            if (suggestions.isNotEmpty()) {
-                ModalSection(title = "Suggestions") {
+                if (matches.isEmpty()) {
+                    Text(
+                        text = "No match. Tap + to create \"${query.trim()}\"",
+                        color = LabelColor.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else {
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        suggestions.forEach { tag ->
-                            ModalChip(
-                                label = tag.name,
-                                onClick = {
-                                    viewModel.addTag(item, tag.name)
-                                    input = ""
-                                }
-                            )
+                        matches.forEach { tag ->
+                            ModalChip(label = tag.name, onClick = { onSelectTag(tag.name) })
                         }
                     }
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = onDismiss) {
-                Text("Done", color = tokens.selectedAccent)
+        if (suggestions.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Suggestions",
+                    color = LabelColor,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                )
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    suggestions.forEach { suggestion ->
+                        SuggestionReviewChip(
+                            text = suggestion,
+                            onAccept = { onAcceptSuggestion(suggestion) },
+                            onReject = { onRejectSuggestion(suggestion) }
+                        )
+                    }
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun SuggestionChip(text: String, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White.copy(alpha = 0.1f))
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -1019,34 +1128,14 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
         Text(
             text = label,
             color = LabelColor,
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold)
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp)
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = value,
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 3
-        )
-    }
-}
-
-@Composable
-private fun ManageTagsButton(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(CardBg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Icon(Icons.Default.Tune, contentDescription = "Manage tags", tint = Color.White, modifier = Modifier.size(16.dp))
-        Text(
-            text = "Manage",
-            color = Color.White,
-            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
         )
     }
 }

@@ -579,7 +579,12 @@ fun NavigationGraph(
             exitTransition  = { fadeOut(tween(NAV_FADE_MS)) + scaleOut(targetScale = 0.92f, animationSpec = tween(NAV_FADE_MS)) }
         ) { backStackEntry ->
             val index = backStackEntry.arguments?.getInt("index") ?: 0
-            MediaViewer(items = activeMediaItems, initialIndex = index, onBackClick = { navController.popBackStack() })
+            MediaViewer(
+                items = activeMediaItems,
+                initialIndex = index,
+                onBackClick = { navController.popBackStack() },
+                onNavigateToTag = { tagId -> navController.navigate("tag_gallery/$tagId") }
+            )
         }
         composable(Screen.Settings.route) { SettingsScreen(navController) }
         composable(Screen.LibrarySettings.route) { LibrarySettingsScreen(navController) }

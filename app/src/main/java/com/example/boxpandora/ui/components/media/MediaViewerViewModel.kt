@@ -118,6 +118,18 @@ class MediaViewerViewModel(
         }
     }
 
+    fun renameTag(tagId: Long, newName: String) {
+        viewModelScope.launch {
+            tagRepository.renameTag(tagId, newName)
+        }
+    }
+
+    fun mergeTag(sourceTagId: Long, targetTagId: Long) {
+        viewModelScope.launch {
+            tagRepository.mergeTags(sourceTagId, targetTagId)
+        }
+    }
+
     fun deleteItem(item: MediaItem, onDeleted: () -> Unit) {
         viewModelScope.launch {
             if (repository.deleteMediaItems(listOf(item.uri))) {

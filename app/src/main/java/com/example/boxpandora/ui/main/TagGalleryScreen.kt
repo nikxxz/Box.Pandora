@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -721,24 +722,16 @@ fun TagControlsRow(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Sort
             var showSortMenu by remember { mutableStateOf(false) }
             Box {
-                TextButton(
-                    onClick = { showSortMenu = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Sort, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = currentSort.label,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(18.dp))
-                }
+                TagToolbarChip(
+                    label = currentSort.label,
+                    icon = Icons.AutoMirrored.Filled.Sort,
+                    trailingIcon = Icons.Default.ArrowDropDown,
+                    onClick = { showSortMenu = true }
+                )
                 AppContextMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     TagGallerySort.entries.forEach { sort ->
                         AppContextMenuItem(
@@ -753,26 +746,17 @@ fun TagControlsRow(
                 }
             }
             
-            // Filter
             var showFilterMenu by remember { mutableStateOf(false) }
             Box {
-                TextButton(
-                    onClick = { showFilterMenu = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
-                ) {
-                    Icon(Icons.Default.FilterList, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    val filterLabel = when {
+                TagToolbarChip(
+                    label = when {
                         filters.favoritesOnly -> "Favorites"
                         filters.type != "all" -> filters.type.replaceFirstChar { it.uppercase() }
                         else -> "Filter"
-                    }
-                    Text(
-                        text = filterLabel,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                }
+                    },
+                    icon = Icons.Default.FilterList,
+                    onClick = { showFilterMenu = true }
+                )
                 AppContextMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }) {
                     AppContextMenuItem(
                         label = "Images",
@@ -803,13 +787,64 @@ fun TagControlsRow(
             }
         }
 
-        IconButton(onClick = onGridModeToggle) {
+        Surface(
+            onClick = onGridModeToggle,
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
+        ) {
+            Box(
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (gridMode == GridMode.COMPACT) Icons.Default.GridView else Icons.Default.GridOn,
+                    contentDescription = "Toggle Grid",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TagToolbarChip(
+    label: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    trailingIcon: ImageVector? = null
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Icon(
-                imageVector = if (gridMode == GridMode.COMPACT) Icons.Default.GridView else Icons.Default.GridOn,
-                contentDescription = "Toggle Grid",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
             )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+            )
+            if (trailingIcon != null) {
+                Icon(
+                    imageVector = trailingIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }

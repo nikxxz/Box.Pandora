@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -84,6 +87,7 @@ fun AppModalSheet(
         Column(
             modifier = modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = tokens.horizontalPadding)
                 .padding(top = tokens.topPadding, bottom = sheetBottomPadding),
             verticalArrangement = Arrangement.spacedBy(tokens.sectionSpacing)
@@ -143,6 +147,7 @@ fun AppDialog(
             Surface(
                 modifier = modifier
                     .fillMaxWidth()
+                    .fillMaxHeight(0.9f)
                     .widthIn(max = 420.dp)
                     .padding(horizontal = 24.dp),
                 shape = RoundedCornerShape(tokens.dialogRadius),
@@ -152,7 +157,9 @@ fun AppDialog(
                 border = BorderStroke(1.dp, tokens.border)
             ) {
                 Column(
-                    modifier = Modifier.padding(contentPadding),
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(contentPadding),
                     verticalArrangement = Arrangement.spacedBy(tokens.sectionSpacing)
                 ) {
                     content()
