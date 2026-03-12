@@ -162,7 +162,9 @@ fun MediaThumbnail(
                     )
                     Spacer(Modifier.width(2.dp))
                     Text(
-                        text = duration?.let { Formatters.formatDuration((it * 1000).toLong()) } ?: "0:00",
+                        // MediaItem.duration is stored as seconds (Double). Formatters.formatDuration
+                        // expects milliseconds, so convert here to ms.
+                        text = duration?.let { Formatters.formatDuration((it * 1000.0).toLong()) } ?: "0:00",
                         color = Color.White,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold

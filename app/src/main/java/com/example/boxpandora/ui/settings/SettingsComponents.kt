@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,10 +87,17 @@ fun ToggleRow(
         headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) },
         supportingContent = subtitle?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
         trailingContent = { 
+            val tokens = boxPandoraModalTokens()
             Switch(
-                checked = checked, 
+                checked = checked,
                 onCheckedChange = onCheckedChange,
-                modifier = Modifier.graphicsLayer(scaleX = 0.8f, scaleY = 0.8f)
+                modifier = Modifier.graphicsLayer(scaleX = 0.8f, scaleY = 0.8f),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = tokens.selectedAccent,
+                    checkedTrackColor = tokens.selectedAccent.copy(alpha = 0.28f),
+                    uncheckedThumbColor = tokens.iconBackgroundNeutral,
+                    uncheckedTrackColor = tokens.rowPressedBackground
+                )
             ) 
         },
         modifier = Modifier.clickable { onCheckedChange(!checked) },

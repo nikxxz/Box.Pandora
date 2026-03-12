@@ -37,7 +37,7 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-} from 'react';
+} from "react";
 import {
   View,
   Text,
@@ -52,43 +52,43 @@ import {
   Animated,
   ScrollView,
   useWindowDimensions,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Image } from 'expo-image';
-import { useTheme } from '../../providers/ThemeProvider';
-import { Spacing } from '../../theme';
-import { useMediaContext } from '../../store/MediaContext';
-import { useAppContext } from '../../store/AppContext';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { ContextMenu } from '../ui/ContextMenu';
-import { RenameDialog } from '../ui/RenameDialog';
-import { PropertiesModal } from '../ui/PropertiesModal';
-import { Icon } from '../ui/Icon';
-import { VideoPlayer } from './VideoPlayer';
-import { TagsModal } from './TagsModal';
-import { ZoomableImage } from './ZoomableImage';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Image } from "expo-image";
+import { useTheme } from "../../providers/ThemeProvider";
+import { Spacing } from "../../theme";
+import { useMediaContext } from "../../store/MediaContext";
+import { useAppContext } from "../../store/AppContext";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { ContextMenu } from "../ui/ContextMenu";
+import { RenameDialog } from "../ui/RenameDialog";
+import { PropertiesModal } from "../ui/PropertiesModal";
+import { Icon } from "../ui/Icon";
+import { VideoPlayer } from "./VideoPlayer";
+import { TagsModal } from "./TagsModal";
+import { ZoomableImage } from "./ZoomableImage";
 import {
   formatDuration,
   formatDateTimeDisplay,
   formatFileSize,
   formatDimensions,
-} from '../../utils/formatters';
+} from "../../utils/formatters";
 import {
   stripExtension,
   getExtension,
   getMimeTypeForItem,
-} from '../../utils/fileUtils';
-import { MediaStoreModule } from '../../services/media/MediaStoreModule';
-import { SystemUIModule } from '../../services/media/SystemUIModule';
-import { MediaIndexService } from '../../services/database/MediaIndexService';
-import { TagService } from '../../services/database/TagService';
+} from "../../utils/fileUtils";
+import { MediaStoreModule } from "../../services/media/MediaStoreModule";
+import { SystemUIModule } from "../../services/media/SystemUIModule";
+import { MediaIndexService } from "../../services/database/MediaIndexService";
+import { TagService } from "../../services/database/TagService";
 // import { FaceService } from '../../services/database/FaceService';
 // import { navigate } from '../../navigation/navigationRef';
-import { useToast } from '../../providers/ToastProvider';
+import { useToast } from "../../providers/ToastProvider";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const { width: W, height: H } = Dimensions.get('window');
+const { width: W, height: H } = Dimensions.get("window");
 const HIT = { top: 10, right: 10, bottom: 10, left: 10 };
 const MIN_PANEL = Math.round(H * 0.35);
 const MAX_PANEL = Math.round(H * 0.65);
@@ -100,8 +100,8 @@ let sessionMuted = true;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getTypeLabel(item) {
-  if (!item) return '';
-  const base = item.type?.includes('video') ? 'Video' : 'Image';
+  if (!item) return "";
+  const base = item.type?.includes("video") ? "Video" : "Image";
   const ext = item.extension?.toUpperCase();
   return ext ? `${base} · ${ext}` : base;
 }
@@ -142,29 +142,29 @@ function computeItemLayout(item) {
 // ─── Panel helpers ────────────────────────────────────────────────────────────
 
 function getDayName(ts) {
-  if (!ts) return '';
+  if (!ts) return "";
   const d = new Date(ts < 1e10 ? ts * 1000 : ts);
-  return d.toLocaleDateString('en-US', { weekday: 'long' });
+  return d.toLocaleDateString("en-US", { weekday: "long" });
 }
 
 function getRelativeDateLabel(ts) {
-  if (!ts) return '';
+  if (!ts) return "";
   const d = new Date(ts < 1e10 ? ts * 1000 : ts);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const itemDay = new Date(d);
   itemDay.setHours(0, 0, 0, 0);
   const diff = Math.round((today - itemDay) / 86400000);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function getTimeString(ts) {
-  if (!ts) return '';
+  if (!ts) return "";
   const d = new Date(ts < 1e10 ? ts * 1000 : ts);
-  const h = String(d.getHours()).padStart(2, '0');
-  const m = String(d.getMinutes()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
   return `${h}:${m}`;
 }
 
@@ -194,8 +194,8 @@ function InfoCard({ label, value, colors }) {
 
 const ic = StyleSheet.create({
   card: { flex: 1, borderRadius: 14, padding: 14, minHeight: 72 },
-  cardLabel: { fontSize: 11, fontWeight: '500', marginBottom: 6, opacity: 0.7 },
-  cardValue: { fontSize: 13, fontWeight: '500', lineHeight: 18 },
+  cardLabel: { fontSize: 11, fontWeight: "500", marginBottom: 6, opacity: 0.7 },
+  cardValue: { fontSize: 13, fontWeight: "500", lineHeight: 18 },
 });
 
 // ─── SeekBar (inside media area for videos) ──────────────────────────────────
@@ -210,7 +210,7 @@ const SeekBar = React.memo(function SeekBar({
   const startX = useRef(0);
 
   const seekTo = useCallback(
-    pct => {
+    (pct) => {
       onSeek(Math.max(0, Math.min(duration, pct * duration)));
     },
     [duration, onSeek],
@@ -221,7 +221,7 @@ const SeekBar = React.memo(function SeekBar({
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: evt => {
+        onPanResponderGrant: (evt) => {
           startX.current = evt.nativeEvent.locationX;
           seekTo(startX.current / trackLayout.current.width);
         },
@@ -233,14 +233,14 @@ const SeekBar = React.memo(function SeekBar({
   );
 
   const progress = duration > 0 ? currentTime / duration : 0;
-  const barColor = accent || '#FF3B30';
+  const barColor = accent || "#FF3B30";
 
   return (
     <View style={sb.row}>
       <Text style={sb.time}>{formatDuration(Math.floor(currentTime))}</Text>
       <View
         style={sb.trackOuter}
-        onLayout={e => {
+        onLayout={(e) => {
           trackLayout.current.width = e.nativeEvent.layout.width;
         }}
         {...panResponder.panHandlers}
@@ -267,29 +267,29 @@ const SeekBar = React.memo(function SeekBar({
 
 const sb = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
     marginBottom: 6,
     gap: 10,
   },
   time: {
-    color: '#CCC',
+    color: "#CCC",
     fontSize: 12,
-    fontVariant: ['tabular-nums'],
+    fontVariant: ["tabular-nums"],
     width: 48,
-    textAlign: 'center',
+    textAlign: "center",
   },
-  trackOuter: { flex: 1, height: 28, justifyContent: 'center' },
+  trackOuter: { flex: 1, height: 28, justifyContent: "center" },
   trackBg: {
     height: 3,
     borderRadius: 1.5,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    overflow: 'hidden',
+    backgroundColor: "rgba(255,255,255,0.25)",
+    overflow: "hidden",
   },
-  trackFill: { height: '100%', borderRadius: 1.5 },
+  trackFill: { height: "100%", borderRadius: 1.5 },
   thumb: {
-    position: 'absolute',
+    position: "absolute",
     width: 14,
     height: 14,
     borderRadius: 7,
@@ -359,7 +359,7 @@ export function MediaViewer({
   // splitPanelH = panel slid off-screen (fullscreen). Uses useNativeDriver: true
   // so every frame is handled on the UI thread — no JS-driven layout reflows.
   const splitPanelHRef = useRef(DEFAULT_PANEL_H); // current item's computed split height
-  const isMaximizedRef = useRef(false);  // mirror of isMaximized for onScroll
+  const isMaximizedRef = useRef(false); // mirror of isMaximized for onScroll
   const isFullscreenRef = useRef(false); // mirror of isFullscreen for scheduleHide
   isFullscreenRef.current = isFullscreen; // kept in sync every render
   // Guards stale ExoPlayer callbacks after a swipe: only accept callbacks whose
@@ -380,13 +380,13 @@ export function MediaViewer({
 
   // ─── Derived ─────────────────────────────────────────────────────────────
   const currentItem = items?.[currentIndex] ?? null;
-  const isVideo = currentItem?.type?.includes('video');
+  const isVideo = currentItem?.type?.includes("video");
 
   // Indices of every video item in the list — used for landscape nav.
   const videoIndices = useMemo(
     () =>
       (items ?? []).reduce((acc, it, i) => {
-        if (it.type?.includes('video')) acc.push(i);
+        if (it.type?.includes("video")) acc.push(i);
         return acc;
       }, []),
     [items],
@@ -397,8 +397,8 @@ export function MediaViewer({
     [mediaState.favorites],
   );
   const isFav = currentItem ? favoritesSet.has(currentItem.uri) : false;
-  const itemTags = currentItem ? mediaState.tags[currentItem.uri] ?? [] : [];
-  const itemTagsKey = itemTags.join('|');
+  const itemTags = currentItem ? (mediaState.tags[currentItem.uri] ?? []) : [];
+  const itemTagsKey = itemTags.join("|");
 
   useEffect(() => {
     let cancelled = false;
@@ -411,8 +411,10 @@ export function MediaViewer({
       try {
         const rows = await TagService.getTagsForMedia(currentItem.uri);
         const described = rows
-          .filter(r => typeof r.description === 'string' && r.description.trim())
-          .map(r => ({ name: r.name, description: r.description.trim() }));
+          .filter(
+            (r) => typeof r.description === "string" && r.description.trim(),
+          )
+          .map((r) => ({ name: r.name, description: r.description.trim() }));
         if (!cancelled) setTagDescriptions(described);
       } catch {
         if (!cancelled) setTagDescriptions([]);
@@ -458,7 +460,11 @@ export function MediaViewer({
       setIsFullscreen(false);
       setIsShuffled(false);
       setShuffledVideoOrder(videoIndices);
-      setVideoPlaylistPos(videoIndices.indexOf(initialIndex) >= 0 ? videoIndices.indexOf(initialIndex) : 0);
+      setVideoPlaylistPos(
+        videoIndices.indexOf(initialIndex) >= 0
+          ? videoIndices.indexOf(initialIndex)
+          : 0,
+      );
       SystemUIModule.unlockOrientation();
       readyUrisRef.current.clear();
       setIsMaximized(initialMaximized);
@@ -475,7 +481,7 @@ export function MediaViewer({
       mediaOffsetAnim.setValue(initialMaximized ? 0 : -(initLayout.panelH / 2));
       prefetchAdjacent(initialIndex);
       // Reset zoom state for all currently-rendered pages on (re-)open.
-      Object.values(zoomRefs.current).forEach(r => r?.reset?.());
+      Object.values(zoomRefs.current).forEach((r) => r?.reset?.());
     }
     return () => clearTimeout(controlsTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -497,7 +503,7 @@ export function MediaViewer({
   // ─── Android hardware back ───────────────────────────────────────────────
   useEffect(() => {
     if (!visible) return;
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (isFullscreenRef.current) {
         // Exit landscape fullscreen before anything else.
         SystemUIModule.unlockOrientation();
@@ -529,7 +535,7 @@ export function MediaViewer({
   }, []);
 
   const toggleControls = useCallback(() => {
-    setControlsVisible(v => {
+    setControlsVisible((v) => {
       const next = !v;
       if (next) scheduleHide();
       return next;
@@ -554,7 +560,7 @@ export function MediaViewer({
 
   // ─── Landscape video playlist: navigate to an item by its items[] index ──
   const navigateToVideo = useCallback(
-    itemIndex => {
+    (itemIndex) => {
       if (itemIndex < 0 || itemIndex >= (items?.length ?? 0)) return;
       activeUriRef.current = items[itemIndex].uri;
       setVideoReady(readyUrisRef.current.has(items[itemIndex].uri));
@@ -584,7 +590,7 @@ export function MediaViewer({
   }, [videoPlaylistPos, shuffledVideoOrder, navigateToVideo]);
 
   const handleShuffleToggle = useCallback(() => {
-    setIsShuffled(prev => {
+    setIsShuffled((prev) => {
       if (prev) {
         // Restore original order, keep current item in place
         const newOrder = [...videoIndices];
@@ -593,7 +599,7 @@ export function MediaViewer({
         setVideoPlaylistPos(pos >= 0 ? pos : 0);
       } else {
         // Shuffle remaining videos, keep current at position 0
-        const rest = videoIndices.filter(i => i !== currentIndex);
+        const rest = videoIndices.filter((i) => i !== currentIndex);
         for (let i = rest.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [rest[i], rest[j]] = [rest[j], rest[i]];
@@ -608,10 +614,10 @@ export function MediaViewer({
 
   // ─── Prefetch adjacent images ────────────────────────────────────────────
   const prefetchAdjacent = useCallback(
-    idx => {
-      [idx - 1, idx + 1].forEach(i => {
+    (idx) => {
+      [idx - 1, idx + 1].forEach((i) => {
         const it = items?.[i];
-        if (it?.uri && !it.type?.includes('video')) {
+        if (it?.uri && !it.type?.includes("video")) {
           Image.prefetch(it.uri).catch(() => {});
         }
       });
@@ -728,7 +734,7 @@ export function MediaViewer({
   );
 
   const onScroll = useCallback(
-    e => {
+    (e) => {
       const idx = Math.round(e.nativeEvent.contentOffset.x / W);
       if (idx !== currentIndex && idx >= 0 && idx < items.length) {
         // Reset zoom of the page being navigated away from.
@@ -744,8 +750,8 @@ export function MediaViewer({
         setIsFullscreen(false);
         setCurrentIndex(idx);
         // Keep playlist position in sync when user swipes to a video.
-        if (items[idx].type?.includes('video')) {
-          setShuffledVideoOrder(prev => {
+        if (items[idx].type?.includes("video")) {
+          setShuffledVideoOrder((prev) => {
             const pos = prev.indexOf(idx);
             if (pos >= 0) setVideoPlaylistPos(pos);
             return prev;
@@ -797,14 +803,14 @@ export function MediaViewer({
       await MediaStoreModule.shareFile(
         currentItem.uri,
         mimeType,
-        currentItem.filename ?? '',
+        currentItem.filename ?? "",
       );
     } catch {
       /* dismissed */
     }
   }, [currentItem]);
 
-  const handleSeek = useCallback(time => {
+  const handleSeek = useCallback((time) => {
     setCurrentTime(time);
     videoRef.current?.seek?.(time);
   }, []);
@@ -820,13 +826,13 @@ export function MediaViewer({
     if (currentItem) onToggleFavorite?.(currentItem);
   }, [currentItem, onToggleFavorite]);
 
-  const handleOpenRename = useCallback(item => {
+  const handleOpenRename = useCallback((item) => {
     setOptionsVisible(false);
     setTimeout(() => setRenameTarget(item), 180);
   }, []);
 
   const handleConfirmRename = useCallback(
-    async newBaseName => {
+    async (newBaseName) => {
       const item = renameTarget;
       setRenameTarget(null);
       if (!item) return;
@@ -836,11 +842,11 @@ export function MediaViewer({
         : newBaseName.trim();
       const result = await (onRename
         ? onRename(item, fullName)
-        : { success: false, error: 'Rename not available.' });
+        : { success: false, error: "Rename not available." });
       if (result.success) {
-        toast.success('File renamed', `"${item.filename}" → "${fullName}"`);
+        toast.success("File renamed", `"${item.filename}" → "${fullName}"`);
       } else {
-        toast.error('Rename failed', result.error ?? 'Could not rename file.');
+        toast.error("Rename failed", result.error ?? "Could not rename file.");
       }
     },
     [renameTarget, onRename, toast],
@@ -883,51 +889,51 @@ export function MediaViewer({
     if (!currentItem) return [];
     return [
       {
-        key: 'openWith',
-        label: 'Open With',
-        icon: 'openWith',
+        key: "openWith",
+        label: "Open With",
+        icon: "openWith",
         onPress: () => {
           setOptionsVisible(false);
           const mimeType = getMimeTypeForItem(currentItem);
           MediaStoreModule.openWith(currentItem.uri, mimeType).catch(() => {});
         },
       },
-      { key: 'share', label: 'Share', icon: 'share1', onPress: handleShare },
+      { key: "share", label: "Share", icon: "share1", onPress: handleShare },
       {
-        key: 'rename',
-        label: 'Rename',
-        icon: 'rename',
+        key: "rename",
+        label: "Rename",
+        icon: "rename",
         onPress: () => handleOpenRename(currentItem),
       },
       {
-        key: 'copyTo',
-        label: 'Copy To',
-        icon: 'copy',
+        key: "copyTo",
+        label: "Copy To",
+        icon: "copy",
         onPress: () => {
           setOptionsVisible(false);
-          setTimeout(() => onOpenPicker?.('copy', currentItem), 120);
+          setTimeout(() => onOpenPicker?.("copy", currentItem), 120);
         },
       },
       {
-        key: 'moveTo',
-        label: 'Move To',
-        icon: 'moveRight',
+        key: "moveTo",
+        label: "Move To",
+        icon: "moveRight",
         onPress: () => {
           setOptionsVisible(false);
-          setTimeout(() => onOpenPicker?.('move', currentItem), 120);
+          setTimeout(() => onOpenPicker?.("move", currentItem), 120);
         },
       },
-      { key: 'hide', label: 'Hide', icon: 'hidden' },
+      { key: "hide", label: "Hide", icon: "hidden" },
       {
-        key: 'fav',
-        label: isFav ? 'Unfavourite' : 'Favourite',
-        icon: isFav ? 'remove' : 'heartOutline',
+        key: "fav",
+        label: isFav ? "Unfavourite" : "Favourite",
+        icon: isFav ? "remove" : "heartOutline",
         onPress: handleToggleFav,
       },
       {
-        key: 'info',
-        label: 'Properties',
-        icon: 'information',
+        key: "info",
+        label: "Properties",
+        icon: "information",
         onPress: () => {
           setOptionsVisible(false);
           setTimeout(() => setPropertiesItem(currentItem), 180);
@@ -945,9 +951,9 @@ export function MediaViewer({
       //   : [])
 
       {
-        key: 'delete',
-        label: 'Delete',
-        icon: 'trash',
+        key: "delete",
+        label: "Delete",
+        icon: "trash",
         dividerBefore: true,
         destructive: true,
         onPress: handleDeleteCurrent,
@@ -966,14 +972,14 @@ export function MediaViewer({
   // ─── Render page ──────────────────────────────────────────────────────────
   const renderPage = useCallback(
     ({ item, index }) => {
-      const itemIsVideo = item.type?.includes('video');
+      const itemIsVideo = item.type?.includes("video");
       const isActive = index === currentIndex;
       // When the panel is open (!isMaximized), use 'cover' to fill the visible area
       // and avoid black bars. In fullscreen mode (isMaximized), use 'contain'
       // to show the full uncropped asset.
-      const contentFit = isMaximized ? 'contain' : 'cover';
-      const contentPosition = 'center';
-      const videoResizeMode = isMaximized ? 'contain' : 'cover';
+      const contentFit = isMaximized ? "contain" : "cover";
+      const contentPosition = "center";
+      const videoResizeMode = isMaximized ? "contain" : "cover";
       return itemIsVideo ? (
         <TouchableOpacity
           activeOpacity={1}
@@ -1052,7 +1058,7 @@ export function MediaViewer({
       ) : (
         <View style={[s.page, { width: W }]}>
           <ZoomableImage
-            ref={r => {
+            ref={(r) => {
               if (r) {
                 zoomRefs.current[item.uri] = r;
               } else {
@@ -1110,11 +1116,41 @@ export function MediaViewer({
     ? getMegapixels(currentItem?.width, currentItem?.height)
     : null;
   const extLabel =
-    (currentItem?.extension || getExtension(currentItem?.filename ?? '')).toUpperCase() || null;
+    (
+      currentItem?.extension || getExtension(currentItem?.filename ?? "")
+    ).toUpperCase() || null;
   const filenameBase = currentItem?.filename
     ? stripExtension(currentItem.filename)
     : null;
-  const typeOnly = typeLabel ? typeLabel.split('·')[0].trim() : null;
+  const typeOnly = typeLabel ? typeLabel.split("·")[0].trim() : null;
+  // Additional derived labels for new card layout
+  const aspectLabel =
+    currentItem?.width && currentItem?.height
+      ? `${(currentItem.width / currentItem.height).toFixed(2)}:1 ${currentItem.height > currentItem.width ? "Portrait" : "Landscape"}`
+      : null;
+  const bitrateLabel = isVideo ? "3.2 Mbps" : null; // TODO: derive from media metadata if available
+  const modifiedLabel = currentItem?.timestamp
+    ? formatDateTimeDisplay(currentItem.timestamp)
+    : null;
+  const addedLabel = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  // Additional derived labels for new card layout
+  const aspectLabel =
+    currentItem?.width && currentItem?.height
+      ? `${(currentItem.width / currentItem.height).toFixed(2)}:1 ${currentItem.height > currentItem.width ? "Portrait" : "Landscape"}`
+      : null;
+  const bitrateLabel = isVideo ? "3.2 Mbps" : null; // TODO: derive from media metadata if available
+  const modifiedLabel = currentItem?.timestamp
+    ? formatDateTimeDisplay(currentItem.timestamp)
+    : null;
+  const addedLabel = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 
   return (
     <Modal
@@ -1159,7 +1195,7 @@ export function MediaViewer({
                 // Disable swipe when zoomed in (pan gesture takes over) or when
                 // the video is in native landscape fullscreen mode.
                 scrollEnabled={!isZoomedIn && !isFullscreen}
-                keyExtractor={it => it.uri}
+                keyExtractor={(it) => it.uri}
                 renderItem={renderPage}
                 getItemLayout={getItemLayout}
                 initialScrollIndex={Math.min(initialIndex, items.length - 1)}
@@ -1206,8 +1242,8 @@ export function MediaViewer({
                     bottom: isFullscreen
                       ? insets.bottom
                       : isMaximized
-                      ? PEEK_H
-                      : panelHeight,
+                        ? PEEK_H
+                        : panelHeight,
                   },
                 ]}
               >
@@ -1219,19 +1255,19 @@ export function MediaViewer({
                 />
                 <View style={s.videoActionsRow}>
                   <TouchableOpacity
-                    onPress={() => setIsPaused(v => !v)}
+                    onPress={() => setIsPaused((v) => !v)}
                     style={s.videoBtn}
                     hitSlop={HIT}
                   >
                     <Icon
-                      name={isPaused ? 'play' : 'pause'}
+                      name={isPaused ? "play" : "pause"}
                       size={26}
                       color="#FFF"
                     />
                   </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() =>
-                      setIsMuted(v => {
+                      setIsMuted((v) => {
                         sessionMuted = !v;
                         return !v;
                       })
@@ -1240,7 +1276,7 @@ export function MediaViewer({
                     hitSlop={HIT}
                   >
                     <Icon
-                      name={isMuted ? 'volumeMute' : 'volumeOn'}
+                      name={isMuted ? "volumeMute" : "volumeOn"}
                       size={22}
                       color="#FFF"
                     />
@@ -1250,7 +1286,10 @@ export function MediaViewer({
                     <>
                       <TouchableOpacity
                         onPress={handleVideoPrev}
-                        style={[s.videoBtn, videoPlaylistPos <= 0 && s.videoBtnDisabled]}
+                        style={[
+                          s.videoBtn,
+                          videoPlaylistPos <= 0 && s.videoBtnDisabled,
+                        ]}
                         hitSlop={HIT}
                         disabled={videoPlaylistPos <= 0}
                       >
@@ -1264,17 +1303,20 @@ export function MediaViewer({
                         <Icon
                           name="refresh"
                           size={18}
-                          color={isShuffled ? accent : '#FFF'}
+                          color={isShuffled ? accent : "#FFF"}
                         />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={handleVideoNext}
                         style={[
                           s.videoBtn,
-                          videoPlaylistPos >= shuffledVideoOrder.length - 1 && s.videoBtnDisabled,
+                          videoPlaylistPos >= shuffledVideoOrder.length - 1 &&
+                            s.videoBtnDisabled,
                         ]}
                         hitSlop={HIT}
-                        disabled={videoPlaylistPos >= shuffledVideoOrder.length - 1}
+                        disabled={
+                          videoPlaylistPos >= shuffledVideoOrder.length - 1
+                        }
                       >
                         {/* Flip previous icon to use as "next" */}
                         <Icon
@@ -1312,59 +1354,204 @@ export function MediaViewer({
           </View>
 
           {/* ── INFO PANEL — hidden in landscape fullscreen ──────────────── */}
-          {!isFullscreen && <Animated.View
-            pointerEvents="box-none"
-            style={[
-              s.infoPanel,
-              {
-                height: panelHeight,
-                backgroundColor: colors.card,
-                transform: [{ translateY: panelAnim }],
-                opacity: panelOpacityAnim,
-              },
-            ]}
-          >
-            {/* Inner wrapper captures swipe-down to dismiss; pointerEvents="box-none" on
+          {!isFullscreen && (
+            <Animated.View
+              pointerEvents="box-none"
+              style={[
+                s.infoPanel,
+                {
+                  height: panelHeight,
+                  backgroundColor: colors.card,
+                  transform: [{ translateY: panelAnim }],
+                  opacity: panelOpacityAnim,
+                },
+              ]}
+            >
+              {/* Inner wrapper captures swipe-down to dismiss; pointerEvents="box-none" on
                 the outer Animated.View ensures touches outside the panel (on the media
                 area) are never blocked by the animated container. */}
-            <View style={s.panelInner} {...panelPanResponder.panHandlers}>
-              {/* Drag handle — tap to collapse */}
-              <View style={s.dragHandle}>
-                <TouchableOpacity
-                  onPress={doMaximize}
-                  activeOpacity={0.5}
-                  hitSlop={HIT}
-                  style={s.pillWrap}
-                >
-                  <View style={[s.pill, { backgroundColor: colors.border }]} />
-                </TouchableOpacity>
-              </View>
+              <View style={s.panelInner} {...panelPanResponder.panHandlers}>
+                {/* Drag handle — tap to collapse */}
+                <View style={s.dragHandle}>
+                  <TouchableOpacity
+                    onPress={doMaximize}
+                    activeOpacity={0.5}
+                    hitSlop={HIT}
+                    style={s.pillWrap}
+                  >
+                    <View
+                      style={[s.pill, { backgroundColor: colors.border }]}
+                    />
+                  </TouchableOpacity>
+                </View>
 
-              <ScrollView
-                style={s.panelScroll}
-                contentContainerStyle={[
-                  s.panelContent,
-                  { paddingBottom: insets.bottom + 16 },
-                ]}
-                showsVerticalScrollIndicator={false}
-                bounces={false}
-                onScroll={e => {
-                  panelScrollYRef.current = e.nativeEvent.contentOffset.y;
-                }}
-                scrollEventThrottle={16}
-              >
-                {/* Header: Date (left) + tags (right) — NOT in cards */}
-                <View style={s.topHeader}>
-                  <View style={s.topDateCol}>
-                    <Text style={[s.topDay, { color: colors.text }]}>
-                      {dayName || ''}
-                    </Text>
-                    <Text style={[s.topSub, { color: colors.textSecondary }]}>
-                      {(relativeDateLabel || '—') +
-                        (timeStr ? `  |  ${timeStr}` : '')}
-                    </Text>
+                <ScrollView
+                  style={s.panelScroll}
+                  contentContainerStyle={[
+                    s.panelContent,
+                    { paddingBottom: insets.bottom + 16 },
+                  ]}
+                  showsVerticalScrollIndicator={false}
+                  bounces={false}
+                  onScroll={(e) => {
+                    panelScrollYRef.current = e.nativeEvent.contentOffset.y;
+                  }}
+                  scrollEventThrottle={16}
+                >
+                  {/* Row 1: Quick Actions Tool Strip */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 12,
+                    }}
+                  >
+                    {/* Folder pill */}
+                    {albumLabel ? (
+                      <View
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 6,
+                          borderRadius: 16,
+                          backgroundColor: colors.surface,
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          marginRight: 4,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: accent,
+                            fontWeight: "700",
+                            fontSize: 12,
+                          }}
+                        >
+                          {albumLabel}
+                        </Text>
+                      </View>
+                    ) : null}
+                    {/* Favorite */}
+                    <TouchableOpacity
+                      onPress={handleToggleFav}
+                      style={[
+                        s.quickActionBtn,
+                        {
+                          backgroundColor: isFav
+                            ? `${accent}22`
+                            : colors.surface,
+                        },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name={isFav ? "heart" : "heartOutline"}
+                        size={16}
+                        color={isFav ? accent : colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                    {/* Share */}
+                    <TouchableOpacity
+                      onPress={handleShare}
+                      style={[
+                        s.quickActionBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="share"
+                        size={16}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                    {/* Delete */}
+                    <TouchableOpacity
+                      onPress={handleDeleteCurrent}
+                      style={[
+                        s.quickActionBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="trash"
+                        size={16}
+                        color={colors.error || "#FF5252"}
+                      />
+                    </TouchableOpacity>
+                    {/* Open With */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setOptionsVisible(false);
+                        setTimeout(
+                          () => onOpenPicker?.("copy", currentItem),
+                          120,
+                        );
+                      }}
+                      style={[
+                        s.quickActionBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="openWith"
+                        size={16}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                    {/* Copy */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setOptionsVisible(false);
+                        setTimeout(
+                          () => onOpenPicker?.("copy", currentItem),
+                          120,
+                        );
+                      }}
+                      style={[
+                        s.quickActionBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="copy"
+                        size={16}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                    {/* Move */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setOptionsVisible(false);
+                        setTimeout(
+                          () => onOpenPicker?.("move", currentItem),
+                          120,
+                        );
+                      }}
+                      style={[
+                        s.quickActionBtn,
+                        { backgroundColor: colors.surface },
+                      ]}
+                      hitSlop={HIT}
+                      activeOpacity={0.7}
+                    >
+                      <Icon
+                        name="moveRight"
+                        size={16}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
                   </View>
 
+                  {/* Row 2: Tags (unchanged) */}
                   <View style={s.topTagsCol}>
                     <TouchableOpacity
                       onPress={() => setTagsModalVisible(true)}
@@ -1377,10 +1564,9 @@ export function MediaViewer({
                         color={colors.textSecondary}
                       />
                       <Text style={[s.tagsBtnText, { color: accent }]}>
-                        {itemTags.length ? 'Edit' : '+Tags'}
+                        {itemTags.length ? "Edit" : "+Tags"}
                       </Text>
                     </TouchableOpacity>
-
                     <ScrollView
                       ref={tagsScrollRef}
                       horizontal
@@ -1389,7 +1575,7 @@ export function MediaViewer({
                       style={s.topTagsScroll}
                     >
                       {itemTags.length ? (
-                        itemTags.map(tag => (
+                        itemTags.map((tag) => (
                           <View
                             key={tag}
                             style={[
@@ -1406,103 +1592,236 @@ export function MediaViewer({
                           </View>
                         ))
                       ) : (
-                        <Text style={[s.topTagsEmpty, { color: colors.textTertiary }]}>
+                        <Text
+                          style={[
+                            s.topTagsEmpty,
+                            { color: colors.textTertiary },
+                          ]}
+                        >
                           No tags
                         </Text>
                       )}
                     </ScrollView>
                   </View>
-                </View>
 
-                {/* Row 2: Filename (no extension) | Extension */}
-                <View style={s.metaRowTwo}>
-                  <View style={[s.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[s.metaLabel, { color: colors.textSecondary }]}>
-                      Filename
-                    </Text>
-                    <Text style={[s.metaValue, { color: colors.text }]}>
-                      {filenameBase || '-'}
-                    </Text>
-                  </View>
-                  <View style={[s.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[s.metaLabel, { color: colors.textSecondary }]}>
-                      Extension
-                    </Text>
-                    <Text style={[s.metaValue, { color: colors.text }]}>
-                      {extLabel || '-'}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Row 3: Type | Dimensions | File Size */}
-                <View style={s.metaRowThree}>
-                  <View style={[s.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[s.metaLabel, { color: colors.textSecondary }]}>
-                      Type
-                    </Text>
-                    <Text style={[s.metaValue, { color: colors.text }]}>
-                      {typeOnly || '-'}
-                    </Text>
-                  </View>
-                  <View style={[s.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[s.metaLabel, { color: colors.textSecondary }]}>
-                      Dimensions
-                    </Text>
-                    <Text style={[s.metaValue, { color: colors.text }]}>
-                      {dimsLabel || '-'}
-                    </Text>
-                  </View>
-                  <View style={[s.metaCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                    <Text style={[s.metaLabel, { color: colors.textSecondary }]}>
-                      File Size
-                    </Text>
-                    <Text style={[s.metaValue, { color: colors.text }]}>
-                      {sizeLabel || '-'}
-                    </Text>
-                  </View>
-                </View>
-
-                {tagDescriptions.length > 0 ? (
+                  {/* Card A: File Information */}
                   <View
                     style={[
-                      s.tagDescSection,
-                      { backgroundColor: colors.surface },
+                      s.metaCard,
+                      {
+                        marginTop: 16,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
                     ]}
                   >
                     <Text
-                      style={[s.tagDescTitle, { color: colors.textSecondary }]}
+                      style={[s.metaLabel, { color: colors.textSecondary }]}
                     >
-                      Tag Descriptions
+                      FILE
                     </Text>
-                    <ScrollView
-                      style={s.tagDescScroll}
-                      contentContainerStyle={s.tagDescContent}
-                      showsVerticalScrollIndicator
-                      nestedScrollEnabled
+                    <Text
+                      style={[
+                        s.metaValue,
+                        { color: colors.text, fontWeight: "700", fontSize: 15 },
+                      ]}
                     >
-                      {tagDescriptions.map(tag => (
-                        <View
-                          key={tag.name}
-                          style={[
-                            s.tagDescItem,
-                            { borderBottomColor: colors.border },
-                          ]}
+                      {currentItem?.filename || "-"}
+                    </Text>
+                    <View style={{ height: 8 }} />
+                    <View style={{ flexDirection: "row", gap: 18 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
                         >
-                          <Text style={[s.tagDescName, { color: accent }]}>
-                            {tag.name}
-                          </Text>
-                          <Text style={[s.tagDescText, { color: colors.text }]}>
-                            {tag.description}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
+                          Album
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {albumLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Type
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {typeOnly || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Size
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {sizeLabel || "-"}
+                        </Text>
+                      </View>
+                    </View>
                   </View>
-                ) : null}
-              </ScrollView>
-            </View>
-            {/* /panelInner */}
-          </Animated.View>}
+
+                  {/* Card B: Technical Details */}
+                  <View
+                    style={[
+                      s.metaCard,
+                      {
+                        marginTop: 10,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[s.metaLabel, { color: colors.textSecondary }]}
+                    >
+                      MEDIA DETAILS
+                    </Text>
+                    <View style={{ height: 8 }} />
+                    <View style={{ flexDirection: "row", gap: 18 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Resolution
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {dimsLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Aspect
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {aspectLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Duration
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {durationLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Bitrate
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {bitrateLabel || "-"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Card C: Dates */}
+                  <View
+                    style={[
+                      s.metaCard,
+                      {
+                        marginTop: 10,
+                        backgroundColor: colors.surface,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[s.metaLabel, { color: colors.textSecondary }]}
+                    >
+                      DATES
+                    </Text>
+                    <View style={{ height: 8 }} />
+                    <View style={{ flexDirection: "row", gap: 18 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Captured
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {createdLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Modified
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {modifiedLabel || "-"}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[s.metaLabel, { color: colors.textSecondary }]}
+                        >
+                          Added
+                        </Text>
+                        <Text style={[s.metaValue, { color: colors.text }]}>
+                          {addedLabel || "-"}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {tagDescriptions.length > 0 ? (
+                    <View
+                      style={[
+                        s.tagDescSection,
+                        { backgroundColor: colors.surface },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          s.tagDescTitle,
+                          { color: colors.textSecondary },
+                        ]}
+                      >
+                        Tag Descriptions
+                      </Text>
+                      <ScrollView
+                        style={s.tagDescScroll}
+                        contentContainerStyle={s.tagDescContent}
+                        showsVerticalScrollIndicator
+                        nestedScrollEnabled
+                      >
+                        {tagDescriptions.map((tag) => (
+                          <View
+                            key={tag.name}
+                            style={[
+                              s.tagDescItem,
+                              { borderBottomColor: colors.border },
+                            ]}
+                          >
+                            <Text style={[s.tagDescName, { color: accent }]}>
+                              {tag.name}
+                            </Text>
+                            <Text
+                              style={[s.tagDescText, { color: colors.text }]}
+                            >
+                              {tag.description}
+                            </Text>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              </View>
+              {/* /panelInner */}
+            </Animated.View>
+          )}
 
           {/* ── PEEK STRIP — shown in fullscreen (not in landscape mode) ─── */}
           {isMaximized && !isFullscreen && (
@@ -1515,7 +1834,7 @@ export function MediaViewer({
                 numberOfLines={1}
                 style={[s.peekFilename, { color: colors.text }]}
               >
-                {currentItem?.filename ?? ''}
+                {currentItem?.filename ?? ""}
               </Text>
             </View>
           )}
@@ -1525,7 +1844,7 @@ export function MediaViewer({
         <ContextMenu
           visible={optionsVisible}
           onClose={() => setOptionsVisible(false)}
-          title={currentItem?.filename ?? ''}
+          title={currentItem?.filename ?? ""}
           items={menuItems}
         />
 
@@ -1542,7 +1861,7 @@ export function MediaViewer({
           visible={!!renameTarget}
           onClose={() => setRenameTarget(null)}
           onConfirm={handleConfirmRename}
-          initialName={stripExtension(renameTarget?.filename ?? '')}
+          initialName={stripExtension(renameTarget?.filename ?? "")}
           title="Rename File"
           placeholder="Enter file name"
         />
@@ -1567,15 +1886,15 @@ const s = StyleSheet.create({
   // Root column container — full screen height
   root: {
     flex: 1,
-    flexDirection: 'column',
-    backgroundColor: '#000',
+    flexDirection: "column",
+    backgroundColor: "#000",
   },
 
   // Media area — always full height (panel is an absolute overlay)
   mediaArea: {
     flex: 1,
-    backgroundColor: '#000',
-    overflow: 'hidden',
+    backgroundColor: "#000",
+    overflow: "hidden",
   },
 
   // FlatList — fills its Animated.View wrapper
@@ -1587,26 +1906,26 @@ const s = StyleSheet.create({
   page: {
     width: W,
     flex: 1,
-    backgroundColor: '#000',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    backgroundColor: "#000",
+    justifyContent: "center",
+    overflow: "hidden",
   },
 
   videoThumbOverlay: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.30)',
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.30)",
   },
   videoHidden: { opacity: 0 },
 
   // Header overlay (top of media area)
   headerOverlay: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
     paddingBottom: 14,
   },
@@ -1614,25 +1933,32 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.38)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerSpacer: { flex: 1 },
 
   // Video controls overlay (bottom of media area, above info panel)
   videoControls: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     paddingTop: 10,
     paddingBottom: 10,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: "rgba(0,0,0,0.55)",
   },
   videoActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
     gap: 20,
     paddingBottom: 4,
@@ -1643,19 +1969,19 @@ const s = StyleSheet.create({
 
   // Maximize / minimize button — bottom-right corner of media area
   maximizeBtn: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 12,
     right: 12,
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: 'rgba(0,0,0,0.40)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.40)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   // Invisible swipe-up capture zone at bottom of media area
   swipeUpZone: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
@@ -1664,14 +1990,14 @@ const s = StyleSheet.create({
 
   // Peek strip — visible in fullscreen; tap or drag-up to reveal the info panel
   peekStrip: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     height: PEEK_H,
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.28,
     shadowRadius: 14,
@@ -1679,10 +2005,10 @@ const s = StyleSheet.create({
   },
   peekFilename: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 5,
     paddingHorizontal: 20,
-    textAlign: 'center',
+    textAlign: "center",
   },
   peekSize: {
     fontSize: 11,
@@ -1692,14 +2018,14 @@ const s = StyleSheet.create({
 
   // Info panel — absolute overlay at screen bottom
   infoPanel: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.28,
     shadowRadius: 14,
@@ -1708,29 +2034,29 @@ const s = StyleSheet.create({
   // Panel inner wrapper — receives swipe-down panHandlers
   panelInner: { flex: 1 },
   // Drag handle
-  dragHandle: { alignItems: 'center', paddingTop: 10, paddingBottom: 6 },
+  dragHandle: { alignItems: "center", paddingTop: 10, paddingBottom: 6 },
   pillWrap: { paddingVertical: 6, paddingHorizontal: 40 },
   pill: { width: 38, height: 4, borderRadius: 2 },
   // Panel scroll
   panelScroll: { flex: 1 },
   panelContent: { paddingTop: 4, paddingHorizontal: 16, gap: 10 },
   topHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
     gap: 12,
     paddingHorizontal: 4,
     paddingBottom: 8,
   },
   topDateCol: { flexShrink: 0 },
-  topDay: { fontSize: 34, fontWeight: '500', letterSpacing: -0.3 },
-  topSub: { fontSize: 14, fontWeight: '500', marginTop: 6, opacity: 0.92 },
-  topTagsCol: { flex: 1, alignItems: 'flex-end' },
-  topTagsScroll: { marginTop: 8, alignSelf: 'stretch' },
-  topTagsRow: { gap: 6, justifyContent: 'flex-end' },
-  topTagsEmpty: { fontSize: 12, fontWeight: '500', paddingVertical: 6 },
-  metaRowTwo: { flexDirection: 'row', gap: 12 },
-  metaRowThree: { flexDirection: 'row', gap: 12 },
+  topDay: { fontSize: 34, fontWeight: "500", letterSpacing: -0.3 },
+  topSub: { fontSize: 14, fontWeight: "500", marginTop: 6, opacity: 0.92 },
+  topTagsCol: { flex: 1, alignItems: "flex-end" },
+  topTagsScroll: { marginTop: 8, alignSelf: "stretch" },
+  topTagsRow: { gap: 6, justifyContent: "flex-end" },
+  topTagsEmpty: { fontSize: 12, fontWeight: "500", paddingVertical: 6 },
+  metaRowTwo: { flexDirection: "row", gap: 12 },
+  metaRowThree: { flexDirection: "row", gap: 12 },
   metaCard: {
     flex: 1,
     borderRadius: 22,
@@ -1740,70 +2066,70 @@ const s = StyleSheet.create({
   },
   metaLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 1.6,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     marginBottom: 8,
     opacity: 0.7,
   },
-  metaValue: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  metaValue: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
   metaTagsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
   },
-  metaTagsRow: { gap: 6, alignItems: 'center', paddingTop: 2 },
-  metaEmpty: { fontSize: 12, fontWeight: '500', paddingVertical: 6 },
-  dateHeroTitle: { fontSize: 22, fontWeight: '700', letterSpacing: -0.2 },
-  dateHeroSub: { fontSize: 13, fontWeight: '500', marginTop: 6, opacity: 0.9 },
+  metaTagsRow: { gap: 6, alignItems: "center", paddingTop: 2 },
+  metaEmpty: { fontSize: 12, fontWeight: "500", paddingVertical: 6 },
+  dateHeroTitle: { fontSize: 22, fontWeight: "700", letterSpacing: -0.2 },
+  dateHeroSub: { fontSize: 13, fontWeight: "500", marginTop: 6, opacity: 0.9 },
   // Date / time header (row: left=date col, right=tags scroll)
   dateHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 10,
     paddingHorizontal: 4,
     paddingBottom: 2,
   },
   dateTextCol: { flexShrink: 0 },
-  dateTagsScroll: { flex: 1, alignSelf: 'center' },
-  dateTagsRow: { gap: 6, alignItems: 'center', paddingVertical: 2 },
-  dayName: { fontSize: 26, fontWeight: '700', letterSpacing: -0.3 },
-  dateSubRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3 },
+  dateTagsScroll: { flex: 1, alignSelf: "center" },
+  dateTagsRow: { gap: 6, alignItems: "center", paddingVertical: 2 },
+  dayName: { fontSize: 26, fontWeight: "700", letterSpacing: -0.3 },
+  dateSubRow: { flexDirection: "row", alignItems: "center", marginTop: 3 },
   dateSubText: { fontSize: 14 },
   dateSubSep: { fontSize: 14, opacity: 0.4 },
   // Specs card
   specsCard: { borderRadius: 14, padding: 16 },
   specsTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-  specsText: { fontSize: 15, fontWeight: '600' },
+  specsText: { fontSize: 15, fontWeight: "600" },
   specsDivider: {
     height: StyleSheet.hairlineWidth,
     marginTop: 12,
     marginBottom: 10,
   },
-  specsBadges: { flexDirection: 'row', gap: 8 },
+  specsBadges: { flexDirection: "row", gap: 8 },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999 },
-  badgeText: { fontSize: 12, fontWeight: '600' },
+  badgeText: { fontSize: 12, fontWeight: "600" },
   // 2-column info grid
-  infoGrid: { flexDirection: 'row', gap: 10 },
+  infoGrid: { flexDirection: "row", gap: 10 },
   // Tags strip
-  tagsRow: { paddingTop: 2, paddingBottom: 4, gap: 6, alignItems: 'center' },
+  tagsRow: { paddingTop: 2, paddingBottom: 4, gap: 6, alignItems: "center" },
   tagsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 5,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 999,
     borderWidth: 1,
   },
-  tagsBtnText: { fontSize: 12, fontWeight: '600' },
+  tagsBtnText: { fontSize: 12, fontWeight: "600" },
   tagChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  tagChipText: { fontSize: 12, fontWeight: '500' },
+  tagChipText: { fontSize: 12, fontWeight: "500" },
   tagDescSection: {
     marginTop: 4,
     borderRadius: 14,
@@ -1812,9 +2138,9 @@ const s = StyleSheet.create({
   },
   tagDescTitle: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
     letterSpacing: 1.1,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     marginBottom: 8,
   },
   tagDescScroll: {
@@ -1829,7 +2155,7 @@ const s = StyleSheet.create({
   },
   tagDescName: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 2,
   },
   tagDescText: {

@@ -64,6 +64,18 @@ interface MediaItemDao {
     @Query("UPDATE media_index SET hidden = :hidden WHERE uri = :uri")
     suspend fun setHidden(uri: String, hidden: Int)
 
+    @Query("UPDATE media_index SET favorite = :favorite WHERE uri = :uri")
+    suspend fun setFavorite(uri: String, favorite: Int)
+
+    @Query("UPDATE media_index SET favorite = :favorite WHERE uri IN (:uris)")
+    suspend fun batchSetFavorite(uris: List<String>, favorite: Int)
+
+    @Query("SELECT * FROM media_index WHERE favorite = 1 AND (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC, uri DESC")
+    fun getFavoritesFlow(showHidden: Boolean = false): Flow<List<MediaItem>>
+
+    @Query("SELECT * FROM media_index WHERE favorite = 1 AND (hidden = 0 OR :showHidden = 1) ORDER BY device_created_at DESC, uri DESC")
+    suspend fun getFavorites(showHidden: Boolean = false): List<MediaItem>
+
     @Query("SELECT * FROM media_index WHERE thumb_uri IS NULL")
     suspend fun getItemsMissingThumbnails(): List<MediaItem>
 

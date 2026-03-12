@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -10,19 +10,19 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '../../providers/ThemeProvider';
-import { useAppContext } from '../../store/AppContext';
-import { MediaIndexService } from '../../services/database/MediaIndexService';
-import { AlbumIndexService } from '../../services/database/AlbumIndexService';
-import { Icon } from './Icon';
-import { CloseButton } from './CloseButton';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useTheme } from "../../providers/ThemeProvider";
+import { useAppContext } from "../../store/AppContext";
+import { MediaIndexService } from "../../services/database/MediaIndexService";
+import { AlbumIndexService } from "../../services/database/AlbumIndexService";
+import { Icon } from "./Icon";
+import { CloseButton } from "./CloseButton";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes) {
-  if (!bytes || bytes === 0) return '—';
+  if (!bytes || bytes === 0) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024)
@@ -31,36 +31,36 @@ function formatBytes(bytes) {
 }
 
 function formatDuration(seconds) {
-  if (!seconds) return '—';
+  if (!seconds) return "—";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
   if (h > 0)
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function formatDate(tsMs) {
-  if (!tsMs) return '—';
+  if (!tsMs) return "—";
   const d = new Date(tsMs);
   return d.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
 function formatRating(r) {
-  if (!r || r === 0) return 'Not rated';
-  return '★'.repeat(r) + '☆'.repeat(5 - r);
+  if (!r || r === 0) return "Not rated";
+  return "★".repeat(r) + "☆".repeat(5 - r);
 }
 
 // ─── Row ─────────────────────────────────────────────────────────────────────
 
 function PropRow({ label, value, colors, accent, mono = false }) {
-  if (value === null || value === undefined || value === '') return null;
+  if (value === null || value === undefined || value === "") return null;
   return (
     <View style={styles.propRow}>
       <Text style={[styles.propLabel, { color: colors.textSecondary }]}>
@@ -183,7 +183,7 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
           if (!cancelled) setDbAlbum(albumRow);
         }
       } catch (err) {
-        console.warn('[PropertiesModal] load error:', err);
+        console.warn("[PropertiesModal] load error:", err);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -199,13 +199,17 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
   // Merge live item data + SQLite row for best accuracy
   const merged = dbRow
     ? {
-        filename: dbRow.filename || item?.filename || '—',
-        mediaType: dbRow.media_type || item?.type || 'image',
-        extension: dbRow.extension || '',
+        filename: dbRow.filename || item?.filename || "",
+        mediaType: dbRow.media_type || item?.type || "image",
+        extension: dbRow.extension || "",
         fileSize: dbRow.file_size || item?.fileSize || 0,
         width: dbRow.width || item?.width || 0,
         height: dbRow.height || item?.height || 0,
-        duration: dbRow.duration ?? item?.duration ?? null,
+        // Fallback: if dbRow.duration is null, undefined, 0, or empty, use item.duration
+        duration:
+          dbRow.duration && dbRow.duration !== 0
+            ? dbRow.duration
+            : (item?.duration ?? null),
         createdAt: dbRow.device_created_at,
         modifiedAt: dbRow.device_modified_at,
         indexedAt: dbRow.indexed_at,
@@ -213,37 +217,37 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
         rating: dbRow.rating ?? 0,
         favorite: dbRow.favorite === 1,
         hidden: dbRow.hidden === 1,
-        notes: dbRow.notes ?? '',
-        albumName: dbRow.album_name ?? item?.albumName ?? '',
-        uri: dbRow.uri || item?.uri || '',
+        notes: dbRow.notes ?? "",
+        albumName: dbRow.album_name ?? item?.albumName ?? "",
+        uri: dbRow.uri || item?.uri || "",
       }
     : item
-    ? {
-        filename: item.filename || '—',
-        mediaType: item.type || 'image',
-        extension: item.filename?.split('.').pop() || '',
-        fileSize: item.fileSize || 0,
-        width: item.width || 0,
-        height: item.height || 0,
-        duration: item.duration ?? null,
-        createdAt: item.timestamp ? item.timestamp * 1000 : null,
-        modifiedAt: null,
-        indexedAt: null,
-        scannedAt: null,
-        rating: 0,
-        favorite: false,
-        hidden: false,
-        notes: '',
-        albumName: item.albumName || '',
-        uri: item.uri || '',
-      }
-    : null;
+      ? {
+          filename: item.filename || "",
+          mediaType: item.type || "image",
+          extension: item.filename?.split(".").pop() || "",
+          fileSize: item.fileSize || 0,
+          width: item.width || 0,
+          height: item.height || 0,
+          duration: item.duration ?? null,
+          createdAt: item.timestamp ? item.timestamp * 1000 : null,
+          modifiedAt: null,
+          indexedAt: null,
+          scannedAt: null,
+          rating: 0,
+          favorite: false,
+          hidden: false,
+          notes: "",
+          albumName: item.albumName || "",
+          uri: item.uri || "",
+        }
+      : null;
 
-  const isVideo = merged?.mediaType?.includes('video');
+  const isVideo = merged?.mediaType?.includes("video");
 
   const sheetBg = colors.card;
-  const dividerColor = isDark ? 'rgba(255,255,255,0.07)' : colors.divider;
-  const handleColor = isDark ? 'rgba(255,255,255,0.18)' : colors.border;
+  const dividerColor = isDark ? "rgba(255,255,255,0.07)" : colors.divider;
+  const handleColor = isDark ? "rgba(255,255,255,0.18)" : colors.border;
   const sectionBg = colors.surface;
 
   return (
@@ -281,7 +285,7 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
         {/* Header row */}
         <View style={styles.headerRow}>
           <Icon
-            name={folder ? 'information' : isVideo ? 'video' : 'picture'}
+            name={folder ? "information" : isVideo ? "video" : "picture"}
             size={22}
             color={colors.textSecondary}
           />
@@ -290,8 +294,8 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
             numberOfLines={1}
           >
             {folder
-              ? folder.name ?? 'Folder'
-              : merged?.filename ?? 'Properties'}
+              ? (folder.name ?? "Folder")
+              : (merged?.filename ?? "Properties")}
           </Text>
           <CloseButton onPress={onClose} style={styles.closeBtn} />
         </View>
@@ -330,13 +334,13 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
                 />
                 <PropRow
                   label="Type"
-                  value={merged.mediaType === 'video' ? 'Video' : 'Image'}
+                  value={merged.mediaType === "video" ? "Video" : "Image"}
                   colors={colors}
                   accent={accent}
                 />
                 <PropRow
                   label="Extension"
-                  value={merged.extension ? `.${merged.extension}` : '—'}
+                  value={merged.extension ? `.${merged.extension}` : "—"}
                   colors={colors}
                   accent={accent}
                 />
@@ -348,7 +352,7 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
                 />
                 <PropRow
                   label="Album"
-                  value={merged.albumName || '—'}
+                  value={merged.albumName || "—"}
                   colors={colors}
                   accent={accent}
                 />
@@ -357,7 +361,7 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
               {(merged.width > 0 || merged.duration) && (
                 <>
                   <SectionHeader
-                    title={isVideo ? 'VIDEO' : 'IMAGE'}
+                    title={isVideo ? "VIDEO" : "IMAGE"}
                     colors={colors}
                   />
                   <View
@@ -460,13 +464,13 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
               >
                 <PropRow
                   label="Favorite"
-                  value={merged.favorite ? '★  Yes' : '☆  No'}
+                  value={merged.favorite ? "★  Yes" : "☆  No"}
                   colors={colors}
                   accent={accent}
                 />
                 <PropRow
                   label="Hidden"
-                  value={merged.hidden ? '👁  Hidden' : '✓  Visible'}
+                  value={merged.hidden ? "👁  Hidden" : "✓  Visible"}
                   colors={colors}
                   accent={accent}
                 />
@@ -522,13 +526,13 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
               >
                 <PropRow
                   label="Name"
-                  value={folder.name ?? '—'}
+                  value={folder.name ?? "—"}
                   colors={colors}
                   accent={accent}
                 />
                 <PropRow
                   label="Type"
-                  value={dbAlbum?.album_type ?? 'Album'}
+                  value={dbAlbum?.album_type ?? "Album"}
                   colors={colors}
                   accent={accent}
                 />
@@ -619,15 +623,15 @@ export function PropertiesModal({ visible, onClose, item, folder }) {
                   label="Hidden"
                   value={
                     folder.hidden || dbAlbum?.hidden === 1
-                      ? '👁  Hidden'
-                      : '✓  Visible'
+                      ? "👁  Hidden"
+                      : "✓  Visible"
                   }
                   colors={colors}
                   accent={accent}
                 />
                 <PropRow
                   label="Pinned"
-                  value={dbAlbum?.pinned === 1 ? '📌  Pinned to top' : 'No'}
+                  value={dbAlbum?.pinned === 1 ? "📌  Pinned to top" : "No"}
                   colors={colors}
                   accent={accent}
                 />
@@ -651,17 +655,17 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   sheet: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '85%',
-    overflow: 'hidden',
+    maxHeight: "85%",
+    overflow: "hidden",
   },
   handle: {
-    alignSelf: 'center',
+    alignSelf: "center",
     width: 36,
     height: 4,
     borderRadius: 2,
@@ -669,8 +673,8 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 10,
     gap: 10,
@@ -678,15 +682,15 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: 0.2,
   },
   closeBtn: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   divider: {
     height: StyleSheet.hairlineWidth,
@@ -702,7 +706,7 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: 0.8,
     marginTop: 16,
     marginBottom: 6,
@@ -711,40 +715,40 @@ const styles = StyleSheet.create({
   section: {
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   propRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     paddingHorizontal: 14,
     paddingVertical: 9,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: 'rgba(128,128,128,0.12)',
+    borderBottomColor: "rgba(128,128,128,0.12)",
     gap: 12,
   },
   propLabel: {
     width: 100,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: "500",
     flexShrink: 0,
     paddingTop: 1,
   },
   propValue: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '400',
+    fontWeight: "400",
   },
   propMono: {
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
     fontSize: 11,
   },
   loadingText: {
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 32,
     fontSize: 14,
   },
   emptyText: {
-    textAlign: 'center',
+    textAlign: "center",
     marginTop: 48,
     fontSize: 14,
   },

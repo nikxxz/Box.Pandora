@@ -54,17 +54,17 @@ fun boxPandoraModalTokens(): ModalTokens {
         handleColor = colorScheme.onSurfaceVariant.copy(alpha = if (isDark) 0.5f else 0.35f),
         iconBackgroundNeutral = colorScheme.onSurface.copy(alpha = if (isDark) 0.08f else 0.05f),
         rowPressedBackground = colorScheme.onSurface.copy(alpha = if (isDark) 0.08f else 0.05f),
-        sheetTopRadius = PandoraRadii.xxl,
-        dialogRadius = PandoraRadii.xl,
-        horizontalPadding = 18.dp,
+        sheetTopRadius = PandoraRadii.lg,
+        dialogRadius = PandoraRadii.md,
+        horizontalPadding = PandoraSpacing.xxl,
         topPadding = 0.dp,
         bottomPadding = PandoraSpacing.lg,
         sectionSpacing = PandoraSpacing.md,
-        rowMinHeight = 52.dp,
-        iconSize = 18.dp,
-        iconChipSize = 34.dp,
-        handleWidth = 36.dp,
+        rowMinHeight = 56.dp,
+        iconSize = 20.dp,
+        iconChipSize = 40.dp,
+        handleWidth = 48.dp,
         handleHeight = 4.dp,
-        handleTopMargin = 6.dp
+        handleTopMargin = 8.dp
     )
 }

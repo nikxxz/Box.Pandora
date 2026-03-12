@@ -3,6 +3,7 @@ package com.example.boxpandora.ui.components.media
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -15,13 +16,13 @@ import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
 import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
 import com.example.boxpandora.data.local.dao.TagCooccurrenceDao
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MediaViewerViewModel(
     private val repository: MediaRepository,
     private val tagRepository: TagRepository,
@@ -36,17 +37,40 @@ class MediaViewerViewModel(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
 
+    private val _selectedMediaUri = MutableStateFlow<String?>(null)
+    
+    val tagsForSelectedMedia: StateFlow<List<Tag>> = _selectedMediaUri
+        .filterNotNull()
+        .flatMapLatest { uri -> 
+            Log.d("MediaViewerVM", "Fetching tags for URI: $uri")
+            tagRepository.getTagsForMedia(uri) 
+        }
+        .onEach { Log.d("MediaViewerVM", "Tags updated for current URI, count: ${it.size}") }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val suggestionsForSelectedMedia: StateFlow<List<String>> = _selectedMediaUri
+        .filterNotNull()
+        .flatMapLatest { uri -> 
+            Log.d("MediaViewerVM", "Fetching suggestions for URI: $uri")
+            flow { emit(tagRepository.getSuggestionsForMedia(uri)) }
+        }
+        .onEach { Log.d("MediaViewerVM", "Suggestions updated for current URI, count: ${it.size}") }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private var albumsJob: Job? = null
+
     fun loadAlbums() {
-        viewModelScope.launch {
+        if (albumsJob?.isActive == true) return
+        albumsJob = viewModelScope.launch {
+            Log.d("MediaViewerVM", "Loading albums...")
             repository.getAlbumsFlow(true).collect { _allAlbums.value = it }
         }
     }
 
-    fun getTagsForMedia(uri: String) = tagRepository.getTagsForMedia(uri)
-
-    fun getSuggestionsForMedia(uri: String) = MutableStateFlow<List<String>>(emptyList()).apply {
-        viewModelScope.launch {
-            value = tagRepository.getSuggestionsForMedia(uri)
+    fun setCurrentMedia(uri: String) {
+        if (_selectedMediaUri.value != uri) {
+            Log.d("MediaViewerVM", "Setting current media URI: $uri")
+            _selectedMediaUri.value = uri
         }
     }
 
@@ -69,7 +93,6 @@ class MediaViewerViewModel(
     fun rejectSuggestion(item: MediaItem, tagKey: String) {
         viewModelScope.launch {
             tagRepository.rejectSuggestion(item.uri, tagKey)
-            // No history log needed for rejection usually, but could be added.
         }
     }
 
@@ -92,11 +115,11 @@ class MediaViewerViewModel(
 
     private suspend fun updateCooccurrences(item: MediaItem, tagName: String) {
         val tag = tagRepository.resolveTagByName(tagName) ?: return
-        tagRepository.getTagsForMedia(item.uri).collect { currentTags ->
-            currentTags.forEach { other ->
-                if (other.id != tag.id) {
-                    tagCooccurrenceDao.recordCooccurrence(tag.id, other.id)
-                }
+        // Fix: Use first() for one-shot read instead of collect
+        val currentTags = tagRepository.getTagsForMedia(item.uri).first()
+        currentTags.forEach { other ->
+            if (other.id != tag.id) {
+                tagCooccurrenceDao.recordCooccurrence(tag.id, other.id)
             }
         }
     }
@@ -155,6 +178,13 @@ class MediaViewerViewModel(
             if (repository.moveMediaItems(listOf(item.uri), destinationPath)) {
                 onMoved()
             }
+        }
+    }
+
+    fun toggleFavorite(item: MediaItem) {
+        viewModelScope.launch {
+            val newFav = if (item.isFavorite == 1) 0 else 1
+            repository.setMediaItemFavorite(item.uri, newFav)
         }
     }
 

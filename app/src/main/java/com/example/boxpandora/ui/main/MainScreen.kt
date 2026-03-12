@@ -427,10 +427,17 @@ fun CompactToggleRow(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
+        val tokens = boxPandoraModalTokens()
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            modifier = Modifier.graphicsLayer(scaleX = 0.75f, scaleY = 0.75f)
+            modifier = Modifier.graphicsLayer(scaleX = 0.75f, scaleY = 0.75f),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = tokens.selectedAccent,
+                checkedTrackColor = tokens.selectedAccent.copy(alpha = 0.28f),
+                uncheckedThumbColor = tokens.iconBackgroundNeutral,
+                uncheckedTrackColor = tokens.rowPressedBackground
+            )
         )
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -65,13 +66,17 @@ fun AppModalSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     skipPartiallyExpanded: Boolean = true,
-    showHandle: Boolean = true,
+    showHandle: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded)
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val sheetBottomPadding = if (bottomInset > tokens.bottomPadding) bottomInset else tokens.bottomPadding
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val tentative = screenHeight - topInset - 8.dp
+    val maxSheetHeight = if (tentative > 0.dp) tentative else screenHeight
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -88,9 +93,10 @@ fun AppModalSheet(
         Column(
             modifier = modifier
                 .fillMaxWidth()
+                .heightIn(max = maxSheetHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = tokens.horizontalPadding)
-                .padding(top = tokens.topPadding, bottom = sheetBottomPadding),
+                .padding(top = 8.dp, bottom = sheetBottomPadding),
             verticalArrangement = Arrangement.spacedBy(tokens.sectionSpacing)
         ) {
             content()
@@ -104,7 +110,7 @@ fun AppDialog(
     modifier: Modifier = Modifier,
     dismissOnClickOutside: Boolean = true,
     dismissOnBackPress: Boolean = true,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
@@ -130,7 +136,7 @@ fun AppDialog(
             modifier = Modifier
                 .fillMaxSize()
                 .imePadding()
-                .padding(top = 24.dp, bottom = 24.dp + dialogBottomOffset),
+                .padding(top = 0.dp, bottom = dialogBottomOffset),
             contentAlignment = Alignment.Center
         ) {
             Box(
@@ -151,12 +157,12 @@ fun AppDialog(
                     .fillMaxWidth()
                     .heightIn(max = maxDialogHeight)
                     .widthIn(max = 420.dp)
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = tokens.horizontalPadding),
                 shape = RoundedCornerShape(tokens.dialogRadius),
                 color = tokens.background,
                 tonalElevation = 0.dp,
-                shadowElevation = 16.dp,
-                border = BorderStroke(1.dp, tokens.border)
+                shadowElevation = 0.dp,
+                border = null
             ) {
                 Column(
                     modifier = Modifier
@@ -276,15 +282,16 @@ fun ModalActionRow(
                 .defaultMinSize(minHeight = tokens.rowMinHeight)
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            icon?.let {
-                ModalIconChip(
-                    icon = icon,
-                    tint = if (destructive) tokens.destructiveAccent else resolvedIconTint,
-                    containerColor = if (destructive) tokens.destructiveAccent.copy(alpha = 0.14f) else resolvedIconContainerColor
-                )
-            }
+                icon?.let {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (destructive) tokens.destructiveAccent else resolvedIconTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -455,13 +462,13 @@ fun ModalChip(
     ModalRowSurface(
         modifier = modifier,
         onClick = onClick,
-        shape = RoundedCornerShape(18.dp),
-        backgroundColor = tokens.iconBackgroundNeutral
+        shape = RoundedCornerShape(12.dp),
+        backgroundColor = Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = label,
@@ -481,15 +488,13 @@ fun ModalChip(
 }
 
 @Composable
-private fun ModalRowSurface(
+fun ModalRowSurface(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
+    shape: RoundedCornerShape = RoundedCornerShape(12.dp),
     backgroundColor: Color = Color.Transparent,
     content: @Composable () -> Unit
 ) {
-    val tokens = boxPandoraModalTokens()
-
     if (onClick != null) {
         Surface(
             onClick = onClick,
@@ -498,25 +503,16 @@ private fun ModalRowSurface(
             color = backgroundColor,
             tonalElevation = 0.dp
         ) {
-            Box(modifier = Modifier.background(Color.Transparent)) {
-                content()
-            }
+            Box { content() }
         }
     } else {
         Surface(
             modifier = modifier,
             shape = shape,
             color = backgroundColor,
-            tonalElevation = 0.dp,
-            border = null
+            tonalElevation = 0.dp
         ) {
-            Box(
-                modifier = Modifier
-                    .border(0.dp, tokens.rowPressedBackground, shape)
-                    .background(Color.Transparent)
-            ) {
-                content()
-            }
+            Box { content() }
         }
     }
 }
@@ -527,21 +523,12 @@ private fun ModalIconChip(
     tint: Color,
     containerColor: Color
 ) {
-    val tokens = boxPandoraModalTokens()
-
-    Box(
-        modifier = Modifier
-            .size(tokens.iconChipSize)
-            .background(containerColor, RoundedCornerShape(12.dp)),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(tokens.iconSize)
-        )
-    }
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = tint,
+        modifier = Modifier.size(18.dp)
+    )
 }
 
 @Composable
@@ -557,9 +544,8 @@ fun AppContextMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         modifier = modifier
-            .widthIn(min = 200.dp, max = 260.dp)
-            .background(tokens.background, RoundedCornerShape(18.dp))
-            .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(18.dp))
+            .widthIn(min = 160.dp, max = 260.dp)
+            .background(tokens.background, RoundedCornerShape(12.dp))
     ) {
         Column(
             modifier = Modifier.padding(vertical = 6.dp),
@@ -594,22 +580,12 @@ fun AppContextMenuItem(
         modifier = modifier,
         leadingIcon = icon?.let {
             {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .background(
-                            color = if (destructive) tokens.destructiveAccent.copy(alpha = 0.12f) else tokens.iconBackgroundNeutral,
-                            shape = RoundedCornerShape(10.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (destructive) tokens.destructiveAccent else contentColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (destructive) tokens.destructiveAccent else contentColor,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         },
         trailingIcon = if (selected) ({

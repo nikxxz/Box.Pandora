@@ -1,5 +1,6 @@
 package com.example.boxpandora.ui.main.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -52,6 +53,8 @@ class TagGalleryViewModel(
     private val showHidden: Boolean
 ) : ViewModel() {
 
+    private val startTime = System.currentTimeMillis()
+
     private val _sortMode = MutableStateFlow(TagGallerySort.RECENTLY_ADDED)
     private val _gridMode = MutableStateFlow(GridMode.LARGE)
     private val _searchQuery = MutableStateFlow("")
@@ -59,9 +62,11 @@ class TagGalleryViewModel(
     private val _selectedUris = MutableStateFlow<Set<String>>(emptySet())
 
     private val _tag = tagRepository.getTagFlow(tagId)
+        .onEach { if (it != null) Log.d("TagGalleryVM", "Tag query first emission after ${System.currentTimeMillis() - startTime}ms") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     
     private val _mediaItems = mediaRepository.getMediaByTagFlow(tagId, showHidden)
+        .onEach { Log.d("TagGalleryVM", "Media query first emission after ${System.currentTimeMillis() - startTime}ms, count: ${it.size}") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _relatedTags = tagRepository.getRelatedTagsFlow(tagId)
@@ -69,6 +74,9 @@ class TagGalleryViewModel(
 
     private val _allTags = tagRepository.getAllTagsFlow()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Hold last non-empty media list to avoid flicker/blank state on re-entry or data updates
+    private var lastMedia: List<MediaItem> = emptyList()
 
     val uiState: StateFlow<TagGalleryUiState> = combine(
         combine(_tag, _mediaItems, _relatedTags) { t, m, r -> Triple(t, m, r) },
@@ -79,7 +87,13 @@ class TagGalleryViewModel(
         val (sort, grid, query) = sgq
         val (filters, selected, all) = fsa
 
-        val filteredMedia = applyFiltersAndSearch(media, query, filters)
+        if (media.isNotEmpty()) {
+            lastMedia = media
+        }
+
+        val displayMedia = if (media.isEmpty() && lastMedia.isNotEmpty()) lastMedia else media
+        val filteredMedia = applyFiltersAndSearch(displayMedia, query, filters)
+        
         TagGalleryUiState(
             tag = tag,
             media = sortMedia(filteredMedia, sort),
@@ -90,7 +104,9 @@ class TagGalleryViewModel(
             filters = filters,
             searchQuery = query,
             selectedUris = selected,
-            isLoading = tag == null && media.isEmpty()
+            // Only show full-screen loading if we have absolutely no metadata (tag) yet.
+            // If tag is loaded but media is empty, it might just be an empty tag.
+            isLoading = tag == null
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TagGalleryUiState())
 
@@ -149,8 +165,24 @@ class TagGalleryViewModel(
         clearSelection()
     }
 
+    /**
+     * Toggle favourite for a single item.
+     */
+    fun toggleFavorite(item: MediaItem) = viewModelScope.launch {
+        mediaRepository.toggleFavorite(item)
+    }
+
+    /**
+     * Toggle favourite for all selected items.
+     * If any selected item is NOT a favourite, all become favourited; otherwise all are unfavourited.
+     */
     fun toggleFavoriteSelected() = viewModelScope.launch {
-        // Implement in MediaRepository if needed
+        val selectedUris = _selectedUris.value.toList()
+        if (selectedUris.isEmpty()) return@launch
+        val items = mediaRepository.getMediaByUris(selectedUris)
+        val toFavorite = items.any { it.isFavorite != 1 }
+        mediaRepository.batchToggleFavorite(items, toFavorite)
+        clearSelection()
     }
 
     fun deleteSelectedMedia() = viewModelScope.launch {

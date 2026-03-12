@@ -134,7 +134,7 @@ fun TagGalleryScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-            } else if (uiState.tag != null) {
+            } else {
                 TagGalleryContent(
                     uiState = uiState,
                     onSortChange = { viewModel.setSortMode(it) },
@@ -447,6 +447,7 @@ fun TagGalleryContent(
                             MediaThumbnail(
                                 uri = item.uri,
                                 filePath = item.filePath,
+                                thumbUri = item.thumbUri,
                                 mediaType = item.mediaType,
                                 duration = item.duration,
                                 isFavorite = item.isFavorite,
@@ -576,8 +577,7 @@ fun RelatedTagsSection(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+            verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = "RELATED TAGS",
                 style = MaterialTheme.typography.labelLarge.copy(

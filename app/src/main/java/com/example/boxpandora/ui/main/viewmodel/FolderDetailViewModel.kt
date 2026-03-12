@@ -164,6 +164,29 @@ class FolderDetailViewModel(
             clearSelection()
         }
     }
+
+    /**
+     * Toggle favourite for a single item.
+     */
+    fun toggleFavorite(item: MediaItem) {
+        viewModelScope.launch {
+            repository.toggleFavorite(item)
+        }
+    }
+
+    /**
+     * Set favourite state for all currently selected items.
+     * @param toFavorite true = mark as favourite, false = remove
+     */
+    fun batchToggleFavoriteSelected(toFavorite: Boolean) {
+        val uris = _selectedUris.value.toList()
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val items = repository.getMediaByUris(uris)
+            repository.batchToggleFavorite(items, toFavorite)
+            clearSelection()
+        }
+    }
 }
 
 class FolderDetailViewModelFactory(

@@ -183,6 +183,43 @@ class MediaRepository(
         results.isNotEmpty()
     }
 
+    suspend fun setMediaItemFavorite(uri: String, favorite: Int) = withContext(Dispatchers.IO) {
+        mediaItemDao.setFavorite(uri, favorite)
+    }
+
+    /**
+     * Toggle the favourite flag on a single item.
+     * Returns the new favorite value (0 or 1).
+     */
+    suspend fun toggleFavorite(item: MediaItem): Int = withContext(Dispatchers.IO) {
+        val newFav = if (item.isFavorite == 1) 0 else 1
+        mediaItemDao.setFavorite(item.uri, newFav)
+        newFav
+    }
+
+    /**
+     * Set favourite flag for a batch of items.
+     * @param items list of items to update
+     * @param toFavorite true = mark as favourite, false = remove favourite
+     */
+    suspend fun batchToggleFavorite(items: List<MediaItem>, toFavorite: Boolean) = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext
+        mediaItemDao.batchSetFavorite(items.map { it.uri }, if (toFavorite) 1 else 0)
+    }
+
+    /**
+     * Reactive stream of all favourite media items.
+     */
+    fun getFavoritesFlow(showHidden: Boolean = false): Flow<List<MediaItem>> =
+        mediaItemDao.getFavoritesFlow(showHidden)
+
+    /**
+     * Fetch a list of MediaItems by their URIs in one query.
+     */
+    suspend fun getMediaByUris(uris: List<String>): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) emptyList() else mediaItemDao.getByUris(uris)
+    }
+
     private suspend fun transferMetadata(
         oldItem: MediaItem,
         newItemFromStore: MediaItem,

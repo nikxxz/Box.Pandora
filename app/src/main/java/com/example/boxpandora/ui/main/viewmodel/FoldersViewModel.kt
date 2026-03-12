@@ -233,6 +233,21 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
             clearSelection()
         }
     }
+
+    /**
+     * Toggle favourite for a single media item (e.g. from long-press context menu).
+     */
+    fun toggleFavorite(item: MediaItem) {
+        viewModelScope.launch {
+            repository.toggleFavorite(item)
+        }
+    }
+
+    /**
+     * Reactive stream of all favourite media items.
+     */
+    fun getFavoritesFlow(showHidden: Boolean = false) =
+        repository.getFavoritesFlow(showHidden)
 }
 
 class FoldersViewModelFactory(private val repository: MediaRepository) : ViewModelProvider.Factory {
