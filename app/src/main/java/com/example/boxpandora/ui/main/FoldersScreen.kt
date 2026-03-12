@@ -53,6 +53,9 @@ import com.example.boxpandora.ui.components.grid.FolderCard
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.theme.PandoraDimensions
+import com.example.boxpandora.ui.theme.PandoraMotion
+import com.example.boxpandora.ui.theme.inlineRevealEnter
+import com.example.boxpandora.ui.theme.inlineRevealExit
 import kotlinx.coroutines.launch
 
 private fun hasStorageAccess(): Boolean {
@@ -250,8 +253,8 @@ fun FoldersScreen(
 
         AnimatedVisibility(
             visible = isSearchOpen,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut()
+            enter = inlineRevealEnter(),
+            exit = inlineRevealExit()
         ) {
             MediaSearchPanel(
                 params = searchParams,
@@ -330,8 +333,8 @@ fun FoldersScreen(
                             AnimatedContent(
                                 targetState = albums.isEmpty() && !isRefreshing,
                                 transitionSpec = {
-                                    fadeIn(animationSpec = tween(220, delayMillis = 90)) togetherWith
-                                            fadeOut(animationSpec = tween(90))
+                                    fadeIn(animationSpec = PandoraMotion.fadeInTween) togetherWith
+                                            fadeOut(animationSpec = PandoraMotion.fadeOutTween)
                                 },
                                 label = "FoldersContentTransition"
                             ) { isEmpty ->

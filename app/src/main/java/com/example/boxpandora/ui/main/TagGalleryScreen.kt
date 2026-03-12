@@ -36,6 +36,9 @@ import com.example.boxpandora.data.repository.RelatedTag
 import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.*
+import com.example.boxpandora.ui.theme.inlineRevealEnter
+import com.example.boxpandora.ui.theme.inlineRevealExit
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -119,7 +122,11 @@ fun TagGalleryScreen(
         }
     ) { innerPadding ->
         Column(modifier = Modifier.padding(innerPadding)) {
-            AnimatedVisibility(visible = isSearchActive && !uiState.isSelectionMode) {
+            AnimatedVisibility(
+                visible = isSearchActive && !uiState.isSelectionMode,
+                enter = inlineRevealEnter(),
+                exit = inlineRevealExit()
+            ) {
                 TagSearchHeader(
                     query = uiState.searchQuery,
                     onQueryChange = { viewModel.setSearchQuery(it) },
@@ -343,6 +350,8 @@ fun TagSearchHeader(
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
+
     Surface(
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth()
@@ -363,10 +372,16 @@ fun TagSearchHeader(
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                focusedContainerColor = tokens.iconBackgroundNeutral,
+                unfocusedContainerColor = tokens.iconBackgroundNeutral,
+                focusedBorderColor = tokens.border,
+                unfocusedBorderColor = tokens.border,
+                focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
             )
         )
     }

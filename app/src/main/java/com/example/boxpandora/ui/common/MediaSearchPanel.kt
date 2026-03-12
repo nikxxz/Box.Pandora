@@ -30,6 +30,7 @@ import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.TAG_CATEGORIES
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 private val MEDIA_FORMATS = listOf("all", "jpg", "png", "gif", "mp4", "webp")
 private val MEDIA_TYPES    = listOf("all" to "All", "image" to "Images", "video" to "Videos")
@@ -48,6 +49,7 @@ fun MediaSearchPanel(
     modifier:       Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val tokens = boxPandoraModalTokens()
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -80,12 +82,18 @@ fun MediaSearchPanel(
                     }
                 }) else null,
                 singleLine    = true,
-                shape         = RoundedCornerShape(12.dp),
+                shape         = RoundedCornerShape(18.dp),
                 colors        = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor   = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                    focusedContainerColor = tokens.iconBackgroundNeutral,
+                    unfocusedContainerColor = tokens.iconBackgroundNeutral,
+                    focusedBorderColor   = tokens.border,
+                    unfocusedBorderColor = tokens.border,
                     focusedTextColor     = MaterialTheme.colorScheme.onBackground,
-                    unfocusedTextColor   = MaterialTheme.colorScheme.onBackground
+                    unfocusedTextColor   = MaterialTheme.colorScheme.onBackground,
+                    focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
             IconButton(onClick = onClose) {

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.boxpandora.ui.theme.PandoraMotion
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,7 +68,10 @@ fun AppHeader(
                 Box(modifier = Modifier.weight(1f, fill = false)) {
                     AnimatedContent(
                         targetState = isSelectionMode,
-                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        transitionSpec = {
+                            fadeIn(animationSpec = PandoraMotion.fadeInTween) togetherWith
+                                fadeOut(animationSpec = PandoraMotion.fadeOutTween)
+                        },
                         label = "header_content"
                     ) { selecting ->
                         if (selecting) {

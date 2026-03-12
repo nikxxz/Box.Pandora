@@ -22,14 +22,25 @@ fun SettingsSubScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background
+                )
             )
-        }
+        },
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(
             modifier = Modifier
@@ -44,7 +55,7 @@ fun SettingsSubScreen(
 @Composable
 fun LibrarySettingsScreen(navController: NavController) {
     SettingsSubScreen("Library Scanning", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Library Scanning", "Configure how your media is discovered") }
             item { NavigationRow("Included Directories", "Choose which folders to scan for media", Icons.Default.Folder) {} }
             item { ActionRow("Refresh Library", "Manually trigger a full library refresh", Icons.Default.Refresh) {} }
@@ -67,7 +78,7 @@ fun LibrarySettingsScreen(navController: NavController) {
 @Composable
 fun TaggingAISettingsScreen(navController: NavController) {
     SettingsSubScreen("Tagging & AI", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("AI Analysis", "Automatic categorization of your photos") }
             item { ValueSelectorRow("Suggestion Confidence", "Medium", "Threshold for automatic tag proposals") {} }
             item { 
@@ -93,7 +104,7 @@ fun TaggingAISettingsScreen(navController: NavController) {
 @Composable
 fun DisplaySettingsScreen(navController: NavController) {
     SettingsSubScreen("Display Settings", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Grid Layout", "Customize the gallery view") }
             item { ValueSelectorRow("Grid Column Count", "3 Columns", "Adjust thumbnail size in the main gallery") {} }
             item { 
@@ -119,7 +130,7 @@ fun DisplaySettingsScreen(navController: NavController) {
 @Composable
 fun PerformanceSettingsScreen(navController: NavController) {
     SettingsSubScreen("Performance", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Storage Maintenance", "Keep the app running smoothly") }
             item { 
                 ActionRow(
@@ -152,7 +163,7 @@ fun PerformanceSettingsScreen(navController: NavController) {
 @Composable
 fun PrivacySettingsScreen(navController: NavController) {
     SettingsSubScreen("Privacy", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Content Protection", "Secure your private media") }
             item { NavigationRow("Sensitive Tags", "Manage tags that mark items as private", Icons.Default.NoEncryption) {} }
             item { ValueSelectorRow("App Lock", "Fingerprint / PIN", "Secure access with biometrics") {} }
@@ -164,7 +175,7 @@ fun PrivacySettingsScreen(navController: NavController) {
 @Composable
 fun BackupDataSettingsScreen(navController: NavController) {
     SettingsSubScreen("Backup & Data", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Portability", "Export or import your metadata") }
             item { ActionRow("Export Tag Metadata", "Save tag assignments to a JSON file", Icons.Default.Upload) {} }
             item { ActionRow("Import Tag Metadata", "Restore assignments from a file", Icons.Default.Download) {} }
@@ -179,7 +190,7 @@ fun BackupDataSettingsScreen(navController: NavController) {
 @Composable
 fun AboutSettingsScreen(navController: NavController) {
     SettingsSubScreen("App Information", navController) {
-        LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
             item { SettingSectionHeader("Storage", "Disk space usage") }
             item { ActionRow("Cache Usage", "128 MB used for previews", Icons.Default.Dns) {} }
             

@@ -8,9 +8,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -121,7 +131,7 @@ fun FolderSelectorDialog(
                 .fillMaxWidth()
                 .heightIn(max = 420.dp)
         ) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(filteredAlbums, key = { it.id }) { album ->
                     ModalRichRow(
                         label = album.name,
@@ -165,7 +175,7 @@ fun TagSelectorSheet(
                 .fillMaxWidth()
                 .heightIn(max = 420.dp)
         ) {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 items(filteredTags, key = { it.id }) { tag ->
                     ModalRichRow(
                         label = tag.name,
@@ -201,17 +211,65 @@ fun CategorySelectorSheet(
     )
 
     AppModalSheet(onDismiss = onDismiss) {
-        ModalHeader(title = "Change Category")
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        ModalHeader(
+            title = "Change Category",
+            subtitle = "Choose the group that best describes this tag."
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             categories.forEach { category ->
                 ModalSelectableRow(
-                    label = category.replaceFirstChar { it.uppercase() },
+                    label = categorySheetTitle(category),
                     selected = category == currentCategory,
+                    supportingText = categorySheetDescription(category),
+                    icon = categorySheetIcon(category),
+                    iconTint = boxPandoraModalTokens().bodyText,
                     onClick = { onConfirm(category) }
                 )
+                if (category != categories.last()) {
+                    ModalDivider(modifier = Modifier.padding(start = 56.dp))
+                }
             }
         }
     }
+}
+
+private fun categorySheetTitle(category: String): String = when (category) {
+    "people" -> "People"
+    "character" -> "Character"
+    "style" -> "Style"
+    "clothing" -> "Clothing"
+    "pose" -> "Pose"
+    "place" -> "Place"
+    "animal" -> "Animal"
+    "object" -> "Object"
+    "mood" -> "Mood"
+    else -> "Misc"
+}
+
+private fun categorySheetDescription(category: String): String = when (category) {
+    "people" -> "Faces, identities, portraits"
+    "character" -> "Named personas and fictional roles"
+    "style" -> "Aesthetic, color, and visual tone"
+    "clothing" -> "Outfits, garments, and fashion"
+    "pose" -> "Body position and stance"
+    "place" -> "Locations, scenes, and settings"
+    "animal" -> "Pets, wildlife, and creatures"
+    "object" -> "Items, props, and products"
+    "mood" -> "Emotion, vibe, and atmosphere"
+    else -> "Everything that does not fit elsewhere"
+}
+
+private fun categorySheetIcon(category: String) = when (category) {
+    "people" -> Icons.Default.Person
+    "character" -> Icons.Default.Face
+    "style" -> Icons.Default.Palette
+    "clothing" -> Icons.Default.Style
+    "pose" -> Icons.Default.FitnessCenter
+    "place" -> Icons.Default.LocationOn
+    "animal" -> Icons.Default.Pets
+    "object" -> Icons.Default.Category
+    "mood" -> Icons.Default.Mood
+    else -> Icons.AutoMirrored.Filled.Label
 }
 
 @Composable

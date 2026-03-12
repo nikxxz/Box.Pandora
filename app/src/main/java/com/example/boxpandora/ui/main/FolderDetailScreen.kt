@@ -44,6 +44,8 @@ import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
+import com.example.boxpandora.ui.theme.inlineRevealEnter
+import com.example.boxpandora.ui.theme.inlineRevealExit
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -175,8 +177,8 @@ fun FolderDetailScreen(
 
                 AnimatedVisibility(
                     visible = isSearchOpen,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
+                    enter = inlineRevealEnter(),
+                    exit = inlineRevealExit()
                 ) {
                     MediaSearchPanel(
                         params = searchParams,

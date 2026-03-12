@@ -66,7 +66,7 @@ fun AppModalSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     skipPartiallyExpanded: Boolean = true,
-    showHandle: Boolean = false,
+    showHandle: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
@@ -96,7 +96,7 @@ fun AppModalSheet(
                 .heightIn(max = maxSheetHeight)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = tokens.horizontalPadding)
-                .padding(top = 8.dp, bottom = sheetBottomPadding),
+                .padding(top = tokens.topPadding, bottom = sheetBottomPadding),
             verticalArrangement = Arrangement.spacedBy(tokens.sectionSpacing)
         ) {
             content()
@@ -110,7 +110,7 @@ fun AppDialog(
     modifier: Modifier = Modifier,
     dismissOnClickOutside: Boolean = true,
     dismissOnBackPress: Boolean = true,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
@@ -221,7 +221,7 @@ fun ModalHeader(
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.secondaryText
+                    color = tokens.secondaryText.copy(alpha = 0.88f)
                 )
             }
         }
@@ -245,9 +245,9 @@ fun ModalSection(
     ) {
         title?.let {
             Text(
-                text = it,
-                style = MaterialTheme.typography.labelSmall,
-                color = tokens.secondaryText
+                text = it.uppercase(),
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = tokens.secondaryText.copy(alpha = 0.72f)
             )
         }
         content()
@@ -280,11 +280,21 @@ fun ModalActionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = tokens.rowMinHeight)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 2.dp)
+                .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-                icon?.let {
+            icon?.let {
+                Box(
+                    modifier = Modifier
+                        .size(tokens.iconChipSize)
+                        .background(
+                            color = if (destructive) tokens.destructiveAccent.copy(alpha = 0.12f) else tokens.iconBackgroundNeutral,
+                            shape = RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
@@ -292,6 +302,7 @@ fun ModalActionRow(
                         modifier = Modifier.size(18.dp)
                     )
                 }
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -299,7 +310,7 @@ fun ModalActionRow(
                 Text(
                     text = label,
                     style = MaterialTheme.typography.bodyLarge.copy(
-                        fontWeight = if (destructive) FontWeight.Medium else FontWeight.Normal
+                        fontWeight = if (destructive) FontWeight.SemiBold else FontWeight.Medium
                     ),
                     color = contentColor,
                     maxLines = 1,
@@ -308,8 +319,8 @@ fun ModalActionRow(
                 supportingText?.let {
                     Text(
                         text = it,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = tokens.secondaryText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.secondaryText.copy(alpha = 0.84f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -326,6 +337,8 @@ fun ModalSelectableRow(
     selected: Boolean,
     modifier: Modifier = Modifier,
     supportingText: String? = null,
+    icon: ImageVector? = null,
+    iconTint: Color = Color.Unspecified,
     onClick: () -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
@@ -334,6 +347,8 @@ fun ModalSelectableRow(
         label = label,
         modifier = modifier,
         supportingText = supportingText,
+        icon = icon,
+        iconTint = iconTint,
         trailingContent = if (selected) ({
             Icon(
                 imageVector = Icons.Default.Check,
@@ -436,10 +451,10 @@ fun ModalTextField(
             )
         },
         singleLine = singleLine,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = Color.Transparent,
-            unfocusedContainerColor = Color.Transparent,
+            focusedContainerColor = tokens.iconBackgroundNeutral,
+            unfocusedContainerColor = tokens.iconBackgroundNeutral,
             focusedBorderColor = tokens.border.copy(alpha = 0.9f),
             unfocusedBorderColor = tokens.border,
             focusedTextColor = tokens.bodyText,
@@ -545,10 +560,11 @@ fun AppContextMenu(
         onDismissRequest = onDismissRequest,
         modifier = modifier
             .widthIn(min = 160.dp, max = 260.dp)
-            .background(tokens.background, RoundedCornerShape(12.dp))
+            .background(tokens.background, RoundedCornerShape(16.dp))
+            .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(16.dp))
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 6.dp),
+            modifier = Modifier.padding(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             content(this)

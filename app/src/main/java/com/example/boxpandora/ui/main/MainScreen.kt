@@ -2,10 +2,6 @@ package com.example.boxpandora.ui.main
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.EaseIn
-import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,12 +35,22 @@ import com.example.boxpandora.ui.common.ModalHeader
 import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.settings.*
 import com.example.boxpandora.ui.theme.BoxPandoraTheme
+import com.example.boxpandora.ui.theme.PandoraMotion
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
-
-private const val NAV_FADE_MS  = 300
-private const val NAV_SLIDE_MS = 400
-private const val DRAWER_OVERLAY_MS = 150
-private const val DRAWER_PANEL_MS   = 200
+import com.example.boxpandora.ui.theme.detailBackEnter
+import com.example.boxpandora.ui.theme.detailBackExit
+import com.example.boxpandora.ui.theme.detailForwardEnter
+import com.example.boxpandora.ui.theme.detailForwardExit
+import com.example.boxpandora.ui.theme.drawerEnterTransition
+import com.example.boxpandora.ui.theme.drawerExitTransition
+import com.example.boxpandora.ui.theme.inlineRevealEnter
+import com.example.boxpandora.ui.theme.inlineRevealExit
+import com.example.boxpandora.ui.theme.modalScreenEnter
+import com.example.boxpandora.ui.theme.modalScreenExit
+import com.example.boxpandora.ui.theme.overlayFadeEnter
+import com.example.boxpandora.ui.theme.overlayFadeExit
+import com.example.boxpandora.ui.theme.panelEnterTransition
+import com.example.boxpandora.ui.theme.panelExitTransition
 
 @Composable
 fun MainScreen() {
@@ -87,8 +93,8 @@ fun MainScreen() {
                 bottomBar = {
                     AnimatedVisibility(
                         visible = bottomNavItems.any { it.route == currentRoute },
-                        enter = slideInVertically(animationSpec = tween(200)) { it / 3 } + fadeIn(animationSpec = tween(200)),
-                        exit  = slideOutVertically(animationSpec = tween(200)) { it / 3 } + fadeOut(animationSpec = tween(200))
+                        enter = panelEnterTransition(),
+                        exit  = panelExitTransition()
                     ) {
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
@@ -153,8 +159,8 @@ fun MainScreen() {
 
             AnimatedVisibility(
                 visible = isDrawerOpen,
-                enter   = fadeIn(tween(DRAWER_OVERLAY_MS, easing = FastOutSlowInEasing)),
-                exit    = fadeOut(tween(DRAWER_OVERLAY_MS, easing = FastOutSlowInEasing))
+                enter   = overlayFadeEnter(),
+                exit    = overlayFadeExit()
             ) {
                 Box(
                     modifier = Modifier
@@ -169,8 +175,8 @@ fun MainScreen() {
 
             AnimatedVisibility(
                 visible = isDrawerOpen,
-                enter   = slideInHorizontally(tween(DRAWER_PANEL_MS, easing = FastOutSlowInEasing)) { -it },
-                exit    = slideOutHorizontally(tween(DRAWER_PANEL_MS, easing = FastOutSlowInEasing)) { -it }
+                enter   = drawerEnterTransition(),
+                exit    = drawerExitTransition()
             ) {
                 SettingsDrawer(
                     themeMode      = themeMode,
@@ -220,13 +226,15 @@ fun SettingsDrawer(
     onToggleGradient: () -> Unit,
     onOpenFullSettings: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
+
     Surface(
         modifier = Modifier
             .fillMaxHeight()
-            .width(280.dp),
-        color = MaterialTheme.colorScheme.background,
-        tonalElevation = 8.dp,
-        shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp)
+            .width(296.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
@@ -237,17 +245,23 @@ fun SettingsDrawer(
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .width(32.dp)
-                    .height(4.dp)
+                    .width(44.dp)
+                    .height(5.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
+                    .background(tokens.handleColor)
             )
 
             Spacer(Modifier.height(24.dp))
 
             Text(
                 text = "Quick Options",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
+            )
+
+            Text(
+                text = "Display and library controls you use most often.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
             )
 
             Spacer(Modifier.height(24.dp))
@@ -275,8 +289,6 @@ fun SettingsDrawer(
                 onCheckedChange = { onToggleGradient() }
             )
 
-            Spacer(Modifier.height(8.dp))
-
             SegmentedSelector(
                 label = "Grid Size",
                 options = listOf(2, 3, 4, 5),
@@ -285,6 +297,10 @@ fun SettingsDrawer(
             ) { it.toString() }
 
             Spacer(Modifier.height(24.dp))
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f))
+
+            Spacer(Modifier.height(20.dp))
 
             QuickSectionHeader("Content")
 
@@ -304,8 +320,8 @@ fun SettingsDrawer(
 
             Text(
                 text = "Sort Folders/Files by",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             
@@ -357,9 +373,9 @@ fun SettingsDrawer(
 @Composable
 fun QuickSectionHeader(title: String) {
     Text(
-        text = title,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
         modifier = Modifier.padding(bottom = 12.dp)
     )
 }
@@ -372,16 +388,18 @@ fun <T> SegmentedSelector(
     onSelected: (T) -> Unit,
     optionLabel: (T) -> String
 ) {
+    val tokens = boxPandoraModalTokens()
+
     Column {
         Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.padding(bottom = 8.dp)
         )
         Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+            shape = RoundedCornerShape(16.dp),
+            color = tokens.iconBackgroundNeutral,
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(4.dp)) {
@@ -391,7 +409,7 @@ fun <T> SegmentedSelector(
                         modifier = Modifier
                             .weight(1f)
                             .height(36.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
                             .clickable { onSelected(option) },
                         contentAlignment = Alignment.Center
@@ -414,31 +432,35 @@ fun CompactToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        val tokens = boxPandoraModalTokens()
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.graphicsLayer(scaleX = 0.75f, scaleY = 0.75f),
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = tokens.selectedAccent,
-                checkedTrackColor = tokens.selectedAccent.copy(alpha = 0.28f),
-                uncheckedThumbColor = tokens.iconBackgroundNeutral,
-                uncheckedTrackColor = tokens.rowPressedBackground
+    val tokens = boxPandoraModalTokens()
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurface
             )
-        )
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier.graphicsLayer(scaleX = 0.75f, scaleY = 0.75f),
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = tokens.selectedAccent,
+                    checkedTrackColor = tokens.selectedAccent.copy(alpha = 0.28f),
+                    uncheckedThumbColor = tokens.iconBackgroundNeutral,
+                    uncheckedTrackColor = tokens.rowPressedBackground
+                )
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.36f))
     }
 }
 
@@ -529,7 +551,16 @@ fun NavigationGraph(
                 onOpenDrawer  = onOpenDrawer
             )
         }
-        composable(Screen.Favorites.route) { EmptyScreen("Favorites") }
+        composable(Screen.Favorites.route) {
+            FavoritesScreen(
+                showHidden   = showHidden,
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                },
+                onOpenDrawer = onOpenDrawer
+            )
+        }
         composable(Screen.Tags.route) {
             TagsScreen(
                 onTagClick = { tag -> navController.navigate("tag_gallery/${tag.id}") },
@@ -542,10 +573,10 @@ fun NavigationGraph(
                 navArgument("albumId")   { type = NavType.LongType },
                 navArgument("albumName") { type = NavType.StringType }
             ),
-            enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)) + fadeIn(tween(NAV_SLIDE_MS)) },
-            exitTransition  = { fadeOut(tween(NAV_FADE_MS)) },
-            popEnterTransition = { fadeIn(tween(NAV_FADE_MS)) },
-            popExitTransition  = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)) + fadeOut(tween(NAV_SLIDE_MS)) }
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition  = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition  = { detailBackExit(this) }
         ) { backStackEntry ->
             val albumId   = backStackEntry.arguments?.getLong("albumId") ?: 0L
             val albumName = backStackEntry.arguments?.getString("albumName") ?: ""
@@ -563,10 +594,10 @@ fun NavigationGraph(
         composable(
             route           = Screen.TagGallery.route,
             arguments       = listOf(navArgument("tagId") { type = NavType.LongType }),
-            enterTransition = { slideIntoContainer(towards = AnimatedContentTransitionScope.SlideDirection.Start, animationSpec = tween(NAV_SLIDE_MS, easing = EaseIn)) + fadeIn(tween(NAV_SLIDE_MS)) },
-            exitTransition  = { fadeOut(tween(NAV_FADE_MS)) },
-            popEnterTransition = { fadeIn(tween(NAV_FADE_MS)) },
-            popExitTransition  = { slideOutOfContainer(towards = AnimatedContentTransitionScope.SlideDirection.End, animationSpec = tween(NAV_SLIDE_MS, easing = EaseOut)) + fadeOut(tween(NAV_SLIDE_MS)) }
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition  = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition  = { detailBackExit(this) }
         ) { backStackEntry ->
             val tagId = backStackEntry.arguments?.getLong("tagId") ?: 0L
             TagGalleryScreen(
@@ -582,8 +613,10 @@ fun NavigationGraph(
         composable(
             route           = "media_viewer/{index}",
             arguments       = listOf(navArgument("index") { type = NavType.IntType }),
-            enterTransition = { fadeIn(tween(NAV_SLIDE_MS)) + scaleIn(initialScale = 0.92f, animationSpec = tween(NAV_SLIDE_MS)) },
-            exitTransition  = { fadeOut(tween(NAV_FADE_MS)) + scaleOut(targetScale = 0.92f, animationSpec = tween(NAV_FADE_MS)) }
+            enterTransition = { modalScreenEnter() },
+            exitTransition  = { modalScreenExit() },
+            popEnterTransition = { modalScreenEnter() },
+            popExitTransition  = { modalScreenExit() }
         ) { backStackEntry ->
             val index = backStackEntry.arguments?.getInt("index") ?: 0
             MediaViewer(
@@ -593,14 +626,62 @@ fun NavigationGraph(
                 onNavigateToTag = { tagId -> navController.navigate("tag_gallery/$tagId") }
             )
         }
-        composable(Screen.Settings.route) { SettingsScreen(navController) }
-        composable(Screen.LibrarySettings.route) { LibrarySettingsScreen(navController) }
-        composable(Screen.TaggingAISettings.route) { TaggingAISettingsScreen(navController) }
-        composable(Screen.DisplaySettings.route) { DisplaySettingsScreen(navController) }
-        composable(Screen.PerformanceSettings.route) { PerformanceSettingsScreen(navController) }
-        composable(Screen.PrivacySettings.route) { PrivacySettingsScreen(navController) }
-        composable(Screen.BackupDataSettings.route) { BackupDataSettingsScreen(navController) }
-        composable(Screen.AboutSettings.route) { AboutSettingsScreen(navController) }
+        composable(
+            Screen.Settings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { SettingsScreen(navController) }
+        composable(
+            Screen.LibrarySettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { LibrarySettingsScreen(navController) }
+        composable(
+            Screen.TaggingAISettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { TaggingAISettingsScreen(navController) }
+        composable(
+            Screen.DisplaySettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { DisplaySettingsScreen(navController) }
+        composable(
+            Screen.PerformanceSettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { PerformanceSettingsScreen(navController) }
+        composable(
+            Screen.PrivacySettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { PrivacySettingsScreen(navController) }
+        composable(
+            Screen.BackupDataSettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { BackupDataSettingsScreen(navController) }
+        composable(
+            Screen.AboutSettings.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { AboutSettingsScreen(navController) }
     }
 }
 

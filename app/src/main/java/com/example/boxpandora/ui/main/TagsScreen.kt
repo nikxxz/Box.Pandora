@@ -40,6 +40,10 @@ import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.main.viewmodel.*
+import com.example.boxpandora.ui.theme.PandoraMotion
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
+import com.example.boxpandora.ui.theme.inlineRevealEnter
+import com.example.boxpandora.ui.theme.inlineRevealExit
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 
@@ -116,8 +120,8 @@ fun TagsScreen(
         item(key = "search_bar") {
             AnimatedVisibility(
                 visible = uiState.isSearchActive,
-                enter = expandVertically(tween(180)) + fadeIn(tween(180)),
-                exit  = shrinkVertically(tween(150)) + fadeOut(tween(150))
+                enter = inlineRevealEnter(),
+                exit  = inlineRevealExit()
             ) {
                 TagSearchBar(
                     query         = uiState.searchQuery,
@@ -133,8 +137,8 @@ fun TagsScreen(
             item(key = "featured_header") {
                 AnimatedVisibility(
                     visible = uiState.featuredVisible && featuredTags.isNotEmpty(),
-                    enter   = expandVertically(tween(200)) + fadeIn(tween(200)),
-                    exit    = shrinkVertically(tween(160)) + fadeOut(tween(160))
+                    enter   = inlineRevealEnter(),
+                    exit    = inlineRevealExit()
                 ) {
                     FeaturedSectionHeader(
                         mode              = uiState.featuredMode,
@@ -152,8 +156,8 @@ fun TagsScreen(
             item(key = "featured_cards") {
                 AnimatedVisibility(
                     visible = uiState.featuredVisible && featuredTags.isNotEmpty(),
-                    enter   = expandVertically(tween(220)) + fadeIn(tween(220)),
-                    exit    = shrinkVertically(tween(160)) + fadeOut(tween(160))
+                    enter   = inlineRevealEnter(),
+                    exit    = inlineRevealExit()
                 ) {
                     FeaturedTagsGrid(
                         tags      = featuredTags,
@@ -411,6 +415,7 @@ private fun TagSearchBar(
     modifier:      Modifier = Modifier
 ) {
     val focusRequester = remember { FocusRequester() }
+    val tokens = boxPandoraModalTokens()
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -430,12 +435,18 @@ private fun TagSearchBar(
             }
         }) else null,
         singleLine    = true,
-        shape         = RoundedCornerShape(12.dp),
+        shape         = RoundedCornerShape(18.dp),
         colors        = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor   = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+            focusedContainerColor = tokens.iconBackgroundNeutral,
+            unfocusedContainerColor = tokens.iconBackgroundNeutral,
+            focusedBorderColor   = tokens.border,
+            unfocusedBorderColor = tokens.border,
             focusedTextColor     = MaterialTheme.colorScheme.onBackground,
-            unfocusedTextColor   = MaterialTheme.colorScheme.onBackground
+            unfocusedTextColor   = MaterialTheme.colorScheme.onBackground,
+            focusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            focusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     )
 }
@@ -859,15 +870,10 @@ private fun TagQuickActionsSheet(
     onDelete:  () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val categoryAccent = categoryColor(tag.category)
-
     AppModalSheet(onDismiss = onDismiss) {
-        ModalRichRow(
-            label = tag.name,
-            supportingText = "${tag.usageCount} items • ${categoryDisplayName(tag.category)}",
-            icon = categoryIcon(tag.category),
-            iconTint = categoryAccent,
-            iconContainerColor = categoryAccent.copy(alpha = 0.16f)
+        ModalHeader(
+            title = tag.name,
+            subtitle = "${tag.usageCount} items • ${categoryDisplayName(tag.category)}"
         )
 
         ModalDivider()
@@ -881,6 +887,7 @@ private fun TagQuickActionsSheet(
                     onRename()
                 }
             )
+            ModalDivider(modifier = Modifier.padding(start = 56.dp))
             ModalActionRow(
                 label = "Merge into another tag",
                 icon = Icons.AutoMirrored.Filled.CallMerge,
@@ -889,14 +896,17 @@ private fun TagQuickActionsSheet(
                     onMerge()
                 }
             )
+            ModalDivider(modifier = Modifier.padding(start = 56.dp))
             ModalActionRow(
                 label = "Change category",
                 icon = Icons.Default.Category,
+                supportingText = categoryDisplayName(tag.category),
                 onClick = {
                     onDismiss()
                     onChangeCategory()
                 }
             )
+            ModalDivider(modifier = Modifier.padding(start = 56.dp))
             ModalActionRow(
                 label = "Add alias",
                 icon = Icons.Default.AddLink,
@@ -912,6 +922,7 @@ private fun TagQuickActionsSheet(
         ModalActionRow(
             label = "Delete tag",
             icon = Icons.Default.Delete,
+            supportingText = "This action cannot be undone",
             destructive = true,
             onClick = {
                 onDismiss()

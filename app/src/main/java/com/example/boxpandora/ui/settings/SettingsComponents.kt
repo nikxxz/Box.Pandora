@@ -1,7 +1,9 @@
 package com.example.boxpandora.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
@@ -57,22 +59,19 @@ fun NavigationRow(
     icon: ImageVector? = null,
     onClick: () -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) },
-        supportingContent = subtitle?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        leadingContent = icon?.let { { 
-            Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.CenterStart) {
-                Icon(
-                    imageVector = it, 
-                    contentDescription = null, 
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(22.dp)
-                ) 
-            }
-        } },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline) },
-        modifier = Modifier.clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        icon = icon,
+        onClick = onClick,
+        trailing = {
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.9f)
+            )
+        }
     )
 }
 
@@ -83,25 +82,24 @@ fun ToggleRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) },
-        supportingContent = subtitle?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        trailingContent = { 
-            val tokens = boxPandoraModalTokens()
+    val tokens = boxPandoraModalTokens()
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        onClick = { onCheckedChange(!checked) },
+        trailing = {
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,
-                modifier = Modifier.graphicsLayer(scaleX = 0.8f, scaleY = 0.8f),
+                modifier = Modifier.graphicsLayer(scaleX = 0.78f, scaleY = 0.78f),
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = tokens.selectedAccent,
                     checkedTrackColor = tokens.selectedAccent.copy(alpha = 0.28f),
                     uncheckedThumbColor = tokens.iconBackgroundNeutral,
                     uncheckedTrackColor = tokens.rowPressedBackground
                 )
-            ) 
-        },
-        modifier = Modifier.clickable { onCheckedChange(!checked) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+            )
+        }
     )
 }
 
@@ -112,22 +110,21 @@ fun ValueSelectorRow(
     subtitle: String? = null,
     onClick: () -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) },
-        supportingContent = subtitle?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        trailingContent = {
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        onClick = onClick,
+        trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
                 )
                 Spacer(Modifier.width(8.dp))
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.outline)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.9f))
             }
-        },
-        modifier = Modifier.clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        }
     )
 }
 
@@ -139,42 +136,104 @@ fun ActionRow(
     iconColor: Color? = null,
     onClick: () -> Unit
 ) {
-    ListItem(
-        headlineContent = { Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium) },
-        supportingContent = subtitle?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } },
-        leadingContent = icon?.let { { 
-            Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.CenterStart) {
-                Icon(
-                    imageVector = it, 
-                    contentDescription = null, 
-                    tint = iconColor ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(22.dp)
-                ) 
-            }
-        } },
-        modifier = Modifier.clickable(onClick = onClick),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    SettingsListRow(
+        title = title,
+        subtitle = subtitle,
+        icon = icon,
+        iconColor = iconColor,
+        onClick = onClick
     )
 }
 
 @Composable
 fun SettingSectionHeader(title: String, subtitle: String? = null) {
-    Column(modifier = Modifier.padding(start = 16.dp, top = 32.dp, end = 16.dp, bottom = 8.dp)) {
+    Column(modifier = Modifier.padding(start = 20.dp, top = 28.dp, end = 20.dp, bottom = 10.dp)) {
         Text(
             text = title.uppercase(),
             style = MaterialTheme.typography.labelMedium.copy(
-                letterSpacing = 1.2.sp,
+                letterSpacing = 1.4.sp,
                 fontWeight = FontWeight.Bold
             ),
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
         )
         if (subtitle != null) {
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                modifier = Modifier.padding(top = 2.dp)
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.62f),
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun SettingsListRow(
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    iconColor: Color? = null,
+    onClick: () -> Unit,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    val tokens = boxPandoraModalTokens()
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            onClick = onClick,
+            color = Color.Transparent,
+            tonalElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 72.dp)
+                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                icon?.let {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .background(tokens.iconBackgroundNeutral, RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = it,
+                            contentDescription = null,
+                            tint = iconColor ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    subtitle?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                        )
+                    }
+                }
+
+                trailing?.invoke()
+            }
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(start = if (icon != null) 74.dp else 20.dp, end = 20.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.42f)
+        )
     }
 }

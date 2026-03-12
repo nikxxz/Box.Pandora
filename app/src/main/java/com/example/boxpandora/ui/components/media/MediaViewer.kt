@@ -71,6 +71,8 @@ import com.example.boxpandora.ui.common.ModalHeader
 import com.example.boxpandora.ui.common.ModalRichRow
 import com.example.boxpandora.ui.common.ModalFooterAction
 import com.example.boxpandora.ui.common.RenameDialog
+import com.example.boxpandora.ui.theme.panelEnterTransition
+import com.example.boxpandora.ui.theme.panelExitTransition
 import com.example.boxpandora.ui.theme.PandoraSpacing
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import kotlinx.coroutines.delay
@@ -311,8 +313,8 @@ private fun ViewerHeader(
 ) {
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn() + slideInVertically(),
-        exit = fadeOut() + slideOutVertically()
+        enter = panelEnterTransition(),
+        exit = panelExitTransition()
     ) {
         val tokens = boxPandoraModalTokens()
         Row(
@@ -616,7 +618,11 @@ private fun VideoPage(
 
         LaunchedEffect(seekToRequest) { if (seekToRequest != null) seekToRequest = null }
 
-        AnimatedVisibility(visible = controlsVisible, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = panelEnterTransition(),
+            exit = panelExitTransition()
+        ) {
             val tokens = boxPandoraModalTokens()
             val isSplit = isPanelOpen
             // Always show white icons regardless of theme
@@ -705,6 +711,10 @@ private fun InfoPanelContent(
     var showTagPopup by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
+    var favPopTrigger by remember(item.uri) { mutableIntStateOf(0) }
+    // Optimistic local state so icon flips immediately on press without waiting for DB round-trip
+    var isFavoriteLocal by remember(item.uri) { mutableStateOf(item.isFavorite == 1) }
+    LaunchedEffect(item.isFavorite) { isFavoriteLocal = item.isFavorite == 1 }
     var tagQuery by remember { mutableStateOf("") }
     var pendingRemovalTagId by remember { mutableStateOf<Long?>(null) }
     val albumLabel = remember(item.albumName, item.filePath) { resolveMediaFolderLabel(item) }
@@ -775,8 +785,6 @@ private fun InfoPanelContent(
             .padding(bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        PanelDragHandle(onDragEnd = onDragPanel)
-
         // Row 1: Quick Actions Tool Strip
         Row(
             modifier = Modifier
@@ -813,17 +821,24 @@ private fun InfoPanelContent(
 
                 Spacer(modifier = Modifier.weight(1f))
 
-            // Action icons on the right
-            // Favorite button
-                QuickActionButton(
-                    icon = if (item.isFavorite == 1) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorite",
-                    backgroundColor = if (item.isFavorite == 1) boxPandoraModalTokens().selectedAccent.copy(alpha = 0.13f) else boxPandoraModalTokens().background,
-                    iconColor = if (item.isFavorite == 1) boxPandoraModalTokens().selectedAccent else boxPandoraModalTokens().secondaryText,
-                    onClick = { viewModel.toggleFavorite(item) }
-                )
+            // Action icons on the right — order: Favourite, Share, Open With, Delete, Options
 
-            // Share button
+            // Favourite
+            QuickActionButton(
+                icon = if (isFavoriteLocal) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                contentDescription = "Favorite",
+                backgroundColor = boxPandoraModalTokens().background,
+                iconColor = if (isFavoriteLocal) Color(0xFFE53935) else boxPandoraModalTokens().secondaryText,
+                onClick = {
+                    val wasUnfav = !isFavoriteLocal
+                    isFavoriteLocal = !isFavoriteLocal
+                    if (wasUnfav) favPopTrigger++
+                    viewModel.toggleFavorite(item)
+                },
+                popTrigger = favPopTrigger
+            )
+
+            // Share
             QuickActionButton(
                 icon = Icons.Default.Share,
                 contentDescription = "Share",
@@ -832,8 +847,16 @@ private fun InfoPanelContent(
                 onClick = { viewModel.shareItem(context, item) }
             )
 
-            // Delete button
-            // Delete should prompt user before removing the file
+            // Open With
+            QuickActionButton(
+                icon = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = "Open With",
+                backgroundColor = boxPandoraModalTokens().background,
+                iconColor = boxPandoraModalTokens().secondaryText,
+                onClick = { viewModel.openWith(context, item) }
+            )
+
+            // Delete
             var showLocalDeleteDialog by remember { mutableStateOf(false) }
             QuickActionButton(
                 icon = Icons.Default.Delete,
@@ -842,53 +865,52 @@ private fun InfoPanelContent(
                 iconColor = boxPandoraModalTokens().destructiveAccent,
                 onClick = { showLocalDeleteDialog = true }
             )
-
             if (showLocalDeleteDialog) {
                 DeleteConfirmationDialog(
                     count = 1,
                     isFolder = false,
                     onDismiss = { showLocalDeleteDialog = false },
                     onConfirm = {
-                        viewModel.deleteItem(item) {
-                            // no-op here; parent MediaViewer handles navigation when needed
-                        }
+                        viewModel.deleteItem(item) {}
                         showLocalDeleteDialog = false
                     }
                 )
             }
 
-            // Open With button
-            QuickActionButton(
-                icon = Icons.Default.OpenInNew,
-                contentDescription = "Open With",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().secondaryText,
-                onClick = { viewModel.openWith(context, item) }
-            )
-
-            // Copy button
-            QuickActionButton(
-                icon = Icons.Default.ContentCopy,
-                contentDescription = "Copy",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().secondaryText,
-                onClick = { 
-                    viewModel.loadAlbums()
-                    showCopyDialog = true 
+            // Options dropdown (Move To / Copy To)
+            var showOptionsMenu by remember { mutableStateOf(false) }
+            Box {
+                QuickActionButton(
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = "More options",
+                    backgroundColor = boxPandoraModalTokens().background,
+                    iconColor = boxPandoraModalTokens().secondaryText,
+                    onClick = { showOptionsMenu = true }
+                )
+                AppContextMenu(
+                    expanded = showOptionsMenu,
+                    onDismissRequest = { showOptionsMenu = false }
+                ) {
+                    AppContextMenuItem(
+                        label = "Move to",
+                        icon = Icons.Default.FolderOpen,
+                        onClick = {
+                            showOptionsMenu = false
+                            viewModel.loadAlbums()
+                            showMoveDialog = true
+                        }
+                    )
+                    AppContextMenuItem(
+                        label = "Copy to",
+                        icon = Icons.Default.ContentCopy,
+                        onClick = {
+                            showOptionsMenu = false
+                            viewModel.loadAlbums()
+                            showCopyDialog = true
+                        }
+                    )
                 }
-            )
-
-            // Move button
-            QuickActionButton(
-                icon = Icons.AutoMirrored.Default.ArrowBack,
-                contentDescription = "Move",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().secondaryText,
-                onClick = { 
-                    viewModel.loadAlbums()
-                    showMoveDialog = true 
-                }
-            )
+            }
         }
 
         // Row 2: Tags
@@ -1407,20 +1429,80 @@ private fun QuickActionButton(
     contentDescription: String?,
     backgroundColor: Color,
     iconColor: Color,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    popTrigger: Int = 0
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(targetValue = if (pressed) 0.9f else 1f, animationSpec = spring(stiffness = Spring.StiffnessMedium))
+
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.82f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        )
+    )
+
+    val popScale = remember { Animatable(1f) }
+
+    // Pop animation on every press-release (gives all buttons the same feel)
+    var hadPress by remember { mutableStateOf(false) }
+    LaunchedEffect(pressed) {
+        if (pressed) {
+            hadPress = true
+        } else if (hadPress) {
+            hadPress = false
+            popScale.snapTo(1f)
+            popScale.animateTo(
+                1.22f,
+                spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessHigh)
+            )
+            popScale.animateTo(
+                1f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+            )
+        }
+    }
+
+    // Larger explicit pop (e.g. favourite activated)
+    LaunchedEffect(popTrigger) {
+        if (popTrigger > 0) {
+            popScale.snapTo(1f)
+            popScale.animateTo(
+                1.35f,
+                spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessHigh)
+            )
+            popScale.animateTo(
+                1f,
+                spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
+            )
+        }
+    }
+
+    val pressedOverlayAlpha by animateFloatAsState(
+        targetValue = if (pressed) 0.16f else 0f,
+        animationSpec = tween(durationMillis = 80)
+    )
 
     Box(
         modifier = Modifier
             .size(44.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .graphicsLayer {
+                scaleX = pressScale * popScale.value
+                scaleY = pressScale * popScale.value
+            }
             .clip(RoundedCornerShape(18.dp))
+            .background(backgroundColor)
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
+        if (pressedOverlayAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(Color.Black.copy(alpha = pressedOverlayAlpha))
+            )
+        }
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
