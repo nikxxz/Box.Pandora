@@ -17,10 +17,21 @@ private const val TAG = "MediaStoreRepository"
 class MediaStoreRepository(private val context: Context) {
 
     @SuppressLint("InlinedApi") // DATA is deprecated for writes but safe to read for display
-    suspend fun fetchAllMedia(): List<MediaItem> = withContext(Dispatchers.IO) {
+    suspend fun fetchAllMedia(
+        showImages: Boolean = true,
+        showVideos: Boolean = true,
+        showGifs: Boolean = true,
+        excludedPaths: Set<String> = emptySet()
+    ): List<MediaItem> = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        Log.d(TAG, "Sync Start: Fetching all media from MediaStore")
-        
+        Log.d(TAG, "Sync Start: Fetching all media from MediaStore (images=$showImages videos=$showVideos gifs=$showGifs excluded=${excludedPaths.size})")
+
+        // If no media type is requested, return early.
+        if (!showImages && !showVideos) {
+            Log.d(TAG, "No media types selected — returning empty list")
+            return@withContext emptyList()
+        }
+
         val mediaList = mutableListOf<MediaItem>()
         val contentResolver: ContentResolver = context.contentResolver
 
@@ -41,10 +52,15 @@ class MediaStoreRepository(private val context: Context) {
             MediaStore.Files.FileColumns.MEDIA_TYPE
         )
 
-        val selection = "(${MediaStore.Files.FileColumns.MEDIA_TYPE} = " +
-                "${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE} OR " +
-                "${MediaStore.Files.FileColumns.MEDIA_TYPE} = " +
-                "${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        val selection = buildString {
+            append("(")
+            val parts = buildList {
+                if (showImages) add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}")
+                if (showVideos) add("${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}")
+            }
+            append(parts.joinToString(" OR "))
+            append(")")
+        }
 
         val sortOrder = "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
 
@@ -98,7 +114,24 @@ class MediaStoreRepository(private val context: Context) {
         Log.d(TAG, "Sync End: Fetched $totalFetched items in ${duration}ms")
         Log.d(TAG, "MIME Distribution: $mimeDistribution")
 
-        mediaList
+        // Post-fetch filtering: excluded paths and GIF suppression.
+        var result: List<MediaItem> = mediaList
+        if (excludedPaths.isNotEmpty()) {
+            result = result.filter { item ->
+                val fp = item.filePath ?: return@filter true
+                excludedPaths.none { excluded -> fp.startsWith(excluded) }
+            }
+            Log.d(TAG, "After excluded-path filter: ${result.size} items (was ${mediaList.size})")
+        }
+        if (!showGifs) {
+            result = result.filter { item ->
+                val mime = item.extension.lowercase()
+                mime != "gif"
+            }
+            Log.d(TAG, "After GIF filter: ${result.size} items")
+        }
+
+        result
     }
 
     suspend fun fetchMediaByPath(path: String): MediaItem? = withContext(Dispatchers.IO) {

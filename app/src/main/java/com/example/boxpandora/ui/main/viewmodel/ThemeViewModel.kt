@@ -17,12 +17,30 @@ enum class SortOrder {
     DATE_DESC, DATE_ASC, NAME_ASC, SIZE_DESC, COUNT_DESC
 }
 
-private const val PREF_THEME_MODE  = "theme_mode"
-private const val PREF_SHOW_HIDDEN = "show_hidden"
-private const val PREF_GRID_SIZE   = "grid_size"
-private const val PREF_SHOW_META   = "show_meta"
-private const val PREF_SORT_ORDER  = "sort_order"
-private const val PREF_GRADIENT    = "show_gradient"
+enum class AccentColor(val displayName: String, val colorLong: Long) {
+    EMBER_RED("Ember Red", 0xFFFF4A4AL),
+    DEEP_ORANGE("Deep Orange", 0xFFFF6A3DL),
+    AMBER_GOLD("Amber Gold", 0xFFF4B400L),
+    EMERALD_GREEN("Emerald Green", 0xFF2ECC71L),
+    TEAL("Teal", 0xFF1ABC9CL),
+    AZURE_BLUE("Azure Blue", 0xFF3DA5FFL),
+    INDIGO("Indigo", 0xFF6C5CE7L),
+    ORCHID_PURPLE("Orchid Purple", 0xFFB76EFFL),
+    ROSE_PINK("Rose Pink", 0xFFFF5C8AL),
+    MONOCHROME_WHITE("Monochrome White", 0xFFE0E0E0L)
+}
+
+private const val PREF_THEME_MODE        = "theme_mode"
+private const val PREF_SHOW_HIDDEN       = "show_hidden"
+private const val PREF_GRID_SIZE         = "grid_size"
+private const val PREF_SHOW_META         = "show_meta"
+private const val PREF_SORT_ORDER        = "sort_order"
+private const val PREF_GRADIENT          = "show_gradient"
+private const val PREF_SHOW_IMAGES       = "show_images"
+private const val PREF_SHOW_VIDEOS       = "show_videos"
+private const val PREF_SHOW_GIFS         = "show_gifs"
+private const val PREF_EXCLUDED_FOLDERS  = "excluded_folders" // newline-separated paths
+private const val PREF_ACCENT_COLOR      = "accent_color"
 
 class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel() {
 
@@ -43,6 +61,21 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
 
     private val _showGradient = MutableStateFlow(true)
     val showGradient: StateFlow<Boolean> = _showGradient
+
+    private val _showImages = MutableStateFlow(true)
+    val showImages: StateFlow<Boolean> = _showImages
+
+    private val _showVideos = MutableStateFlow(true)
+    val showVideos: StateFlow<Boolean> = _showVideos
+
+    private val _showGifs = MutableStateFlow(true)
+    val showGifs: StateFlow<Boolean> = _showGifs
+
+    private val _excludedFolders = MutableStateFlow<Set<String>>(emptySet())
+    val excludedFolders: StateFlow<Set<String>> = _excludedFolders
+
+    private val _accentColor = MutableStateFlow(AccentColor.EMBER_RED)
+    val accentColor: StateFlow<AccentColor> = _accentColor
 
     init {
         viewModelScope.launch {
@@ -67,6 +100,23 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
             }
             preferenceDao.getByKey(PREF_GRADIENT)?.value?.let { saved ->
                 _showGradient.value = saved != "false"
+            }
+            preferenceDao.getByKey(PREF_SHOW_IMAGES)?.value?.let { saved ->
+                _showImages.value = saved != "false"
+            }
+            preferenceDao.getByKey(PREF_SHOW_VIDEOS)?.value?.let { saved ->
+                _showVideos.value = saved != "false"
+            }
+            preferenceDao.getByKey(PREF_SHOW_GIFS)?.value?.let { saved ->
+                _showGifs.value = saved != "false"
+            }
+            preferenceDao.getByKey(PREF_EXCLUDED_FOLDERS)?.value?.let { saved ->
+                _excludedFolders.value = saved.split("\n").filter { it.isNotBlank() }.toSet()
+            }
+            preferenceDao.getByKey(PREF_ACCENT_COLOR)?.value?.let { saved ->
+                runCatching { AccentColor.valueOf(saved) }.getOrNull()?.let {
+                    _accentColor.value = it
+                }
             }
         }
     }
@@ -110,6 +160,50 @@ class ThemeViewModel(private val preferenceDao: UserPreferenceDao) : ViewModel()
         _showGradient.value = show
         viewModelScope.launch {
             preferenceDao.insert(UserPreference(key = PREF_GRADIENT, value = show.toString()))
+        }
+    }
+
+    fun setShowImages(show: Boolean) {
+        _showImages.value = show
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_SHOW_IMAGES, value = show.toString()))
+        }
+    }
+
+    fun setShowVideos(show: Boolean) {
+        _showVideos.value = show
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_SHOW_VIDEOS, value = show.toString()))
+        }
+    }
+
+    fun setShowGifs(show: Boolean) {
+        _showGifs.value = show
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_SHOW_GIFS, value = show.toString()))
+        }
+    }
+
+    fun setAccentColor(color: AccentColor) {
+        _accentColor.value = color
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_ACCENT_COLOR, value = color.name))
+        }
+    }
+
+    fun addExcludedFolder(path: String) {
+        val updated = _excludedFolders.value + path.trimEnd('/')
+        _excludedFolders.value = updated
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_EXCLUDED_FOLDERS, value = updated.joinToString("\n")))
+        }
+    }
+
+    fun removeExcludedFolder(path: String) {
+        val updated = _excludedFolders.value - path
+        _excludedFolders.value = updated
+        viewModelScope.launch {
+            preferenceDao.insert(UserPreference(key = PREF_EXCLUDED_FOLDERS, value = updated.joinToString("\n")))
         }
     }
 }

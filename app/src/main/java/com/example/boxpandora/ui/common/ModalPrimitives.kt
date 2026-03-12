@@ -555,19 +555,22 @@ fun AppContextMenu(
 ) {
     val tokens = boxPandoraModalTokens()
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        modifier = modifier
-            .widthIn(min = 160.dp, max = 260.dp)
-            .background(tokens.background, RoundedCornerShape(16.dp))
-            .border(BorderStroke(1.dp, tokens.border), RoundedCornerShape(16.dp))
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+    // Override extraSmall shape so the popup Surface clips at 16dp corners.
+    // (DropdownMenu's internal Surface uses MaterialTheme.shapes.extraSmall.)
+    MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp))) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismissRequest,
+            modifier = modifier
+                .widthIn(min = 160.dp, max = 260.dp)
+                .background(tokens.background)
         ) {
-            content(this)
+            Column(
+                modifier = Modifier.padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                content(this)
+            }
         }
     }
 }

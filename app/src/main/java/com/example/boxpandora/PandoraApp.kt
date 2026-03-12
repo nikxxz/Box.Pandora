@@ -37,6 +37,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
             "pandora_db"
         )
         .fallbackToDestructiveMigration()
+        .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()
 
         val thumbnailManager = ThumbnailManager(this)

@@ -1,8 +1,18 @@
 package com.example.boxpandora.data.local.dao
 
 import androidx.room.*
+import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.local.entity.TagCooccurrence
 import kotlinx.coroutines.flow.Flow
+
+/**
+ * Single-query result combining a Tag with its co-occurrence count relative to a pivot tag.
+ * Used to replace the previous N+1 per-tag lookup in getRelatedTagsFlow.
+ */
+data class RelatedTagResult(
+    @Embedded val tag: Tag,
+    @ColumnInfo(name = "co_count") val count: Int
+)
 
 @Dao
 interface TagCooccurrenceDao {
@@ -31,4 +41,19 @@ interface TagCooccurrenceDao {
         LIMIT :limit
     """)
     fun getRelatedTagsFlow(tagId: Long, limit: Int = 10): Flow<List<TagCooccurrence>>
+
+    /**
+     * Single JOIN query returning related tags with their co-occurrence counts.
+     * Replaces the N+1 pattern of fetching each tag individually after getting cooccurrences.
+     */
+    @Query("""
+        SELECT t.*, tc.count AS co_count FROM tags t
+        INNER JOIN tag_cooccurrences tc
+            ON (tc.tag_id_a = t.id AND tc.tag_id_b = :tagId)
+            OR (tc.tag_id_b = t.id AND tc.tag_id_a = :tagId)
+        WHERE t.id != :tagId
+        ORDER BY tc.count DESC
+        LIMIT :limit
+    """)
+    fun getRelatedTagsWithCountFlow(tagId: Long, limit: Int = 8): Flow<List<RelatedTagResult>>
 }

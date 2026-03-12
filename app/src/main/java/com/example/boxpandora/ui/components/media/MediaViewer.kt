@@ -49,9 +49,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.border
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -74,6 +76,7 @@ import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.theme.panelEnterTransition
 import com.example.boxpandora.ui.theme.panelExitTransition
 import com.example.boxpandora.ui.theme.PandoraSpacing
+import com.example.boxpandora.ui.theme.ModalTokens
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -226,6 +229,18 @@ fun MediaViewer(
                         }
                     }
                 )
+                // Gradient fade into panel background
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(130.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, MaterialTheme.colorScheme.surface)
+                            )
+                        )
+                )
             }
 
             Box(
@@ -235,14 +250,23 @@ fun MediaViewer(
                     .background(boxPandoraModalTokens().background)
                     .clipToBounds()
             ) {
-                if (currentItem != null) {
-                    InfoPanelContent(
-                        item = currentItem,
-                        viewModel = viewModel,
-                        onNavigateToTag = onNavigateToTag,
-                        onDragPanel = { velocityY -> snapPanel(velocityY) },
-                        onHeightMeasured = { if (it > 0f) contentHeightPx = it }
-                    )
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = panelFraction.value > 0.02f,
+                    enter = slideInVertically(
+                        initialOffsetY = { 80 },
+                        animationSpec = tween(durationMillis = 240, easing = EaseOut)
+                    ) + fadeIn(animationSpec = tween(durationMillis = 200, easing = EaseOut)),
+                    exit = ExitTransition.None
+                ) {
+                    if (currentItem != null) {
+                        InfoPanelContent(
+                            item = currentItem,
+                            viewModel = viewModel,
+                            onNavigateToTag = onNavigateToTag,
+                            onDragPanel = { velocityY -> snapPanel(velocityY) },
+                            onHeightMeasured = { if (it > 0f) contentHeightPx = it }
+                        )
+                    }
                 }
             }
         }
@@ -696,6 +720,7 @@ private fun VideoPage(
 }
 
 @SuppressLint("NewApi")
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun InfoPanelContent(
     item: MediaItem,
@@ -773,200 +798,173 @@ private fun InfoPanelContent(
         }
     }
 
+    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
             .onSizeChanged { if (it.height > 0) onHeightMeasured(it.height.toFloat()) }
-            .padding(horizontal = 18.dp)
+            .padding(horizontal = 16.dp)
             .padding(top = 10.dp)
             .imePadding()
             .navigationBarsPadding()
-            .padding(bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
-        // Row 1: Quick Actions Tool Strip
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-                // Folder pill on left (larger)
+        // Row 1: Quick Actions Tool Strip + Quick Info Row
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Folder pill on left
                 if (albumLabel.isNotEmpty()) {
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(boxPandoraModalTokens().background)
-                            .border(1.dp, boxPandoraModalTokens().secondaryText, RoundedCornerShape(18.dp))
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(tokens.cardBackground)
+                            .border(1.dp, tokens.cardBorder, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.Folder,
                             contentDescription = "Folder",
-                            tint = boxPandoraModalTokens().selectedAccent,
-                            modifier = Modifier.size(16.dp)
+                            tint = tokens.selectedAccent,
+                            modifier = Modifier.size(14.dp)
                         )
                         Text(
                             text = albumLabel,
-                            color = boxPandoraModalTokens().selectedAccent,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            fontSize = 13.sp
+                            color = tokens.selectedAccent,
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                            fontSize = 12.sp
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-            // Action icons on the right — order: Favourite, Share, Open With, Delete, Options
+                // Action icons on the right — order: Favourite, Share, Open With, Delete, Options
 
-            // Favourite
-            QuickActionButton(
-                icon = if (isFavoriteLocal) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                contentDescription = "Favorite",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = if (isFavoriteLocal) Color(0xFFE53935) else boxPandoraModalTokens().secondaryText,
-                onClick = {
-                    val wasUnfav = !isFavoriteLocal
-                    isFavoriteLocal = !isFavoriteLocal
-                    if (wasUnfav) favPopTrigger++
-                    viewModel.toggleFavorite(item)
-                },
-                popTrigger = favPopTrigger
-            )
-
-            // Share
-            QuickActionButton(
-                icon = Icons.Default.Share,
-                contentDescription = "Share",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().secondaryText,
-                onClick = { viewModel.shareItem(context, item) }
-            )
-
-            // Open With
-            QuickActionButton(
-                icon = Icons.AutoMirrored.Filled.OpenInNew,
-                contentDescription = "Open With",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().secondaryText,
-                onClick = { viewModel.openWith(context, item) }
-            )
-
-            // Delete
-            var showLocalDeleteDialog by remember { mutableStateOf(false) }
-            QuickActionButton(
-                icon = Icons.Default.Delete,
-                contentDescription = "Delete",
-                backgroundColor = boxPandoraModalTokens().background,
-                iconColor = boxPandoraModalTokens().destructiveAccent,
-                onClick = { showLocalDeleteDialog = true }
-            )
-            if (showLocalDeleteDialog) {
-                DeleteConfirmationDialog(
-                    count = 1,
-                    isFolder = false,
-                    onDismiss = { showLocalDeleteDialog = false },
-                    onConfirm = {
-                        viewModel.deleteItem(item) {}
-                        showLocalDeleteDialog = false
-                    }
-                )
-            }
-
-            // Options dropdown (Move To / Copy To)
-            var showOptionsMenu by remember { mutableStateOf(false) }
-            Box {
+                // Favourite
                 QuickActionButton(
-                    icon = Icons.Default.MoreVert,
-                    contentDescription = "More options",
-                    backgroundColor = boxPandoraModalTokens().background,
-                    iconColor = boxPandoraModalTokens().secondaryText,
-                    onClick = { showOptionsMenu = true }
+                    icon = if (isFavoriteLocal) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Favorite",
+                    backgroundColor = tokens.cardBackground,
+                    iconColor = if (isFavoriteLocal) tokens.selectedAccent else tokens.secondaryText,
+                    onClick = {
+                        val wasUnfav = !isFavoriteLocal
+                        isFavoriteLocal = !isFavoriteLocal
+                        if (wasUnfav) favPopTrigger++
+                        viewModel.toggleFavorite(item)
+                    },
+                    popTrigger = favPopTrigger
                 )
-                AppContextMenu(
-                    expanded = showOptionsMenu,
-                    onDismissRequest = { showOptionsMenu = false }
-                ) {
-                    AppContextMenuItem(
-                        label = "Move to",
-                        icon = Icons.Default.FolderOpen,
-                        onClick = {
-                            showOptionsMenu = false
-                            viewModel.loadAlbums()
-                            showMoveDialog = true
-                        }
-                    )
-                    AppContextMenuItem(
-                        label = "Copy to",
-                        icon = Icons.Default.ContentCopy,
-                        onClick = {
-                            showOptionsMenu = false
-                            viewModel.loadAlbums()
-                            showCopyDialog = true
+
+                // Share
+                QuickActionButton(
+                    icon = Icons.Default.Share,
+                    contentDescription = "Share",
+                    backgroundColor = tokens.cardBackground,
+                    iconColor = tokens.secondaryText,
+                    onClick = { viewModel.shareItem(context, item) }
+                )
+
+                // Open With
+                QuickActionButton(
+                    icon = Icons.AutoMirrored.Filled.OpenInNew,
+                    contentDescription = "Open With",
+                    backgroundColor = tokens.cardBackground,
+                    iconColor = tokens.secondaryText,
+                    onClick = { viewModel.openWith(context, item) }
+                )
+
+                // Delete
+                var showLocalDeleteDialog by remember { mutableStateOf(false) }
+                QuickActionButton(
+                    icon = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    backgroundColor = tokens.cardBackground,
+                    iconColor = tokens.accentDim,
+                    onClick = { showLocalDeleteDialog = true }
+                )
+                if (showLocalDeleteDialog) {
+                    DeleteConfirmationDialog(
+                        count = 1,
+                        isFolder = false,
+                        onDismiss = { showLocalDeleteDialog = false },
+                        onConfirm = {
+                            viewModel.deleteItem(item) {}
+                            showLocalDeleteDialog = false
                         }
                     )
                 }
-            }
-        }
 
-        // Row 2: Tags
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = "TAGS",
-                style = MaterialTheme.typography.labelLarge.copy(
-                    letterSpacing = 1.sp,
-                    fontWeight = FontWeight.Bold
-                ),
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ManageTagsButton(onClick = { showTagPopup = true })
-
-                if (tags.isEmpty()) {
-                    Text(
-                        text = "No tags yet",
-                        color = boxPandoraModalTokens().secondaryText.copy(alpha = 0.5f),
-                        style = MaterialTheme.typography.bodySmall
+                // Options dropdown (Move To / Copy To)
+                var showOptionsMenu by remember { mutableStateOf(false) }
+                Box {
+                    QuickActionButton(
+                        icon = Icons.Default.MoreVert,
+                        contentDescription = "More options",
+                        backgroundColor = tokens.cardBackground,
+                        iconColor = tokens.secondaryText,
+                        onClick = { showOptionsMenu = true }
                     )
-                } else {
-                    tags.forEach { tag ->
-                        TagActionChip(
-                            text = tag.name,
-                            confirmRemoval = pendingRemovalTagId == tag.id,
-                            onLongPress = { onNavigateToTag(tag.id) },
-                            onRemoveClick = {
-                                if (pendingRemovalTagId == tag.id) {
-                                    viewModel.removeTag(item, tag)
-                                    pendingRemovalTagId = null
-                                    Toast.makeText(context, "Removed ${tag.name}", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    pendingRemovalTagId = tag.id
-                                    Toast.makeText(context, "Press again to remove ${tag.name}", Toast.LENGTH_SHORT).show()
-                                }
+                    AppContextMenu(
+                        expanded = showOptionsMenu,
+                        onDismissRequest = { showOptionsMenu = false }
+                    ) {
+                        AppContextMenuItem(
+                            label = "Move to",
+                            icon = Icons.Default.FolderOpen,
+                            onClick = {
+                                showOptionsMenu = false
+                                viewModel.loadAlbums()
+                                showMoveDialog = true
+                            }
+                        )
+                        AppContextMenuItem(
+                            label = "Copy to",
+                            icon = Icons.Default.ContentCopy,
+                            onClick = {
+                                showOptionsMenu = false
+                                viewModel.loadAlbums()
+                                showCopyDialog = true
                             }
                         )
                     }
                 }
             }
+            // Quick media info row
+            QuickInfoRow(item = item, tokens = tokens)
         }
+
+        // Tags card
+        TagsCard(
+            tags = tags,
+            tokens = tokens,
+            onAddTagsClick = { showTagPopup = true },
+            pendingRemovalTagId = pendingRemovalTagId,
+            onNavigateToTag = onNavigateToTag,
+            onRemoveTag = { tag ->
+                if (pendingRemovalTagId == tag.id) {
+                    viewModel.removeTag(item, tag)
+                    pendingRemovalTagId = null
+                    Toast.makeText(context, "Removed ${tag.name}", Toast.LENGTH_SHORT).show()
+                } else {
+                    pendingRemovalTagId = tag.id
+                    Toast.makeText(context, "Press again to remove ${tag.name}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
 
         // Structured card: FILE (primary filename + three small fields)
         InfoSectionCard(
-            title = "FILE",
+            title = "File",
             primaryValue = item.filename,
             entries = listOf(
                 "Type" to item.mediaType.uppercase(),
@@ -987,7 +985,7 @@ private fun InfoPanelContent(
         mediaEntries.add("Bitrate" to "3.2 Mbps")
 
         InfoSectionCard(
-            title = "MEDIA",
+            title = "Media",
             entries = mediaEntries,
             columns = 2,
             modifier = Modifier.fillMaxWidth()
@@ -995,7 +993,7 @@ private fun InfoPanelContent(
 
         // Structured card: DATES (captured / modified / added)
         InfoSectionCard(
-            title = "DATES",
+            title = "Dates",
             entries = listOf(
                 "Captured" to createdLabel,
                 "Modified" to modifiedLabel,
@@ -1031,9 +1029,10 @@ private fun InfoPanelContent(
         }
 
         item.notes?.takeIf { it.isNotBlank() }?.let { notes ->
-            InfoCard(label = "NOTES", value = notes, modifier = Modifier.fillMaxWidth())
+            InfoCard(label = "Notes", value = notes, modifier = Modifier.fillMaxWidth())
         }
     }
+    } // end CompositionLocalProvider
 
     // Copy Dialog - unified with FolderSelectorDialog used across app
     if (showCopyDialog) {
@@ -1174,32 +1173,48 @@ private fun TagActionChip(
     onLongPress: () -> Unit,
     onRemoveClick: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val chipBg = when {
+        confirmRemoval -> tokens.destructiveAccent.copy(alpha = 0.14f)
+        pressed        -> tokens.selectedAccent.copy(alpha = 0.12f)
+        else           -> tokens.cardBackground
+    }
+    val chipBorder = if (confirmRemoval) tokens.destructiveAccent else tokens.cardBorder
+    val textColor  = if (confirmRemoval) tokens.destructiveAccent else tokens.bodyText
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (confirmRemoval) boxPandoraModalTokens().destructiveAccent.copy(alpha = 0.14f) else boxPandoraModalTokens().rowPressedBackground)
-            .combinedClickable(onClick = {}, onLongClick = onLongPress)
-            .padding(start = 12.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+            .clip(RoundedCornerShape(999.dp))
+            .background(chipBg)
+            .border(1.dp, chipBorder, RoundedCornerShape(999.dp))
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {},
+                onLongClick = onLongPress
+            )
+            .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
             text = text,
-            color = boxPandoraModalTokens().bodyText,
+            color = textColor,
             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
         )
         Box(
             modifier = Modifier
                 .size(20.dp)
                 .clip(CircleShape)
-                .background(if (confirmRemoval) boxPandoraModalTokens().destructiveAccent else boxPandoraModalTokens().iconBackgroundNeutral)
+                .background(if (confirmRemoval) tokens.destructiveAccent else tokens.iconBackgroundNeutral)
                 .clickable(onClick = onRemoveClick),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Remove tag",
-                tint = if (confirmRemoval) boxPandoraModalTokens().background else boxPandoraModalTokens().bodyText,
+                tint = if (confirmRemoval) tokens.background else tokens.bodyText,
                 modifier = Modifier.size(12.dp)
             )
         }
@@ -1325,39 +1340,27 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
     val tokens = boxPandoraModalTokens()
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(tokens.background)
-            .padding(horizontal = 13.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(tokens.cardBackground)
+            .border(1.dp, tokens.cardBorder, RoundedCornerShape(16.dp))
+            .padding(16.dp)
     ) {
-        if (isBold) {
-            Text(
-                text = label,
-                color = tokens.secondaryText,
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold),
-                fontSize = 13.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = value,
-                color = tokens.bodyText,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                fontSize = 15.sp,
-                maxLines = 2
-            )
-        } else {
-            Text(
-                text = label,
-                color = tokens.secondaryText,
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = value,
-                color = tokens.bodyText,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                maxLines = 3
-            )
-        }
+        Text(
+            text = label,
+            color = tokens.tertiaryText,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            fontSize = 12.sp
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = value,
+            color = tokens.bodyText,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontWeight = if (isBold) FontWeight.SemiBold else FontWeight.Medium,
+                fontSize = 14.sp
+            ),
+            maxLines = 3
+        )
     }
 }
 
@@ -1365,51 +1368,56 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
 private fun InfoSectionCard(
     title: String,
     primaryValue: String? = null,
-    entries: List<Pair<String, String>>, // list of label/value
+    entries: List<Pair<String, String>>,
     columns: Int = 2,
     modifier: Modifier = Modifier
 ) {
+    val tokens = boxPandoraModalTokens()
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(boxPandoraModalTokens().background)
-            .padding(horizontal = 13.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(tokens.cardBackground)
+            .border(1.dp, tokens.cardBorder, RoundedCornerShape(16.dp))
+            .padding(16.dp)
     ) {
-        val tokens = boxPandoraModalTokens()
         Text(
             text = title,
-            color = tokens.secondaryText,
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold),
-            fontSize = 13.sp
+            color = tokens.tertiaryText,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            fontSize = 12.sp
         )
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         primaryValue?.let {
             Text(
                 text = it,
                 color = tokens.bodyText,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 fontSize = 15.sp,
-                maxLines = 2
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
 
         val rows = entries.chunked(columns)
         rows.forEachIndexed { ri, row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 row.forEach { (label, value) ->
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = label,
-                            color = boxPandoraModalTokens().secondaryText,
-                            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.2.sp)
+                            color = tokens.secondaryText,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp)
                         )
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = value,
                             color = tokens.bodyText,
-                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            ),
                             maxLines = 2
                         )
                     }
@@ -1418,8 +1426,104 @@ private fun InfoSectionCard(
                 // Fill remaining columns with empty space if row is short
                 if (row.size < columns) repeat(columns - row.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
-            if (ri != rows.lastIndex) Spacer(modifier = Modifier.height(8.dp))
+            if (ri != rows.lastIndex) Spacer(modifier = Modifier.height(14.dp))
         }
+    }
+}
+
+@Composable
+private fun QuickInfoRow(item: MediaItem, tokens: ModalTokens) {
+    val infoText = buildString {
+        if (item.width > 0 && item.height > 0) append("${item.width}×${item.height} • ")
+        append(formatFileSize(item.fileSize))
+        append(" • ")
+        append(item.mediaType.replaceFirstChar { it.uppercase() })
+    }
+    Text(
+        text = infoText,
+        color = tokens.secondaryText,
+        style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+        modifier = Modifier.padding(start = 2.dp)
+    )
+}
+
+@Composable
+private fun TagsCard(
+    tags: List<Tag>,
+    tokens: ModalTokens,
+    onAddTagsClick: () -> Unit,
+    pendingRemovalTagId: Long?,
+    onNavigateToTag: (Long) -> Unit,
+    onRemoveTag: (Tag) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(tokens.cardBackground)
+            .border(1.dp, tokens.cardBorder, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "Tags",
+            color = tokens.tertiaryText,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+            fontSize = 12.sp
+        )
+        AddTagsButton(accent = tokens.selectedAccent, onClick = onAddTagsClick)
+        if (tags.isEmpty()) {
+            Text(
+                text = "No tags yet",
+                color = tokens.tertiaryText,
+                style = MaterialTheme.typography.bodySmall
+            )
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                tags.forEach { tag ->
+                    TagActionChip(
+                        text = tag.name,
+                        confirmRemoval = pendingRemovalTagId == tag.id,
+                        onLongPress = { onNavigateToTag(tag.id) },
+                        onRemoveClick = { onRemoveTag(tag) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddTagsButton(accent: Color, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (pressed) accent.copy(alpha = 0.12f) else Color.Transparent)
+            .border(1.dp, accent, RoundedCornerShape(12.dp))
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            Icons.Default.Add,
+            contentDescription = "Add tags",
+            tint = accent,
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = "Add Tags",
+            color = accent,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+        )
     }
 }
 

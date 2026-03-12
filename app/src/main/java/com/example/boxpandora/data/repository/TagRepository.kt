@@ -27,13 +27,9 @@ class TagRepository(
     fun getTagFlow(tagId: Long): Flow<Tag?> = tagDao.getByIdFlow(tagId)
 
     fun getRelatedTagsFlow(tagId: Long, limit: Int = 8): Flow<List<RelatedTag>> {
-        return tagCooccurrenceDao.getRelatedTagsFlow(tagId, limit).map { cooccurrences ->
-            cooccurrences.mapNotNull { co ->
-                val relatedId = if (co.tagIdA == tagId) co.tagIdB else co.tagIdA
-                tagDao.getById(relatedId)?.let { tag ->
-                    RelatedTag(tag, co.count)
-                }
-            }
+        // Single JOIN query — previously this did N+1 tagDao.getById() calls per cooccurrence.
+        return tagCooccurrenceDao.getRelatedTagsWithCountFlow(tagId, limit).map { results ->
+            results.map { r -> RelatedTag(r.tag, r.count) }
         }
     }
 

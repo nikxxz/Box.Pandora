@@ -355,11 +355,20 @@ class MediaRepository(
 
     suspend fun syncMediaStore(
         isFullScan: Boolean = false,
+        showImages: Boolean = true,
+        showVideos: Boolean = true,
+        showGifs: Boolean = true,
+        excludedPaths: Set<String> = emptySet(),
         onProgress: ((String, Float) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         try {
             onProgress?.invoke("Fetching MediaStore content...", 0.1f)
-            val mediaStoreItems = mediaStoreRepository.fetchAllMedia()
+            val mediaStoreItems = mediaStoreRepository.fetchAllMedia(
+                showImages = showImages,
+                showVideos = showVideos,
+                showGifs = showGifs,
+                excludedPaths = excludedPaths
+            )
 
             onProgress?.invoke("Scanning for hidden folders...", 0.3f)
             val nomediaResults = nomediaScanner.scanForNomediaFolders()
@@ -460,9 +469,22 @@ class MediaRepository(
         }
     }
 
-    suspend fun forceRecheck(onProgress: (String, Float) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun forceRecheck(
+        showImages: Boolean = true,
+        showVideos: Boolean = true,
+        showGifs: Boolean = true,
+        excludedPaths: Set<String> = emptySet(),
+        onProgress: (String, Float) -> Unit
+    ) = withContext(Dispatchers.IO) {
         onProgress("Clearing cache and database...", 0.05f)
         thumbnailManager.clearAll()
-        syncMediaStore(isFullScan = true, onProgress = onProgress)
+        syncMediaStore(
+            isFullScan = true,
+            showImages = showImages,
+            showVideos = showVideos,
+            showGifs = showGifs,
+            excludedPaths = excludedPaths,
+            onProgress = onProgress
+        )
     }
 }

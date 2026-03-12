@@ -95,7 +95,7 @@ fun TagGalleryScreen(
                         selectedCount = uiState.selectedUris.size,
                         onClearSelection = { viewModel.clearSelection() },
                         onRemoveTag = { viewModel.removeTagFromSelected() },
-                        onAddTag = { showBulkTagDialog = true },
+                        onAddTag = { viewModel.ensureAllTagsLoaded(); showBulkTagDialog = true },
                         onFavorite = { viewModel.toggleFavoriteSelected() },
                         onDelete = { showDeleteMediaDialog = true }
                     )
@@ -108,7 +108,7 @@ fun TagGalleryScreen(
                         onMenuAction = { action ->
                             when (action) {
                                 "Rename tag" -> showRenameDialog = true
-                                "Merge tag" -> showMergeSheet = true
+                                "Merge tag" -> { viewModel.ensureAllTagsLoaded(); showMergeSheet = true }
                                 "Change category" -> showCategorySheet = true
                                 "Add alias" -> showAliasDialog = true
                                 "Delete tag" -> showDeleteTagDialog = true

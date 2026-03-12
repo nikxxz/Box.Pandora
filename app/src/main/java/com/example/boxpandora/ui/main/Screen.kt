@@ -16,6 +16,9 @@ sealed class Screen(val route: String, val title: String, val label: String, val
     // Settings Screens
     object Settings : Screen("settings", "Settings", "SETTINGS", Icons.Default.Settings)
     object LibrarySettings : Screen("settings/library", "Library", "LIBRARY", Icons.Default.Folder)
+    object LibraryIncludedDirs : Screen("settings/library/included_dirs", "Included Directories", "INCLUDED", Icons.Default.CreateNewFolder)
+    object LibraryExcludedFolders : Screen("settings/library/excluded_folders", "Excluded Folders", "EXCLUDED", Icons.Default.VisibilityOff)
+    object LibraryFilterTypes : Screen("settings/library/filter_types", "Filter Media Types", "FILTER TYPES", Icons.Default.FilterList)
     object TaggingAISettings : Screen("settings/tagging_ai", "Tagging & AI", "TAGGING & AI", Icons.Default.AutoAwesome)
     object DisplaySettings : Screen("settings/display", "Display", "DISPLAY", Icons.Default.Palette)
     object PerformanceSettings : Screen("settings/performance", "Performance", "PERFORMANCE", Icons.Default.Speed)

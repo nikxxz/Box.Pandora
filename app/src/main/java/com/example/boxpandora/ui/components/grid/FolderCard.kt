@@ -42,7 +42,6 @@ import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.ui.theme.PandoraDimensions
 import java.io.File
-import java.util.Calendar
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -57,14 +56,10 @@ fun FolderCard(
     val cardHeight = cardWidth
 
     val density = LocalDensity.current
-    val panelHeight = cardHeight * 0.52f
-    val tabLift = maxOf(16.dp, panelHeight * 0.204f)
+    val panelHeight = cardHeight * 0.55f
+    val tabLift = maxOf(16.dp, panelHeight * 0.13f)
     val tabLiftPx = with(density) { tabLift.toPx() }
     val tabRadiusPx = with(density) { 10.dp.toPx() }
-
-    val dateParts = Formatters.formatShortDateParts(album.lastModifiedAt)
-    val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-    val isSameYear = dateParts.year == currentYear.toString()
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -136,7 +131,7 @@ fun FolderCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .blur(if (isSelected) 25.dp else 15.dp)
+                    .blur(if (isSelected) 5.dp else 5.dp)
             )
 
             Box(
@@ -148,7 +143,7 @@ fun FolderCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(cardHeight * 0.45f)
+                    .height(cardHeight * 0.65f)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
@@ -198,73 +193,46 @@ fun FolderCard(
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(start = (cardWidth.value * 0.089f).dp, top = 6.dp) // Added top padding for date
-                        .height(tabLift)
-                        .align(Alignment.TopStart),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    val annotatedDate = buildAnnotatedString {
-                        withStyle(style = SpanStyle(color = MaterialTheme.colorScheme.primary)) {
-                            append(dateParts.month)
-                        }
-                        append(" ")
-                        append(if (isSameYear) dateParts.day else dateParts.year)
-                    }
-                    
-                    Text(
-                        text = annotatedDate,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                            fontSize = (cardWidth.value * 0.058f).sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                    Text(
-                        text = "Last updated",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            fontSize = (cardWidth.value * 0.045f).sp
-                        )
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
                         .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
                         .padding(
                             horizontal = (cardWidth.value * 0.078f).dp,
-                            vertical = (cardWidth.value * 0.045f).dp
-                        ),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Bottom
+                            vertical   = (cardWidth.value * 0.055f).dp
+                        )
                 ) {
-                    Text(
-                        text = album.name,
-                        style = MaterialTheme.typography.bodyLarge.copy(
-                            fontWeight = FontWeight.Medium,
-                            fontSize = (cardWidth.value * 0.095f).sp
-                        ),
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
-                    )
-                    
-                    Column(horizontalAlignment = Alignment.End) {
+                    Row(
+                        modifier              = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = Formatters.formatCount(album.mediaCount),
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = (cardWidth.value * 0.056f).sp
-                            )
+                            text     = album.name,
+                            style    = MaterialTheme.typography.bodyMedium.copy(
+                                color      = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.Medium,
+                                fontSize   = (cardWidth.value * 0.088f).sp
+                            ),
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-                        Text(
-                            text = "items",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                fontSize = (cardWidth.value * 0.045f).sp
+                        Spacer(Modifier.width(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text  = Formatters.formatCount(album.mediaCount),
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color      = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize   = (cardWidth.value * 0.062f).sp
+                                )
                             )
-                        )
+                            Text(
+                                text  = " items",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.60f),
+                                    fontSize = (cardWidth.value * 0.052f).sp
+                                )
+                            )
+                        }
                     }
                 }
             }

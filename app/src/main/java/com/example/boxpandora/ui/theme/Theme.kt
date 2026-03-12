@@ -16,7 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.example.boxpandora.ui.main.viewmodel.AccentColor
 import com.example.boxpandora.ui.main.viewmodel.ThemeMode
+import androidx.compose.ui.graphics.luminance
 
 private val DarkColorScheme = darkColorScheme(
     primary = DarkAccent,
@@ -50,6 +52,7 @@ private val LightColorScheme = lightColorScheme(
 fun BoxPandoraTheme(
     themeMode: ThemeMode = ThemeMode.AUTO,
     showGradient: Boolean = true,
+    accentColor: AccentColor = AccentColor.EMBER_RED,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -58,7 +61,14 @@ fun BoxPandoraTheme(
         ThemeMode.AUTO -> isSystemInDarkTheme()
     }
 
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val accentPrimary   = Color(accentColor.colorLong)
+    val accentOnPrimary = if (accentPrimary.luminance() > 0.5f) Color(0xFF111111) else Color.White
+    val accentContainer = accentPrimary.copy(alpha = 0.20f)
+    val colorScheme = (if (darkTheme) DarkColorScheme else LightColorScheme).copy(
+        primary          = accentPrimary,
+        onPrimary        = accentOnPrimary,
+        primaryContainer = accentContainer
+    )
     val view = LocalView.current
 
     if (!view.isInEditMode) {

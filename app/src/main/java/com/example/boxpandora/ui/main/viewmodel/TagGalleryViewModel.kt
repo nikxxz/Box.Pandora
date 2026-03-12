@@ -9,6 +9,7 @@ import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.RelatedTag
 import com.example.boxpandora.data.repository.TagRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -72,8 +73,19 @@ class TagGalleryViewModel(
     private val _relatedTags = tagRepository.getRelatedTagsFlow(tagId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private val _allTags = tagRepository.getAllTagsFlow()
+    // Loaded lazily — only subscribed when a dialog that needs all tags is opened (merge/bulk-tag).
+    // This avoids running SELECT * FROM tags on every screen entry.
+    private val _loadAllTags = MutableStateFlow(false)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val _allTags = _loadAllTags
+        .flatMapLatest { load ->
+            if (load) tagRepository.getAllTagsFlow() else flowOf(emptyList())
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun ensureAllTagsLoaded() {
+        _loadAllTags.value = true
+    }
 
     // Hold last non-empty media list to avoid flicker/blank state on re-entry or data updates
     private var lastMedia: List<MediaItem> = emptyList()

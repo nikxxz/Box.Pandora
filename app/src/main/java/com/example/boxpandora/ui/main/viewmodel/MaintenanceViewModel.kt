@@ -18,10 +18,21 @@ class MaintenanceViewModel(private val repository: MediaRepository) : ViewModel(
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing
 
-    fun reindex() {
+    fun reindex(
+        showImages: Boolean = true,
+        showVideos: Boolean = true,
+        showGifs: Boolean = true,
+        excludedPaths: Set<String> = emptySet()
+    ) {
         viewModelScope.launch {
             _isProcessing.value = true
-            repository.syncMediaStore(isFullScan = false) { msg, p ->
+            repository.syncMediaStore(
+                isFullScan = false,
+                showImages = showImages,
+                showVideos = showVideos,
+                showGifs = showGifs,
+                excludedPaths = excludedPaths
+            ) { msg, p ->
                 _status.value = msg
                 _progress.value = p
             }
@@ -29,10 +40,20 @@ class MaintenanceViewModel(private val repository: MediaRepository) : ViewModel(
         }
     }
 
-    fun forceRecheck() {
+    fun forceRecheck(
+        showImages: Boolean = true,
+        showVideos: Boolean = true,
+        showGifs: Boolean = true,
+        excludedPaths: Set<String> = emptySet()
+    ) {
         viewModelScope.launch {
             _isProcessing.value = true
-            repository.forceRecheck { msg, p ->
+            repository.forceRecheck(
+                showImages = showImages,
+                showVideos = showVideos,
+                showGifs = showGifs,
+                excludedPaths = excludedPaths
+            ) { msg, p ->
                 _status.value = msg
                 _progress.value = p
             }
