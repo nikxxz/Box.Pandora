@@ -117,6 +117,18 @@ class TagsViewModel(private val tagRepository: TagRepository) : ViewModel() {
         tagRepository.renameTag(tagId, newName)
     }
 
+    fun mergeTag(sourceTagId: Long, targetTagId: Long) = viewModelScope.launch {
+        tagRepository.mergeTags(sourceTagId, targetTagId)
+    }
+
+    fun updateCategory(tagId: Long, category: String) = viewModelScope.launch {
+        tagRepository.updateCategory(tagId, category)
+    }
+
+    fun addAlias(tagId: Long, alias: String) = viewModelScope.launch {
+        tagRepository.addAlias(tagId, alias)
+    }
+
     fun deleteTag(tagId: Long) = viewModelScope.launch {
         tagRepository.deleteTag(tagId)
     }

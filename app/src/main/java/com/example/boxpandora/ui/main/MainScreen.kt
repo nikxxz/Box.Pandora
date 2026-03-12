@@ -34,9 +34,12 @@ import androidx.navigation.navArgument
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.components.media.MediaViewer
+import com.example.boxpandora.ui.common.AppDialog
+import com.example.boxpandora.ui.common.ModalHeader
 import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.settings.*
 import com.example.boxpandora.ui.theme.BoxPandoraTheme
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 private const val NAV_FADE_MS  = 300
 private const val NAV_SLIDE_MS = 400
@@ -455,37 +458,46 @@ fun SyncProgressModal(
     isProcessing: Boolean,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = { if (!isProcessing) onDismiss() },
-        title = { Text("Media Library Sync") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(status, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(16.dp))
-                if (progress >= 0f) {
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "${(progress * 100).toInt()}%",
-                        modifier = Modifier.align(Alignment.End),
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                } else {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
-                }
+    val tokens = boxPandoraModalTokens()
+
+    AppDialog(
+        onDismiss = onDismiss,
+        dismissOnClickOutside = !isProcessing,
+        dismissOnBackPress = !isProcessing
+    ) {
+        ModalHeader(title = "Media Library Sync")
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(status, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(16.dp))
+            if (progress >= 0f) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${(progress * 100).toInt()}%",
+                    modifier = Modifier.align(Alignment.End),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.secondaryText
+                )
+            } else {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
             }
-        },
-        confirmButton = {
-            if (!isProcessing) {
-                TextButton(onClick = onDismiss) {
-                    Text("Done")
+        }
+        if (!isProcessing) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Done", color = tokens.selectedAccent)
+                    }
                 }
             }
         }
-    )
+    }
 }
 
 @Composable

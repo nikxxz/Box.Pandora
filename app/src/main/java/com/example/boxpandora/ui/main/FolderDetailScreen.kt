@@ -43,6 +43,7 @@ import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -188,10 +189,12 @@ fun FolderDetailScreen(
         containerColor = MaterialTheme.colorScheme.background,
         modifier = Modifier.nestedScroll(nestedScrollConnection)
     ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding).offset { 
-            val yOffset = if (isSearchOpen || isSelectionMode) 0 else scrollOffset.roundToInt()
-            IntOffset(0, yOffset) 
-        }) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background)
+        ) {
             if (isSearchOpen) {
                 SearchResultsGrid(
                     results = searchResults,
@@ -318,6 +321,7 @@ fun BulkTagDialog(
 ) {
     var input by remember { mutableStateOf("") }
     val selectedTagNames = remember { mutableStateListOf<String>() }
+    val tokens = boxPandoraModalTokens()
     
     val suggestions = remember(input, allTags) {
         if (input.isBlank()) emptyList()
@@ -327,114 +331,84 @@ fun BulkTagDialog(
         }.take(5)
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1C1C1E),
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text("Bulk Tag", color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (selectedTagNames.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        selectedTagNames.forEach { tagName ->
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xFF48484A))
-                                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(tagName, color = Color.White, style = MaterialTheme.typography.labelMedium)
-                                IconButton(
-                                    onClick = { selectedTagNames.remove(tagName) },
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, null, tint = Color(0xFF8E8E93), modifier = Modifier.size(12.dp))
-                                }
-                            }
-                        }
-                    }
-                }
+    AppDialog(onDismiss = onDismiss) {
+        ModalHeader(title = "Bulk Tag")
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            placeholder = { Text("New tag…", color = Color(0xFF8E8E93)) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color.White.copy(alpha = 0.3f),
-                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                cursorColor = Color.White
-                            )
+        if (selectedTagNames.isNotEmpty()) {
+            ModalSection(title = "Selected") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    selectedTagNames.forEach { tagName ->
+                        ModalChip(
+                            label = tagName,
+                            trailingIcon = Icons.Default.Close,
+                            trailingTint = tokens.secondaryText,
+                            onClick = { selectedTagNames.remove(tagName) }
                         )
-                        IconButton(
-                            onClick = {
-                                val tag = input.trim()
-                                if (tag.isNotEmpty() && !selectedTagNames.contains(tag)) {
-                                    selectedTagNames.add(tag)
-                                    input = ""
-                                }
-                            },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF48484A))
-                        ) {
-                            Icon(Icons.Default.Add, null, tint = Color.White)
-                        }
-                    }
-
-                    if (suggestions.isNotEmpty()) {
-                        Text("Suggestions", style = MaterialTheme.typography.labelSmall, color = Color(0xFF8E8E93))
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            suggestions.forEach { tag ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .background(Color.White.copy(alpha = 0.1f))
-                                        .clickable { 
-                                            selectedTagNames.add(tag.name)
-                                            input = ""
-                                        }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(tag.name, color = Color.White, style = MaterialTheme.typography.labelMedium)
-                                }
-                            }
-                        }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(selectedTagNames.toList()) }) { 
-                Text("Apply", color = Color.White) 
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { 
-                Text("Cancel", color = Color(0xFF8E8E93)) 
             }
         }
-    )
+
+        ModalSection {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ModalTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = "New tag",
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = {
+                    val tag = input.trim()
+                    if (tag.isNotEmpty() && !selectedTagNames.contains(tag)) {
+                        selectedTagNames.add(tag)
+                        input = ""
+                    }
+                }) {
+                    Icon(Icons.Default.Add, null, tint = tokens.selectedAccent)
+                }
+            }
+
+            if (suggestions.isNotEmpty()) {
+                ModalSection(title = "Suggestions") {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        suggestions.forEach { tag ->
+                            ModalChip(
+                                label = tag.name,
+                                onClick = {
+                                    selectedTagNames.add(tag.name)
+                                    input = ""
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = tokens.secondaryText)
+            }
+            TextButton(onClick = { onConfirm(selectedTagNames.toList()) }) {
+                Text("Apply", color = tokens.selectedAccent, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium))
+            }
+        }
+    }
 }
 
 private fun shareMediaItems(context: Context, items: List<MediaItem>) {

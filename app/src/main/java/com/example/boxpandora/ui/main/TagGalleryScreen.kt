@@ -3,10 +3,13 @@ package com.example.boxpandora.ui.main
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -16,9 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -27,7 +28,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
@@ -105,12 +105,15 @@ fun TagGalleryScreen(
                             when (action) {
                                 "Rename tag" -> showRenameDialog = true
                                 "Merge tag" -> showMergeSheet = true
+                                "Change category" -> showCategorySheet = true
+                                "Add alias" -> showAliasDialog = true
                                 "Delete tag" -> showDeleteTagDialog = true
+                                "Edit description" -> { /* Handled in TagDescriptionBlock */ }
                             }
                         }
                     )
                 }
-                HorizontalDivider(modifier = Modifier.alpha(0.08f))
+                HorizontalDivider(modifier = Modifier.alpha(0.05f))
             }
         }
     ) { innerPadding ->
@@ -131,7 +134,7 @@ fun TagGalleryScreen(
                     CircularProgressIndicator()
                 }
             } else if (uiState.tag != null) {
-                TagMediaGrid(
+                TagGalleryContent(
                     uiState = uiState,
                     onSortChange = { viewModel.setSortMode(it) },
                     onGridModeToggle = { viewModel.toggleGridMode() },
@@ -149,7 +152,7 @@ fun TagGalleryScreen(
                          when (action) {
                             "Rename tag" -> showRenameDialog = true
                             "Merge tag" -> showMergeSheet = true
-                            "Delete unused" -> showDeleteTagDialog = true
+                            "Delete tag" -> showDeleteTagDialog = true
                             "Change category" -> showCategorySheet = true
                             "Add alias" -> showAliasDialog = true
                         }
@@ -236,25 +239,12 @@ fun TagGalleryScreen(
     }
     
     if (showBulkTagDialog) {
-        var input by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showBulkTagDialog = false },
-            title = { Text("Add Tag to Selection") },
-            text = {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = { Text("Enter tag name") }
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.addTagsToSelected(listOf(input))
-                    showBulkTagDialog = false
-                }) { Text("Add") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showBulkTagDialog = false }) { Text("Cancel") }
+        BulkTagDialog(
+            allTags = uiState.allTags,
+            onDismiss = { showBulkTagDialog = false },
+            onConfirm = { tags ->
+                viewModel.addTagsToSelected(tags)
+                showBulkTagDialog = false
             }
         )
     }
@@ -275,7 +265,9 @@ fun TagGalleryHeader(
         title = {
             Text(
                 text = tagName,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         },
         navigationIcon = {
@@ -291,23 +283,19 @@ fun TagGalleryHeader(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "More")
                 }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    listOf("Rename tag", "Merge tag", "Edit description", "Delete tag").forEach { action ->
-                        DropdownMenuItem(
-                            text = { Text(action) },
-                            onClick = {
-                                onMenuAction(action)
-                                showMenu = false
-                            }
-                        )
-                    }
+                AppContextMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    AppContextMenuItem("Rename tag", onClick = { onMenuAction("Rename tag"); showMenu = false }, icon = Icons.Default.Edit)
+                    AppContextMenuItem("Merge tag", onClick = { onMenuAction("Merge tag"); showMenu = false }, icon = Icons.AutoMirrored.Filled.CallMerge)
+                    AppContextMenuItem("Change category", onClick = { onMenuAction("Change category"); showMenu = false }, icon = Icons.Default.Category)
+                    AppContextMenuItem("Add alias", onClick = { onMenuAction("Add alias"); showMenu = false }, icon = Icons.AutoMirrored.Filled.Label)
+                    AppContextMenuItem("Add description", onClick = { onMenuAction("Add description"); showMenu = false }, icon = Icons.Default.Description)
+                    AppContextMenuItem("Delete tag", onClick = { onMenuAction("Delete tag"); showMenu = false }, icon = Icons.Default.Delete, destructive = true)
                 }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.background
-        ),
-        windowInsets = WindowInsets(0.dp)
+        )
     )
 }
 
@@ -383,8 +371,9 @@ fun TagSearchHeader(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TagMediaGrid(
+fun TagGalleryContent(
     uiState: TagGalleryUiState,
     onSortChange: (TagGallerySort) -> Unit,
     onGridModeToggle: () -> Unit,
@@ -398,107 +387,218 @@ fun TagMediaGrid(
 ) {
     val tag = uiState.tag ?: return
     val columns = if (uiState.gridMode == GridMode.COMPACT) 4 else 3
+    val effectiveColumns = if (uiState.media.size <= 4) 2 else columns
     
-    // Automatically use larger cards if very few images
-    val effectiveColumns = if (uiState.media.size <= 4 && uiState.gridMode == GridMode.COMPACT) 2 else columns
+    val mediaRows = uiState.media.chunked(effectiveColumns)
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(effectiveColumns),
+    LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 12.dp,
-            end = 12.dp,
-            top = 0.dp,
-            bottom = 80.dp
-        ),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        contentPadding = PaddingValues(bottom = 80.dp)
     ) {
-        // Upper Header Section
-        item(span = { GridItemSpan(effectiveColumns) }) {
-            Column(modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) {
-                TagHeroCard(tag = tag, media = uiState.media)
-                Spacer(Modifier.height(16.dp))
+        item {
+            TagMetaOverview(
+                tag = tag,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 8.dp)
+            )
+        }
+
+        item {
+            TagDescriptionBlock(
+                description = tag.description,
+                onEdit = onEditDescription,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)
+            )
+        }
+        
+        item { Spacer(Modifier.height(4.dp)) }
+
+        stickyHeader {
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 TagControlsRow(
                     currentSort = uiState.sortMode,
                     gridMode = uiState.gridMode,
                     filters = uiState.filters,
                     onSortChange = onSortChange,
                     onGridModeToggle = onGridModeToggle,
-                    onFilterChange = onFilterChange
+                    onFilterChange = onFilterChange,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                 )
             }
         }
 
-        // Empty State below controls if needed
         if (uiState.media.isEmpty()) {
-            item(span = { GridItemSpan(effectiveColumns) }) {
+            item {
                 TagEmptyMediaState(onBrowseClick = onBrowseClick)
             }
         } else {
-            itemsIndexed(items = uiState.media, key = { _, item -> item.uri }) { index, item ->
-                MediaThumbnail(
-                    uri = item.uri,
-                    filePath = item.filePath,
-                    mediaType = item.mediaType,
-                    duration = item.duration,
-                    isFavorite = item.isFavorite,
-                    isSelected = item.uri in uiState.selectedUris,
-                    onPress = { onMediaClick(uiState.media, index) },
-                    onLongPress = { onMediaLongClick(item) }
-                )
+            items(mediaRows) { rowItems ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    rowItems.forEach { item ->
+                        Box(modifier = Modifier.weight(1f)) {
+                            MediaThumbnail(
+                                uri = item.uri,
+                                filePath = item.filePath,
+                                mediaType = item.mediaType,
+                                duration = item.duration,
+                                isFavorite = item.isFavorite,
+                                isSelected = item.uri in uiState.selectedUris,
+                                onPress = { 
+                                    val index = uiState.media.indexOf(item)
+                                    onMediaClick(uiState.media, index)
+                                },
+                                onLongPress = { onMediaLongClick(item) }
+                            )
+                        }
+                    }
+                    // Fill remaining space if row is not full
+                    repeat(effectiveColumns - rowItems.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
 
-        // Footer Sections (Management)
-        item(span = { GridItemSpan(effectiveColumns) }) {
-            Column(modifier = Modifier.padding(top = 32.dp, bottom = 48.dp)) {
+        item {
+            Column(modifier = Modifier.padding(top = 28.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)) {
                 RelatedTagsSection(
                     relatedTags = uiState.relatedTags,
                     onTagClick = onTagClick
                 )
-                
-                Spacer(Modifier.height(32.dp))
-                
-                TagDescriptionBlock(
-                    description = tag.description,
-                    onEdit = onEditDescription
-                )
-                
-                Spacer(Modifier.height(32.dp))
-                
-                TagActionsPanel(onActionClick = onActionClick)
-                
-                Spacer(Modifier.height(24.dp))
-                TagStatisticsRow(tag = tag)
             }
         }
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TagMetaOverview(
+    tag: Tag,
+    modifier: Modifier = Modifier
+) {
+    val dateFmt = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+    val accent = categoryColor(tag.category)
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TagMetaChip(
+                label = tag.category.uppercase(),
+                accent = accent,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            TagMetaChip(
+                label = "${tag.usageCount} ${if (tag.usageCount == 1) "item" else "items"}",
+                modifier = Modifier.weight(1f, fill = false)
+            )
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TagDetailRow(label = "Aliases", value = "none")
+                TagDetailRow(label = "Created", value = dateFmt.format(Date(tag.createdAt)))
+                TagDetailRow(label = "Last used", value = formatRelativeTime(tag.updatedAt ?: tag.createdAt))
+            }
+        }
+    }
+}
+
+@Composable
+fun TagDetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
+        )
+    }
+}
+
+@Composable
+fun TagMetaChip(
+    label: String,
+    modifier: Modifier = Modifier,
+    accent: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
+    Surface(
+        modifier = modifier,
+        color = accent.copy(alpha = 0.14f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 10.sp,
+                letterSpacing = 0.6.sp
+            ),
+            color = accent
+        )
+    }
+}
+
 @Composable
 fun RelatedTagsSection(
     relatedTags: List<RelatedTag>,
-    onTagClick: (Long) -> Unit
+    onTagClick: (Long) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     if (relatedTags.isEmpty()) return
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "RELATED TAGS",
-            style = MaterialTheme.typography.labelLarge.copy(
-                letterSpacing = 1.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-        Spacer(Modifier.height(12.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            relatedTags.forEach { related ->
+            Text(
+                text = "RELATED TAGS",
+                style = MaterialTheme.typography.labelLarge.copy(
+                    letterSpacing = 1.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 16.dp)
+        ) {
+            items(relatedTags) { related ->
                 val tag = related.tag
                 
                 Surface(
@@ -510,7 +610,7 @@ fun RelatedTagsSection(
                     Row(
                         modifier = Modifier
                             .height(36.dp)
-                            .padding(horizontal = 16.dp),
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -534,12 +634,13 @@ fun RelatedTagsSection(
 @Composable
 fun TagDescriptionBlock(
     description: String?,
-    onEdit: (String) -> Unit
+    onEdit: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var isEditing by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf(description ?: "") }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         Text(
             text = "ABOUT THIS TAG",
             style = MaterialTheme.typography.labelLarge.copy(
@@ -551,12 +652,14 @@ fun TagDescriptionBlock(
         Spacer(Modifier.height(8.dp))
         
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { if (!isEditing) isEditing = true },
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.14f),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f))
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(14.dp)) {
                 if (isEditing) {
                     OutlinedTextField(
                         value = text,
@@ -578,82 +681,24 @@ fun TagDescriptionBlock(
                         Text(
                             text = "No description provided for this tag.",
                             style = MaterialTheme.typography.bodyMedium.copy(fontStyle = FontStyle.Italic),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                         )
                         Spacer(Modifier.height(8.dp))
-                        TextButton(
-                            onClick = { isEditing = true },
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(4.dp))
-                            Text("Add description", style = MaterialTheme.typography.labelLarge)
+                            Text("Add description", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         }
                     } else {
                         Text(
                             text = description,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
-                            minLines = 2
+                            minLines = 2,
+                            lineHeight = 22.sp
                         )
-                        Spacer(Modifier.height(8.dp))
-                        TextButton(
-                            onClick = { 
-                                text = description
-                                isEditing = true 
-                            },
-                            contentPadding = PaddingValues(0.dp)
-                        ) {
-                            Text("Edit", style = MaterialTheme.typography.labelLarge)
-                        }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun TagActionsPanel(onActionClick: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
-        Text(
-            text = "MANAGEMENT",
-            style = MaterialTheme.typography.labelLarge.copy(
-                letterSpacing = 1.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        
-        val actions = listOf(
-            Triple(Icons.Default.Edit, "Rename tag", null),
-            Triple(Icons.AutoMirrored.Filled.CallMerge, "Merge tag", null),
-            Triple(Icons.Default.Category, "Change category", null),
-            Triple(Icons.AutoMirrored.Filled.Label, "Add alias", null),
-            Triple(Icons.Default.Delete, "Delete unused", MaterialTheme.colorScheme.error)
-        )
-
-        actions.forEach { (icon, label, color) ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .clickable { onActionClick(label) },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = icon, 
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = color ?: MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = label, 
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = color ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
             }
         }
     }
@@ -694,10 +739,11 @@ fun TagControlsRow(
                     )
                     Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(18.dp))
                 }
-                DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
+                AppContextMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                     TagGallerySort.entries.forEach { sort ->
-                        DropdownMenuItem(
-                            text = { Text(sort.label) },
+                        AppContextMenuItem(
+                            label = sort.label,
+                            selected = sort == currentSort,
                             onClick = {
                                 onSortChange(sort)
                                 showSortMenu = false
@@ -727,27 +773,31 @@ fun TagControlsRow(
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
                 }
-                DropdownMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Images") },
+                AppContextMenu(expanded = showFilterMenu, onDismissRequest = { showFilterMenu = false }) {
+                    AppContextMenuItem(
+                        label = "Images",
+                        selected = filters.type == "image",
                         onClick = { onFilterChange(filters.copy(type = "image")); showFilterMenu = false },
-                        trailingIcon = if (filters.type == "image") { { Icon(Icons.Default.Check, null) } } else null
+                        icon = Icons.Default.Image
                     )
-                    DropdownMenuItem(
-                        text = { Text("Videos") },
+                    AppContextMenuItem(
+                        label = "Videos",
+                        selected = filters.type == "video",
                         onClick = { onFilterChange(filters.copy(type = "video")); showFilterMenu = false },
-                        trailingIcon = if (filters.type == "video") { { Icon(Icons.Default.Check, null) } } else null
+                        icon = Icons.Default.PlayCircleOutline
                     )
-                    DropdownMenuItem(
-                        text = { Text("All Types") },
+                    AppContextMenuItem(
+                        label = "All Types",
+                        selected = filters.type == "all",
                         onClick = { onFilterChange(filters.copy(type = "all")); showFilterMenu = false },
-                        trailingIcon = if (filters.type == "all") { { Icon(Icons.Default.Check, null) } } else null
+                        icon = Icons.Default.Collections
                     )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Favorites") },
+                    AppContextMenuDivider()
+                    AppContextMenuItem(
+                        label = "Favorites",
+                        selected = filters.favoritesOnly,
                         onClick = { onFilterChange(filters.copy(favoritesOnly = !filters.favoritesOnly)); showFilterMenu = false },
-                        trailingIcon = if (filters.favoritesOnly) { { Icon(Icons.Default.Check, null) } } else null
+                        icon = Icons.Default.FavoriteBorder
                     )
                 }
             }
@@ -762,117 +812,6 @@ fun TagControlsRow(
             )
         }
     }
-}
-
-@Composable
-fun TagHeroCard(
-    tag: Tag,
-    media: List<MediaItem>,
-    modifier: Modifier = Modifier
-) {
-    val coverImage = media.firstOrNull()
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(156.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
-    ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .weight(1.1f)
-                    .padding(20.dp)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.Center
-            ) {
-                Surface(
-                    color = categoryColor(tag.category).copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text(
-                        text = tag.category.uppercase(),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 0.5.sp
-                        ),
-                        color = categoryColor(tag.category)
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = tag.name,
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.ExtraBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 28.sp
-                )
-                Text(
-                    text = "${tag.usageCount} items",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .weight(0.9f)
-                    .fillMaxHeight()
-            ) {
-                if (coverImage == null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = categoryIcon(tag.category),
-                            contentDescription = null,
-                            modifier = Modifier.size(40.dp),
-                            tint = categoryColor(tag.category).copy(alpha = 0.3f)
-                        )
-                    }
-                } else {
-                    AsyncImage(
-                        model = coverImage.thumbUri ?: coverImage.uri,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun TagStatisticsRow(tag: Tag, modifier: Modifier = Modifier) {
-    val lastUsed = tag.updatedAt ?: tag.createdAt
-    val created = tag.createdAt
-    
-    val dateFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
-    
-    val statsText = buildString {
-        append("LAST USED ${formatRelativeTime(lastUsed).uppercase()} • ")
-        append("CREATED ${dateFmt.format(Date(created)).uppercase()}")
-    }
-
-    Text(
-        text = statsText,
-        style = MaterialTheme.typography.labelSmall.copy(
-            fontSize = 10.sp,
-            letterSpacing = 0.5.sp,
-            fontWeight = FontWeight.Medium
-        ),
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-        modifier = modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center
-    )
 }
 
 @Composable
@@ -930,19 +869,6 @@ private fun categoryColor(category: String): Color {
         "mood"      -> Color(0xFFF59F00)
         else        -> Color(0xFF868E96)
     }
-}
-
-private fun categoryIcon(category: String) = when (category.lowercase()) {
-    "people"    -> Icons.Default.Person
-    "character" -> Icons.Default.Face
-    "style"     -> Icons.Default.Palette
-    "clothing"  -> Icons.Default.Style
-    "pose"      -> Icons.Default.FitnessCenter
-    "place"     -> Icons.Default.LocationOn
-    "animal"    -> Icons.Default.Pets
-    "object"    -> Icons.Default.Category
-    "mood"      -> Icons.Default.Mood
-    else        -> Icons.AutoMirrored.Filled.Label
 }
 
 private fun formatRelativeTime(timestampMs: Long): String {

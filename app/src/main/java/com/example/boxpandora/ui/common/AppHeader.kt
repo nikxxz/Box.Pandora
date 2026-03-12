@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -233,31 +234,36 @@ fun AppHeader(
                                     tint = MaterialTheme.colorScheme.onBackground
                                 )
                             }
-                            DropdownMenu(
+                            AppContextMenu(
                                 expanded = showMenu,
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 if (selectionCount == 1 && allowOpenWith) {
-                                    DropdownMenuItem(
-                                        text = { Text("Open With") },
+                                    AppContextMenuItem(
+                                        label = "Open With",
+                                        icon = Icons.AutoMirrored.Filled.OpenInNew,
                                         onClick = { onActionClick("open_with"); showMenu = false }
                                     )
                                 }
-                                DropdownMenuItem(
-                                    text = { Text("Copy To") },
+                                AppContextMenuItem(
+                                    label = "Copy To",
+                                    icon = Icons.Default.ContentCopy,
                                     onClick = { onActionClick("copy"); showMenu = false }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Move To") },
+                                AppContextMenuItem(
+                                    label = "Move To",
+                                    icon = Icons.Default.FolderOpen,
                                     onClick = { onActionClick("move"); showMenu = false }
                                 )
                                 if (selectionCount == 1) {
-                                    DropdownMenuItem(
-                                        text = { Text("Rename") },
+                                    AppContextMenuItem(
+                                        label = "Rename",
+                                        icon = Icons.Default.Edit,
                                         onClick = { onActionClick("rename"); showMenu = false }
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text("Properties") },
+                                    AppContextMenuItem(
+                                        label = "Properties",
+                                        icon = Icons.Default.Info,
                                         onClick = { onActionClick("properties"); showMenu = false }
                                     )
                                 }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -37,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.ui.common.*
 import com.example.boxpandora.ui.main.viewmodel.*
 
 // ─── Category metadata ────────────────────────────────────────────────────────
@@ -88,6 +90,12 @@ fun TagsScreen(
     var showSortSheet by remember { mutableStateOf(false) }
     var quickActionsTag by remember { mutableStateOf<Tag?>(null) }
     var showFeaturedModeMenu by remember { mutableStateOf(false) }
+    var modalTag by remember { mutableStateOf<Tag?>(null) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var showMergeSheet by remember { mutableStateOf(false) }
+    var showCategorySheet by remember { mutableStateOf(false) }
+    var showAliasDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -235,11 +243,111 @@ fun TagsScreen(
     quickActionsTag?.let { tag ->
         TagQuickActionsSheet(
             tag       = tag,
-            onRename  = { /* future */ },
-            onMerge   = { /* future */ },
-            onDelete  = { viewModel.deleteTag(tag.id) },
+            onRename  = {
+                modalTag = tag
+                showRenameDialog = true
+            },
+            onMerge   = {
+                modalTag = tag
+                showMergeSheet = true
+            },
+            onChangeCategory = {
+                modalTag = tag
+                showCategorySheet = true
+            },
+            onAddAlias = {
+                modalTag = tag
+                showAliasDialog = true
+            },
+            onDelete  = {
+                modalTag = tag
+                showDeleteDialog = true
+            },
             onDismiss = { quickActionsTag = null }
         )
+    }
+
+    modalTag?.let { tag ->
+        if (showRenameDialog) {
+            RenameDialog(
+                initialName = tag.name,
+                title = "Rename Tag",
+                onDismiss = {
+                    showRenameDialog = false
+                    modalTag = null
+                },
+                onConfirm = { newName ->
+                    viewModel.renameTag(tag.id, newName)
+                    showRenameDialog = false
+                    modalTag = null
+                }
+            )
+        }
+
+        if (showMergeSheet) {
+            TagSelectorSheet(
+                title = "Merge Into",
+                tags = uiState.allTags,
+                excludeTagId = tag.id,
+                onDismiss = {
+                    showMergeSheet = false
+                    modalTag = null
+                },
+                onConfirm = { target ->
+                    viewModel.mergeTag(tag.id, target.id)
+                    showMergeSheet = false
+                    modalTag = null
+                }
+            )
+        }
+
+        if (showCategorySheet) {
+            CategorySelectorSheet(
+                currentCategory = tag.category,
+                onDismiss = {
+                    showCategorySheet = false
+                    modalTag = null
+                },
+                onConfirm = { category ->
+                    viewModel.updateCategory(tag.id, category)
+                    showCategorySheet = false
+                    modalTag = null
+                }
+            )
+        }
+
+        if (showAliasDialog) {
+            RenameDialog(
+                initialName = "",
+                title = "Add Alias",
+                onDismiss = {
+                    showAliasDialog = false
+                    modalTag = null
+                },
+                onConfirm = { alias ->
+                    viewModel.addAlias(tag.id, alias)
+                    showAliasDialog = false
+                    modalTag = null
+                }
+            )
+        }
+
+        if (showDeleteDialog) {
+            DeleteConfirmationDialog(
+                count = 1,
+                isFolder = false,
+                title = "Delete Tag",
+                onDismiss = {
+                    showDeleteDialog = false
+                    modalTag = null
+                },
+                onConfirm = {
+                    viewModel.deleteTag(tag.id)
+                    showDeleteDialog = false
+                    modalTag = null
+                }
+            )
+        }
     }
 }
 
@@ -373,17 +481,15 @@ private fun FeaturedSectionHeader(
                     modifier = Modifier.size(16.dp)
                 )
             }
-            DropdownMenu(
+            AppContextMenu(
                 expanded          = showModeMenu,
                 onDismissRequest  = onDismissModeMenu
             ) {
                 FeaturedMode.entries.forEach { m ->
-                    DropdownMenuItem(
-                        text    = { Text(m.label) },
-                        onClick = { onModeSelect(m) },
-                        trailingIcon = if (m == mode) ({
-                            Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
-                        }) else null
+                    AppContextMenuItem(
+                        label = m.label,
+                        selected = m == mode,
+                        onClick = { onModeSelect(m) }
                     )
                 }
             }
@@ -723,148 +829,94 @@ private fun TagEmptyState(query: String, category: String) {
 
 // ─── Sort bottom sheet ────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TagSortSheet(
     current:   TagSort,
     onSelect:  (TagSort) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest  = onDismiss,
-        sheetState        = sheetState,
-        containerColor    = MaterialTheme.colorScheme.surface,
-        dragHandle        = { BottomSheetDefaults.DragHandle() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text     = "Sort by",
-                style    = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                modifier = Modifier.padding(vertical = 8.dp)
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalHeader(title = "Sort by")
+        TagSort.entries.forEach { sort ->
+            ModalSelectableRow(
+                label = sort.label,
+                selected = sort == current,
+                onClick = { onSelect(sort) }
             )
-            TagSort.entries.forEach { sort ->
-                val isSelected = sort == current
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            sort.label,
-                            color      = if (isSelected) MaterialTheme.colorScheme.primary
-                                         else MaterialTheme.colorScheme.onSurface,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                        )
-                    },
-                    trailingContent = if (isSelected) ({
-                        Icon(
-                            Icons.Default.Check,
-                            null,
-                            tint     = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }) else null,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .combinedClickable(onClick = { onSelect(sort) })
-                )
-            }
         }
     }
 }
 
 // ─── Quick actions sheet ──────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun TagQuickActionsSheet(
     tag:       Tag,
     onRename:  () -> Unit,
     onMerge:   () -> Unit,
+    onChangeCategory: () -> Unit,
+    onAddAlias: () -> Unit,
     onDelete:  () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val categoryAccent = categoryColor(tag.category)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = MaterialTheme.colorScheme.surface,
-        dragHandle       = { BottomSheetDefaults.DragHandle() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            // Tag header
-            Row(
-                modifier              = Modifier.padding(vertical = 8.dp),
-                verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(categoryColor(tag.category).copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = categoryIcon(tag.category),
-                        null,
-                        tint     = categoryColor(tag.category),
-                        modifier = Modifier.size(18.dp)
-                    )
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalRichRow(
+            label = tag.name,
+            supportingText = "${tag.usageCount} items • ${categoryDisplayName(tag.category)}",
+            icon = categoryIcon(tag.category),
+            iconTint = categoryAccent,
+            iconContainerColor = categoryAccent.copy(alpha = 0.16f)
+        )
+
+        ModalDivider()
+
+        ModalSection {
+            ModalActionRow(
+                label = "Rename",
+                icon = Icons.Default.Edit,
+                onClick = {
+                    onDismiss()
+                    onRename()
                 }
-                Column {
-                    Text(tag.name, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
-                    Text(
-                        "${tag.usageCount} items",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            )
+            ModalActionRow(
+                label = "Merge into another tag",
+                icon = Icons.AutoMirrored.Filled.CallMerge,
+                onClick = {
+                    onDismiss()
+                    onMerge()
                 }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            listOf(
-                Triple(Icons.Default.Edit,   "Rename",   onRename),
-                Triple(Icons.Default.CallMerge, "Merge into another tag", onMerge),
-            ).forEach { (icon, label, action) ->
-                ListItem(
-                    headlineContent = { Text(label) },
-                    leadingContent  = { Icon(icon, null, modifier = Modifier.size(20.dp)) },
-                    modifier        = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .combinedClickable(onClick = { action(); onDismiss() })
-                )
-            }
-
-            if (tag.usageCount == 0) {
-                ListItem(
-                    headlineContent = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                    leadingContent  = {
-                        Icon(
-                            Icons.Default.Delete,
-                            null,
-                            tint     = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    },
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .combinedClickable(onClick = { onDelete(); onDismiss() })
-                )
-            }
+            )
+            ModalActionRow(
+                label = "Change category",
+                icon = Icons.Default.Category,
+                onClick = {
+                    onDismiss()
+                    onChangeCategory()
+                }
+            )
+            ModalActionRow(
+                label = "Add alias",
+                icon = Icons.Default.AddLink,
+                onClick = {
+                    onDismiss()
+                    onAddAlias()
+                }
+            )
         }
+
+        ModalDivider()
+
+        ModalActionRow(
+            label = "Delete tag",
+            icon = Icons.Default.Delete,
+            destructive = true,
+            onClick = {
+                onDismiss()
+                onDelete()
+            }
+        )
     }
 }

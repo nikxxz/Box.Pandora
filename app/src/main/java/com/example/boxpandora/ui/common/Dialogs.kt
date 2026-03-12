@@ -1,25 +1,30 @@
 package com.example.boxpandora.ui.common
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 @Composable
 fun RenameDialog(
@@ -28,41 +33,29 @@ fun RenameDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var text by remember { mutableStateOf(initialName) }
+    var text by remember(initialName) { mutableStateOf(initialName) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Enter name") }
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (text.isNotBlank()) {
-                        onConfirm(text)
-                    } else {
-                        onDismiss()
-                    }
+    AppDialog(onDismiss = onDismiss) {
+        ModalHeader(title = title)
+        ModalTextField(
+            value = text,
+            onValueChange = { text = it },
+            placeholder = "Enter name"
+        )
+        DialogActionRow(
+            dismissLabel = "Cancel",
+            confirmLabel = "Confirm",
+            onDismiss = onDismiss,
+            onConfirm = {
+                val next = text.trim()
+                if (next.isNotEmpty()) {
+                    onConfirm(next)
+                } else {
+                    onDismiss()
                 }
-            ) {
-                Text("Confirm")
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+        )
+    }
 }
 
 @Composable
@@ -73,32 +66,23 @@ fun DeleteConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title ?: if (isFolder) "Delete Folder" else "Delete Media") },
-        text = {
-            Text(
-                if (title != null) "Are you sure you want to perform this action? This cannot be undone."
-                else if (isFolder) 
-                    "Are you sure you want to delete $count selected folder(s) and all their contents? This action cannot be undone."
-                else 
-                    "Are you sure you want to delete $count selected item(s)? This action cannot be undone."
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Delete")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
+    val resolvedTitle = title ?: if (isFolder) "Delete Folder" else "Delete Media"
+    val message = when {
+        title != null -> "Are you sure you want to perform this action? This cannot be undone."
+        isFolder -> "Are you sure you want to delete $count selected folder(s) and all their contents? This action cannot be undone."
+        else -> "Are you sure you want to delete $count selected item(s)? This action cannot be undone."
+    }
+
+    AppDialog(onDismiss = onDismiss) {
+        ModalHeader(title = resolvedTitle, subtitle = message)
+        DialogActionRow(
+            dismissLabel = "Cancel",
+            confirmLabel = "Delete",
+            confirmDestructive = true,
+            onDismiss = onDismiss,
+            onConfirm = onConfirm
+        )
+    }
 }
 
 @Composable
@@ -108,55 +92,51 @@ fun FolderSelectorDialog(
     onDismiss: () -> Unit,
     onConfirm: (Album) -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Box(modifier = Modifier.heightIn(max = 400.dp)) {
-                LazyColumn {
-                    items(albums) { album ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onConfirm(album) }
-                                .padding(vertical = 12.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = album.name,
-                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
-                                )
-                                album.path?.let {
-                                    Text(
-                                        text = it,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredAlbums = remember(albums, searchQuery) {
+        val query = searchQuery.trim()
+        if (query.isBlank()) {
+            albums
+        } else {
+            albums.filter {
+                it.name.contains(query, ignoreCase = true) ||
+                    (it.path?.contains(query, ignoreCase = true) == true)
             }
         }
-    )
+    }
+
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalHeader(title = title)
+
+        if (albums.size > 8 || searchQuery.isNotBlank()) {
+            ModalTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = "Search folders"
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 420.dp)
+        ) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(filteredAlbums, key = { it.id }) { album ->
+                    ModalRichRow(
+                        label = album.name,
+                        supportingText = album.path ?: "No path available",
+                        icon = Icons.Default.Folder,
+                        onClick = { onConfirm(album) }
+                    )
+                }
+            }
+        }
+
+        ModalFooterAction(label = "Cancel", onClick = onDismiss)
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TagSelectorSheet(
     title: String,
@@ -165,128 +145,102 @@ fun TagSelectorSheet(
     onDismiss: () -> Unit,
     onConfirm: (Tag) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     var searchQuery by remember { mutableStateOf("") }
-    val filteredTags = remember(tags, searchQuery) {
-        tags.filter { 
-            it.id != excludeTagId && 
-            it.name.contains(searchQuery, ignoreCase = true) 
+    val filteredTags = remember(tags, searchQuery, excludeTagId) {
+        tags.filter {
+            it.id != excludeTagId &&
+                (searchQuery.isBlank() || it.name.contains(searchQuery, ignoreCase = true))
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
-    ) {
-        Column(
+    AppModalSheet(onDismiss = onDismiss, skipPartiallyExpanded = false) {
+        ModalHeader(title = title)
+        ModalTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = "Search tags"
+        )
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp)
+                .heightIn(max = 420.dp)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search tags...") },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp)
-            )
-            Box(modifier = Modifier.heightIn(max = 400.dp)) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(filteredTags) { tag ->
-                        Surface(
-                            onClick = { onConfirm(tag) },
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color.Transparent
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.Label, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(16.dp))
-                                Text(tag.name, style = MaterialTheme.typography.bodyLarge)
-                                Spacer(Modifier.weight(1f))
-                                Badge(
-                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                ) {
-                                    Text("${tag.usageCount}")
-                                }
-                            }
-                        }
-                    }
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(filteredTags, key = { it.id }) { tag ->
+                    ModalRichRow(
+                        label = tag.name,
+                        supportingText = tag.category.replaceFirstChar { it.uppercase() },
+                        icon = Icons.AutoMirrored.Filled.Label,
+                        trailingText = "${tag.usageCount}",
+                        onClick = { onConfirm(tag) }
+                    )
                 }
             }
         }
+        ModalFooterAction(label = "Cancel", onClick = onDismiss)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CategorySelectorSheet(
     currentCategory: String,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val categories = listOf("people", "character", "style", "clothing", "pose", "place", "animal", "object", "mood", "misc")
-    
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle() }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 32.dp)
-        ) {
-            Text(
-                text = "Change Category",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(categories) { category ->
-                    val isSelected = category == currentCategory
-                    Surface(
-                        onClick = { onConfirm(category) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f) else Color.Transparent
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 12.dp, horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { onConfirm(category) }
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = category.replaceFirstChar { it.uppercase() },
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+    val categories = listOf(
+        "people",
+        "character",
+        "style",
+        "clothing",
+        "pose",
+        "place",
+        "animal",
+        "object",
+        "mood",
+        "misc"
+    )
+
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalHeader(title = "Change Category")
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            categories.forEach { category ->
+                ModalSelectableRow(
+                    label = category.replaceFirstChar { it.uppercase() },
+                    selected = category == currentCategory,
+                    onClick = { onConfirm(category) }
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun DialogActionRow(
+    dismissLabel: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+    confirmDestructive: Boolean = false
+) {
+    val tokens = boxPandoraModalTokens()
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End
+    ) {
+        TextButton(onClick = onDismiss) {
+            Text(
+                text = dismissLabel,
+                color = tokens.secondaryText,
+                style = MaterialTheme.typography.bodyLarge
+            )
+        }
+        TextButton(onClick = onConfirm) {
+            Text(
+                text = confirmLabel,
+                color = if (confirmDestructive) tokens.destructiveAccent else tokens.selectedAccent,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
+            )
         }
     }
 }

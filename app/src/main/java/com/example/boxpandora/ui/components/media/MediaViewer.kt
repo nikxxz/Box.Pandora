@@ -20,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -33,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
@@ -50,10 +53,18 @@ import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.util.Formatters
+import com.example.boxpandora.ui.common.AppDialog
+import com.example.boxpandora.ui.common.AppContextMenu
+import com.example.boxpandora.ui.common.AppContextMenuItem
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
+import com.example.boxpandora.ui.common.ModalChip
+import com.example.boxpandora.ui.common.ModalHeader
+import com.example.boxpandora.ui.common.ModalSection
+import com.example.boxpandora.ui.common.ModalTextField
 import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.theme.PandoraSpacing
+import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
@@ -358,20 +369,16 @@ private fun ViewerHeader(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = "More", tint = Color.White)
                 }
-                DropdownMenu(
+                AppContextMenu(
                     expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier.background(CardBg)
+                    onDismissRequest = { showMenu = false }
                 ) {
-                    options.forEach { option ->
-                        DropdownMenuItem(
-                            text = { Text(option, color = Color.White) },
-                            onClick = {
-                                showMenu = false
-                                onAction(option)
-                            }
-                        )
-                    }
+                    AppContextMenuItem("Open With", onClick = { showMenu = false; onAction("Open With") }, icon = Icons.AutoMirrored.Filled.OpenInNew)
+                    AppContextMenuItem("Share", onClick = { showMenu = false; onAction("Share") }, icon = Icons.Default.Share)
+                    AppContextMenuItem("Rename", onClick = { showMenu = false; onAction("Rename") }, icon = Icons.Default.Edit)
+                    AppContextMenuItem("Copy To", onClick = { showMenu = false; onAction("Copy To") }, icon = Icons.Default.ContentCopy)
+                    AppContextMenuItem("Move To", onClick = { showMenu = false; onAction("Move To") }, icon = Icons.Default.FolderOpen)
+                    AppContextMenuItem("Delete", onClick = { showMenu = false; onAction("Delete") }, icon = Icons.Default.Delete, destructive = true)
                 }
             }
         }
@@ -684,6 +691,19 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
     val tags by viewModel.getTagsForMedia(item.uri).collectAsState(initial = emptyList())
     val suggestions by viewModel.getSuggestionsForMedia(item.uri).collectAsState()
     var showTagsDialog by remember { mutableStateOf(false) }
+    val albumLabel = item.albumName ?: "Library"
+    val aspectRatio = remember(item.width, item.height) { formatAspectRatio(item.width, item.height) }
+    val orientation = remember(item.width, item.height) {
+        when {
+            item.width == item.height && item.width > 0 -> "Square"
+            item.width > item.height -> "Landscape"
+            item.height > item.width -> "Portrait"
+            else -> "Unknown"
+        }
+    }
+    val modifiedLabel = remember(item.deviceModifiedAt) { formatMediaTimestamp(item.deviceModifiedAt) }
+    val addedLabel = remember(item.indexedAt) { formatIndexedTimestamp(item.indexedAt) }
+    val tokens = boxPandoraModalTokens()
 
     val timestampSec = remember(item.deviceCreatedAt, item.deviceModifiedAt) {
         listOf(item.deviceCreatedAt, item.deviceModifiedAt)
@@ -712,35 +732,45 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
             .fillMaxWidth()
             .wrapContentHeight()
             .onSizeChanged { if (it.height > 0) onHeightMeasured(it.height.toFloat()) }
-            .padding(horizontal = 20.dp)
-            .padding(top = 14.dp)
+            .padding(horizontal = 18.dp)
+            .padding(top = 10.dp)
             .navigationBarsPadding()
-            .padding(bottom = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = dayOfWeek,
                     color = Color.White,
                     style = MaterialTheme.typography.headlineLarge.copy(
-                        fontWeight = FontWeight.Medium, fontSize = 34.sp
+                        fontWeight = FontWeight.Medium, fontSize = 30.sp
                     )
                 )
                 dateString?.let {
                     Text(text = it, color = LabelColor, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            IconButton(onClick = { }) {
-                Icon(
-                    imageVector = if (item.isFavorite == 1) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorite",
-                    tint = if (item.isFavorite == 1) Color(0xFFFF375F) else LabelColor
-                )
+            StatusPill(
+                icon = if (item.isFavorite == 1) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                label = if (item.isFavorite == 1) "Favorite" else "Normal",
+                accent = if (item.isFavorite == 1) Color(0xFFFF375F) else tokens.secondaryText
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            StatusPill(icon = Icons.Default.Folder, label = albumLabel)
+            StatusPill(icon = Icons.AutoMirrored.Filled.Label, label = if (tags.isEmpty()) "No tags" else "${tags.size} tag${if (tags.size == 1) "" else "s"}")
+            if (item.mediaType == "video" && item.duration != null) {
+                StatusPill(icon = Icons.Default.PlayArrow, label = formatDuration(item.duration.toLong()))
             }
         }
 
@@ -749,16 +779,7 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(CardBg)
-                    .clickable { showTagsDialog = true },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add tag", tint = Color.White, modifier = Modifier.size(18.dp))
-            }
+            ManageTagsButton(onClick = { showTagsDialog = true })
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -768,7 +789,7 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
             ) {
                 if (tags.isEmpty()) {
                     Text(
-                        text = "Add tags…",
+                        text = "Manage tags",
                         color = LabelColor.copy(alpha = 0.5f),
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -783,11 +804,11 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
         }
 
         if (suggestions.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    "Suggested Tags", 
+                    "Suggested Tags",
                     style = MaterialTheme.typography.labelSmall, 
-                    color = MaterialTheme.colorScheme.primary,
+                    color = tokens.secondaryText,
                     fontWeight = FontWeight.Bold
                 )
                 Row(
@@ -807,15 +828,27 @@ private fun InfoPanelContent(item: MediaItem, viewModel: MediaViewerViewModel, o
             }
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        InfoCard(label = "FILENAME", value = item.filename, modifier = Modifier.fillMaxWidth())
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             InfoCard(label = "DIMENSIONS", value = "${item.width} × ${item.height}", modifier = Modifier.weight(1f))
-            InfoCard(label = "FILENAME", value = item.filename, modifier = Modifier.weight(1f))
+            InfoCard(label = "ASPECT", value = "$aspectRatio • $orientation", modifier = Modifier.weight(1f))
         }
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             InfoCard(label = "TYPE",      value = item.mediaType.uppercase(),  modifier = Modifier.weight(1f))
             InfoCard(label = "EXTENSION", value = item.extension.uppercase(),  modifier = Modifier.weight(1f))
             InfoCard(label = "FILE SIZE", value = formatFileSize(item.fileSize), modifier = Modifier.weight(1f))
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            InfoCard(label = "ALBUM", value = albumLabel, modifier = Modifier.weight(1f))
+            InfoCard(label = "MODIFIED", value = modifiedLabel, modifier = Modifier.weight(1f))
+            InfoCard(label = "ADDED", value = addedLabel, modifier = Modifier.weight(1f))
+        }
+
+        item.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            InfoCard(label = "NOTES", value = notes, modifier = Modifier.fillMaxWidth())
         }
     }
 
@@ -834,8 +867,8 @@ private fun TagPill(text: String, onRemove: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFF3A3A3C))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .background(Color(0xFF202024))
+            .padding(horizontal = 12.dp, vertical = 7.dp)
             .clickable { onRemove() }
     ) {
         Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium))
@@ -851,17 +884,17 @@ private fun SuggestionReviewChip(
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(0.1f))
+            .background(Color(0xFF17171B))
             .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(text, color = Color.White, style = MaterialTheme.typography.labelMedium)
         IconButton(onClick = onAccept, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Check, null, tint = Color.Green.copy(0.7f), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Check, null, tint = Color(0xFF8AE0A6), modifier = Modifier.size(16.dp))
         }
         IconButton(onClick = onReject, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Close, null, tint = Color.Red.copy(0.7f), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Close, null, tint = Color(0xFFF36B6B), modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -875,6 +908,7 @@ private fun TagsDialog(
 ) {
     var input by remember { mutableStateOf("") }
     val allTags by viewModel.allTags.collectAsState()
+    val tokens = boxPandoraModalTokens()
     
     val suggestions = remember(input, allTags, currentTags) {
         if (input.isBlank()) emptyList()
@@ -884,99 +918,81 @@ private fun TagsDialog(
         }.take(5)
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = CardBg,
-        shape = RoundedCornerShape(20.dp),
-        title = {
-            Text("Tags", color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (currentTags.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        currentTags.forEach { tag ->
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xFF48484A))
-                                    .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
-                            ) {
-                                Text(tag.name, color = Color.White, style = MaterialTheme.typography.labelMedium)
-                                IconButton(
-                                    onClick = { viewModel.removeTag(item, tag) },
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Icon(Icons.Default.Close, null, tint = LabelColor, modifier = Modifier.size(12.dp))
-                                }
-                            }
-                        }
+    AppDialog(onDismiss = onDismiss) {
+        ModalHeader(title = "Tags")
+
+        if (currentTags.isNotEmpty()) {
+            ModalSection(title = "Current") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    currentTags.forEach { tag ->
+                        ModalChip(
+                            label = tag.name,
+                            trailingIcon = Icons.Default.Close,
+                            trailingTint = tokens.secondaryText,
+                            onClick = { viewModel.removeTag(item, tag) }
+                        )
                     }
                 }
+            }
+        }
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModalSection {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ModalTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = "New tag",
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = {
+                    val tag = input.trim()
+                    if (tag.isNotEmpty()) {
+                        viewModel.addTag(item, tag)
+                        input = ""
+                    }
+                }) {
+                    Icon(Icons.Default.Add, null, tint = tokens.selectedAccent)
+                }
+            }
+
+            if (suggestions.isNotEmpty()) {
+                ModalSection(title = "Suggestions") {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            placeholder = { Text("New tag…", color = LabelColor) },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color.White.copy(alpha = 0.3f),
-                                unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                cursorColor = Color.White
-                            )
-                        )
-                        IconButton(
-                            onClick = {
-                                val tag = input.trim()
-                                if (tag.isNotEmpty()) {
-                                    viewModel.addTag(item, tag)
-                                    input = ""
-                                }
-                            },
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF48484A))
-                        ) {
-                            Icon(Icons.Default.Add, null, tint = Color.White)
-                        }
-                    }
-
-                    if (suggestions.isNotEmpty()) {
-                        Text("Suggestions", style = MaterialTheme.typography.labelSmall, color = LabelColor)
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            suggestions.forEach { tag ->
-                                SuggestionChip(tag.name) {
+                        suggestions.forEach { tag ->
+                            ModalChip(
+                                label = tag.name,
+                                onClick = {
                                     viewModel.addTag(item, tag.name)
                                     input = ""
                                 }
-                            }
+                            )
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done", color = Color.White) }
         }
-    )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onDismiss) {
+                Text("Done", color = tokens.selectedAccent)
+            }
+        }
+    }
 }
 
 @Composable
@@ -998,7 +1014,7 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(CardBg)
-            .padding(horizontal = 14.dp, vertical = 14.dp)
+            .padding(horizontal = 13.dp, vertical = 12.dp)
     ) {
         Text(
             text = label,
@@ -1013,6 +1029,86 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
             maxLines = 3
         )
     }
+}
+
+@Composable
+private fun ManageTagsButton(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(CardBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(Icons.Default.Tune, contentDescription = "Manage tags", tint = Color.White, modifier = Modifier.size(16.dp))
+        Text(
+            text = "Manage",
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+        )
+    }
+}
+
+@Composable
+private fun StatusPill(
+    icon: ImageVector,
+    label: String,
+    accent: Color = LabelColor
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(CardBg)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
+        Text(
+            text = label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium)
+        )
+    }
+}
+
+private fun formatAspectRatio(width: Int, height: Int): String {
+    if (width <= 0 || height <= 0) return "Unknown"
+    val divisor = gcd(width, height)
+    return "${width / divisor}:${height / divisor}"
+}
+
+private fun gcd(first: Int, second: Int): Int {
+    var left = first
+    var right = second
+    while (right != 0) {
+        val remainder = left % right
+        left = right
+        right = remainder
+    }
+    return left.coerceAtLeast(1)
+}
+
+private fun formatMediaTimestamp(timestampSeconds: Long?): String {
+    if (timestampSeconds == null || timestampSeconds <= 0) return "Unknown"
+    val zoned = Instant.ofEpochSecond(timestampSeconds).atZone(ZoneId.systemDefault())
+    return "%d %s %d".format(
+        zoned.dayOfMonth,
+        zoned.month.getDisplayName(DateTimeTextStyle.SHORT, Locale.getDefault()),
+        zoned.year
+    )
+}
+
+private fun formatIndexedTimestamp(timestampMillis: Long): String {
+    if (timestampMillis <= 0L) return "Unknown"
+    val zoned = Instant.ofEpochMilli(timestampMillis).atZone(ZoneId.systemDefault())
+    return "%d %s %d".format(
+        zoned.dayOfMonth,
+        zoned.month.getDisplayName(DateTimeTextStyle.SHORT, Locale.getDefault()),
+        zoned.year
+    )
 }
 
 private fun formatFileSize(bytes: Long): String = when {
