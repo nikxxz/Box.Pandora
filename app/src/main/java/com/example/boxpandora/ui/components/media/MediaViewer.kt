@@ -660,7 +660,7 @@ private fun InfoPanelContent(
     var showTagPopup by remember { mutableStateOf(false) }
     var tagQuery by remember { mutableStateOf("") }
     var pendingRemovalTagId by remember { mutableStateOf<Long?>(null) }
-    val albumLabel = item.albumName ?: "Library"
+    val albumLabel = remember(item.albumName, item.filePath) { resolveMediaFolderLabel(item) }
     val aspectRatio = remember(item.width, item.height) { formatAspectRatio(item.width, item.height) }
     val orientation = remember(item.width, item.height) {
         when {
@@ -1137,6 +1137,21 @@ private fun InfoCard(label: String, value: String, modifier: Modifier = Modifier
             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
             maxLines = 3
         )
+    }
+}
+
+private fun resolveMediaFolderLabel(item: MediaItem): String {
+    val albumName = item.albumName?.trim().orEmpty()
+    val folderName = item.filePath
+        ?.let { path -> File(path).parentFile?.name }
+        ?.trim()
+        .orEmpty()
+
+    return when {
+        folderName.isNotBlank() && (albumName.isBlank() || albumName.equals("Library", ignoreCase = true)) -> folderName
+        albumName.isNotBlank() -> albumName
+        folderName.isNotBlank() -> folderName
+        else -> "Library"
     }
 }
 
