@@ -189,7 +189,7 @@ private fun SettingsListRow(
     val tokens = boxPandoraModalTokens()
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val resolvedIconColor = iconColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
-    val cardColor = if (isDark) tokens.cardBackground.copy(alpha = 0.84f) else Color.White.copy(alpha = 0.96f)
+    val cardColor = if (isDark) tokens.cardBackground else Color.White
 
     Box(
         modifier = Modifier

@@ -37,6 +37,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
             AppDatabase::class.java,
             "pandora_db"
         )
+        .addMigrations(AppDatabase.MIGRATION_5_6)
         .fallbackToDestructiveMigration()
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()

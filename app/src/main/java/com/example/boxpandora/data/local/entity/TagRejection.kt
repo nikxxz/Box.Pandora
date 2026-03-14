@@ -17,7 +17,8 @@ import androidx.room.Index
         )
     ],
     indices = [
-        Index("tag_key")
+        Index("tag_key"),
+        Index("asset_id")   // Required: getForAsset() queries by asset_id, not tag_key
     ]
 )
 data class TagRejection(

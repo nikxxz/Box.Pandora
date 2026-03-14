@@ -405,7 +405,7 @@ fun SettingsDrawer(
         modifier = Modifier
             .fillMaxHeight()
             .width(308.dp),
-        color = Color.Transparent,
+        color = MaterialTheme.colorScheme.background,
         tonalElevation = 0.dp,
         shape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp)
     ) {
@@ -414,57 +414,13 @@ fun SettingsDrawer(
                 .fillMaxSize()
                 .statusBarsPadding()
         ) {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
-                color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) tokens.cardBackground.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.95f),
-                border = BorderStroke(1.dp, tokens.border),
-                tonalElevation = 0.dp
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(28.dp),
-                        color = tokens.cardBackground.copy(alpha = 0.86f),
-                        border = BorderStroke(1.dp, tokens.border),
-                        tonalElevation = 0.dp
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(42.dp)
-                                    .height(4.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
-                                        shape = RoundedCornerShape(999.dp)
-                                    )
-                            )
-                            Spacer(Modifier.height(14.dp))
-                            Text(
-                                text = "pandora",
-                                style = MaterialTheme.typography.headlineLarge.copy(
-                                    fontWeight = FontWeight.W200,
-                                    letterSpacing = 4.sp
-                                ),
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "Display and library controls framed with the same monochrome restraint as the media viewer.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f)
-                            )
-                        }
-                    }
-
                     DrawerSectionCard(title = "Appearance") {
                         SegmentedSelector(
                             label = "Theme Mode",
@@ -591,7 +547,7 @@ fun SettingsDrawer(
                     Surface(
                         onClick = onOpenFullSettings,
                         shape = RoundedCornerShape(24.dp),
-                        color = tokens.cardBackground.copy(alpha = 0.82f),
+                        color = tokens.cardBackground,
                         border = BorderStroke(1.dp, tokens.border),
                         tonalElevation = 0.dp,
                         modifier = Modifier.fillMaxWidth()
@@ -636,7 +592,6 @@ fun SettingsDrawer(
                             )
                         }
                     }
-                }
             }
         }
     }
@@ -652,7 +607,7 @@ private fun DrawerSectionCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
-        color = tokens.cardBackground.copy(alpha = 0.82f),
+        color = tokens.cardBackground,
         border = BorderStroke(1.dp, tokens.border),
         tonalElevation = 0.dp
     ) {

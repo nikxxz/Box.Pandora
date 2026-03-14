@@ -58,7 +58,7 @@ class MediaViewerViewModel(
             flow { emit(tagRepository.getSuggestionsForMedia(uri)) }
         }
         .onEach { Log.d("MediaViewerVM", "Suggestions updated for current URI, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var albumsJob: Job? = null
 

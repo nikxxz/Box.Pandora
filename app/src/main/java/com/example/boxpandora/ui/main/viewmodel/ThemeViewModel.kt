@@ -18,15 +18,33 @@ enum class SortOrder {
 }
 
 enum class AccentColor(val displayName: String, val colorLong: Long) {
+    // Reds
     EMBER_RED("Ember Red", 0xFFFF4A4AL),
+    CRIMSON("Crimson", 0xFFD32F2FL),
+
+    // Oranges / Gold
     DEEP_ORANGE("Deep Orange", 0xFFFF6A3DL),
     AMBER_GOLD("Amber Gold", 0xFFF4B400L),
+
+    // Greens
     EMERALD_GREEN("Emerald Green", 0xFF2ECC71L),
-    TEAL("Teal", 0xFF1ABC9CL),
+    LIME_GREEN("Lime Green", 0xFF76FF03L),
+    MINT("Mint", 0xFF00E5CCL),
+
+    // Blues
     AZURE_BLUE("Azure Blue", 0xFF3DA5FFL),
+    COBALT("Cobalt", 0xFF1565C0L),
+
+    // Purples
     INDIGO("Indigo", 0xFF6C5CE7L),
     ORCHID_PURPLE("Orchid Purple", 0xFFB76EFFL),
+    LAVENDER("Lavender", 0xFF9575CDL),
+
+    // Pinks
     ROSE_PINK("Rose Pink", 0xFFFF5C8AL),
+
+    // Neutrals
+    SLATE("Slate", 0xFF90A4AEL),
     MONOCHROME_WHITE("Monochrome White", 0xFFE0E0E0L)
 }
 

@@ -277,7 +277,9 @@ class TagRepository(
         val suggestions = tagSuggestionDao.getForAsset(mediaUri).map { it.tagKey }
         val heuristics = heuristicTagDao.getForAsset(mediaUri).map { it.tagKey }
         val rejections = tagRejectionDao.getForAsset(mediaUri).map { it.tagKey }.toSet()
-        val currentTags = mediaTagDao.getMediaTagsForUri(mediaUri).mapNotNull { tagDao.getById(it.tagId)?.normalizedName }.toSet()
+        val tagIds = mediaTagDao.getMediaTagsForUri(mediaUri).map { it.tagId }
+        val currentTags = if (tagIds.isEmpty()) emptySet()
+            else tagDao.getByIds(tagIds).map { it.normalizedName }.toSet()
 
         (suggestions + heuristics)
             .distinct()

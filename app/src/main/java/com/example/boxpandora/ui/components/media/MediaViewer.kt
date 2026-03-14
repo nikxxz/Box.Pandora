@@ -1020,7 +1020,7 @@ private fun InfoPanelContent(
         val durationMs = item.duration?.let { (it * 1000.0).toLong() } ?: 0L
         val mediaEntries = mutableListOf<Pair<String, String>>()
         mediaEntries.add("Resolution" to "${item.width} × ${item.height}")
-        mediaEntries.add("Aspect" to "$aspectRatio • $orientation")
+        mediaEntries.add("Aspect Ratio" to "$aspectRatio • $orientation")
         if (item.mediaType == "video") {
             mediaEntries.add("Duration" to formatDuration(durationMs))
         }

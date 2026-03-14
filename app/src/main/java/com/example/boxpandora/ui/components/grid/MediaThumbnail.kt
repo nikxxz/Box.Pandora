@@ -178,7 +178,7 @@ fun MediaThumbnail(
             Icon(
                 imageVector = Icons.Default.Favorite,
                 contentDescription = null,
-                tint = Color(0xFFFFD700),
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(5.dp)
