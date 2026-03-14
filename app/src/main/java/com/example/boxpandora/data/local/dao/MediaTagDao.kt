@@ -60,6 +60,20 @@ interface MediaTagDao {
         WHERE mt.media_uri IN (:uris)
     """)
     suspend fun getTagNamesForUris(uris: List<String>): List<MediaUriTagName>
+
+    /**
+     * Returns URIs of media items tagged with [tagId] that also have a scene embedding
+     * for [modelVersion]. Used by TagPrototypeEngine to gather training samples for a tag.
+     */
+    @Query("""
+        SELECT mt.media_uri FROM media_tags mt
+        WHERE mt.tag_id = :tagId
+        AND EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = mt.media_uri AND ie.model_version = :modelVersion
+        )
+    """)
+    suspend fun getTaggedUrisWithEmbedding(tagId: Long, modelVersion: String): List<String>
 }
 
 data class MediaUriTagName(

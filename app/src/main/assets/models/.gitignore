@@ -1,0 +1,15 @@
+# Model binaries are NOT committed to git.
+# They are either:
+#   (a) sideloaded manually during development, or
+#   (b) fetched at runtime by ModelManager via RemoteDownload source.
+#
+# To install the bundled scene model for local testing:
+#   1. Download mobilenet_v3_large_100_224_feature_vector.tflite from TF Hub
+#   2. Rename to mobilenet_v3_scene.tflite
+#   3. Place at:  app/src/main/assets/models/scene/mobilenet_v3_scene.tflite
+#   4. Update sha256 in ModelManifest.default if you want integrity checking
+
+*.tflite
+*.onnx
+*.pb
+*.bin

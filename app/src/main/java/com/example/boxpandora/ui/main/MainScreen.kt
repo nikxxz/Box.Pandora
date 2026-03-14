@@ -878,7 +878,8 @@ fun NavigationGraph(
                 items = activeMediaItems,
                 initialIndex = index,
                 onBackClick = { navController.popBackStack() },
-                onNavigateToTag = { tagId -> navController.navigate("tag_gallery/$tagId") }
+                onNavigateToTag = { tagId -> navController.navigate("tag_gallery/$tagId") },
+                onFindSimilar = { uri -> navController.navigate("similar/${android.net.Uri.encode(uri)}") }
             )
         }
         composable(
@@ -958,6 +959,70 @@ fun NavigationGraph(
             popEnterTransition = { detailBackEnter() },
             popExitTransition = { detailBackExit(this) }
         ) { AboutSettingsScreen(navController) }
+        composable(
+            Screen.MediaGridTest.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) {
+            MediaGridTestScreen(
+                showHidden = showHidden,
+                onBackClick = { navController.popBackStack() },
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                }
+            )
+        }
+        composable(
+            Screen.ModelManagement.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { ModelManagementScreen(navController) }
+        composable(
+            Screen.AiSuggestions.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) {
+            SuggestionsScreen(onBackClick = { navController.popBackStack() })
+        }
+        composable(
+            Screen.AiDebug.route,
+            arguments = listOf(navArgument("encodedUri") { type = NavType.StringType }),
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { backStackEntry ->
+            val encodedUri = backStackEntry.arguments?.getString("encodedUri") ?: ""
+            AiDebugScreen(
+                encodedUri = encodedUri,
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+        composable(
+            Screen.SimilarImages.route,
+            arguments = listOf(navArgument("encodedUri") { type = NavType.StringType }),
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { backStackEntry ->
+            val encodedUri = backStackEntry.arguments?.getString("encodedUri") ?: ""
+            SimilarImagesScreen(
+                encodedUri = encodedUri,
+                onBackClick = { navController.popBackStack() },
+                onMediaClick = { items, index ->
+                    onUpdateMediaItems(items)
+                    navController.navigate("media_viewer/$index")
+                }
+            )
+        }
     }
 }
 

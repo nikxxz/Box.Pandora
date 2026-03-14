@@ -64,14 +64,15 @@ class TagGalleryViewModel(
 
     private val _tag = tagRepository.getTagFlow(tagId)
         .onEach { if (it != null) Log.d("TagGalleryVM", "Tag query first emission after ${System.currentTimeMillis() - startTime}ms") }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
-    
-    private val _mediaItems = mediaRepository.getMediaByTagFlow(tagId, showHidden)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    // Null = "not yet received from DB" — distinguishes a tag with no media from still-loading.
+    private val _mediaItems: StateFlow<List<MediaItem>?> = mediaRepository.getMediaByTagFlow(tagId, showHidden)
         .onEach { Log.d("TagGalleryVM", "Media query first emission after ${System.currentTimeMillis() - startTime}ms, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _relatedTags = tagRepository.getRelatedTagsFlow(tagId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // Loaded lazily — only subscribed when a dialog that needs all tags is opened (merge/bulk-tag).
     // This avoids running SELECT * FROM tags on every screen entry.
@@ -87,25 +88,20 @@ class TagGalleryViewModel(
         _loadAllTags.value = true
     }
 
-    // Hold last non-empty media list to avoid flicker/blank state on re-entry or data updates
-    private var lastMedia: List<MediaItem> = emptyList()
-
     val uiState: StateFlow<TagGalleryUiState> = combine(
         combine(_tag, _mediaItems, _relatedTags) { t, m, r -> Triple(t, m, r) },
         combine(_sortMode, _gridMode, _searchQuery) { s, g, q -> Triple(s, g, q) },
         combine(_filters, _selectedUris, _allTags) { f, sel, all -> Triple(f, sel, all) }
     ) { tmr, sgq, fsa ->
-        val (tag, media, related) = tmr
+        val (tag, rawMedia, related) = tmr
         val (sort, grid, query) = sgq
         val (filters, selected, all) = fsa
 
-        if (media.isNotEmpty()) {
-            lastMedia = media
-        }
+        // rawMedia == null  → DB hasn't emitted yet (still loading)
+        // rawMedia == empty → DB responded: this tag genuinely has no media
+        val media = rawMedia ?: emptyList()
+        val filteredMedia = applyFiltersAndSearch(media, query, filters)
 
-        val displayMedia = if (media.isEmpty() && lastMedia.isNotEmpty()) lastMedia else media
-        val filteredMedia = applyFiltersAndSearch(displayMedia, query, filters)
-        
         TagGalleryUiState(
             tag = tag,
             media = sortMedia(filteredMedia, sort),
@@ -116,11 +112,10 @@ class TagGalleryViewModel(
             filters = filters,
             searchQuery = query,
             selectedUris = selected,
-            // Only show full-screen loading if we have absolutely no metadata (tag) yet.
-            // If tag is loaded but media is empty, it might just be an empty tag.
-            isLoading = tag == null
+            // Show spinner until BOTH tag AND media have had their first DB emission.
+            isLoading = tag == null || rawMedia == null
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TagGalleryUiState())
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TagGalleryUiState())
 
     // --- Actions ---
 

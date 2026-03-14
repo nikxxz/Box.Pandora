@@ -40,6 +40,7 @@ fun getScreenSubtitle(screen: Screen): String? = when(screen) {
     Screen.PrivacySettings -> "App lock off • 3 sensitive tags hidden"
     Screen.BackupDataSettings -> "Last backup 3 days ago"
     Screen.AboutSettings -> "Version 1.0 • Diagnostics available"
+    Screen.MediaGridTest -> "Preview a media folder grid"
     else -> null
 }
 
@@ -51,6 +52,7 @@ fun getScreenKeywords(screen: Screen): List<String> = when(screen) {
     Screen.PrivacySettings -> listOf("lock", "pin", "fingerprint", "private", "sensitive", "hidden", "protection")
     Screen.BackupDataSettings -> listOf("backup", "export", "import", "json", "restore", "cloud")
     Screen.AboutSettings -> listOf("version", "stats", "license", "debug", "logs", "support")
+    Screen.MediaGridTest -> listOf("grid", "media", "test", "preview", "folder", "developer")
     else -> emptyList()
 }
 
@@ -254,5 +256,6 @@ private fun screenAccentColor(screen: Screen): Color = when (screen) {
     Screen.PrivacySettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.86f)
     Screen.BackupDataSettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f)
     Screen.AboutSettings -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+    Screen.MediaGridTest -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.80f)
     else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
 }

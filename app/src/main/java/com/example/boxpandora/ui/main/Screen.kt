@@ -25,6 +25,17 @@ sealed class Screen(val route: String, val title: String, val label: String, val
     object PrivacySettings : Screen("settings/privacy", "Privacy", "PRIVACY", Icons.Default.Shield)
     object BackupDataSettings : Screen("settings/backup_data", "Backup & Data", "BACKUP & DATA", Icons.Default.Storage)
     object AboutSettings : Screen("settings/about", "About", "ABOUT", Icons.Default.Info)
+    object MediaGridTest : Screen("settings/media_grid_test", "Media Grid Test", "MEDIA GRID TEST", Icons.Default.GridView)
+    object ModelManagement : Screen("settings/model_management", "Model Management", "MODEL MANAGEMENT", Icons.Default.Storage)
+
+    // AI Phase 2 screens
+    object AiSuggestions : Screen("ai_suggestions", "AI Suggestions", "AI SUGGESTIONS", Icons.Default.AutoAwesome)
+    /** Route argument: URL-encoded media URI. Navigate with Uri.encode(mediaUri). */
+    object AiDebug : Screen("ai_debug/{encodedUri}", "AI Debug", "AI DEBUG", Icons.Default.BugReport)
+
+    // AI Phase 3 screens
+    /** Route argument: URL-encoded media URI. Navigate with Uri.encode(mediaUri). */
+    object SimilarImages : Screen("similar/{encodedUri}", "Similar Images", "SIMILAR", Icons.Default.Collections)
 }
 
 val bottomNavItems = listOf(

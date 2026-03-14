@@ -12,8 +12,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,12 +35,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.ui.common.*
+import com.example.boxpandora.ui.components.grid.DynamicMediaGrid
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModelFactory
@@ -228,43 +226,16 @@ fun FolderDetailScreen(
                     onLongPress = { viewModel.toggleSelection(it.uri) }
                 )
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(1.dp)
-                ) {
-                    items(
-                        count = pagingItems.itemCount,
-                        key = pagingItems.itemKey { it.uri }
-                    ) { index ->
-                        val item = pagingItems[index]
-                        if (item != null) {
-                            MediaThumbnail(
-                                uri = item.uri,
-                                filePath = item.filePath,
-                                mediaType = item.mediaType,
-                                duration = item.duration,
-                                isFavorite = item.isFavorite,
-                                isSelected = item.uri in selectedUris,
-                                onPress = {
-                                    if (isSelectionMode) {
-                                        viewModel.toggleSelection(item.uri)
-                                    } else {
-                                        onMediaClick(pagingItems.itemSnapshotList.items.filterNotNull(), index)
-                                    }
-                                },
-                                onLongPress = {
-                                    viewModel.toggleSelection(item.uri)
-                                },
-                                modifier = Modifier
-                            )
-                        } else {
-                            Box(modifier = Modifier
-                                .aspectRatio(1f)
-                                .padding(1.dp))
-                        }
-                    }
-                }
+                DynamicMediaGrid(
+                    items        = mediaItems,
+                    selectedUris = selectedUris,
+                    modifier     = Modifier.fillMaxSize(),
+                    onPress      = { item, index ->
+                        if (isSelectionMode) viewModel.toggleSelection(item.uri)
+                        else onMediaClick(mediaItems, index)
+                    },
+                    onLongPress  = { item -> viewModel.toggleSelection(item.uri) }
+                )
             }
         }
     }

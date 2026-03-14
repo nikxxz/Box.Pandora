@@ -498,30 +498,419 @@ private fun LibraryFolderRow(title: String, subtitle: String, info: String) {
     )
 }
 
+// ─── AI Settings helpers ──────────────────────────────────────────────────────
+
+@Composable
+private fun SuspendedModelBanner(categoryName: String, onReset: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "$categoryName model suspended",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+                Text(
+                    "Repeated failures detected \u2014 indexing paused to prevent crashes.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+            TextButton(onClick = onReset) {
+                Text("Reset", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PipelineStatRow(stat: com.example.boxpandora.worker.IndexingRunStats) {
+    val label = stat.pipeline.replaceFirstChar { it.uppercase() }
+    val dateStr = if (stat.lastRunAt > 0L) {
+        java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date(stat.lastRunAt))
+    } else "Never"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                dateStr,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(
+            buildString {
+                append("${stat.indexedCount} indexed")
+                if (stat.skippedCount > 0) append(" \u00b7 ${stat.skippedCount} skipped")
+                if (stat.inferenceFailures > 0) append(" \u00b7 ${stat.inferenceFailures} failures")
+                if (stat.avgProcessingTimeMs > 0L) append(" \u00b7 ${stat.avgProcessingTimeMs}ms avg")
+                if (stat.cancellationCount > 0) append(" \u00b7 ${stat.cancellationCount} cancelled")
+                append(" \u00b7 run #${stat.totalRunCount}")
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        HorizontalDivider(modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
 // ─── End Library sub-screens ─────────────────────────────────────────────────
 
 @Composable
 fun TaggingAISettingsScreen(navController: NavController) {
-    SettingsSubScreen("Tagging & AI", navController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app = activity.application as PandoraApp
+    val aiViewModel: com.example.boxpandora.ui.settings.viewmodel.AiSettingsViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = com.example.boxpandora.ui.settings.viewmodel.AiSettingsViewModelFactory(
+            repository   = app.aiSettingsRepository,
+            database     = app.database,
+            statsStore   = app.indexingStatsStore,
+            modelManager = app.modelManager,
+            appContext   = app
+        )
+    )
+    val settings       by aiViewModel.settings.collectAsState()
+    val indexingStats  by aiViewModel.indexingStats.collectAsState()
+    val suspendedModels by aiViewModel.suspendedModels.collectAsState()
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(Unit) {
+        aiViewModel.refreshStats()
+        aiViewModel.refreshModelHealth()
+    }
+
+    // Confirmation dialogs for destructive actions
+    var showClearConfirm    by remember { mutableStateOf(false) }
+    var showFullRescanConfirm by remember { mutableStateOf(false) }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear All AI Data?") },
+            text  = {
+                Text(
+                    "This will delete all scene embeddings, tag prototypes, tag suggestions, " +
+                    "detected faces, face embeddings, and face clusters. Your manually applied " +
+                    "tags and rejections are not affected. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    aiViewModel.clearAllAiData()
+                    scope.launch { snackbarHostState.showSnackbar("AI data cleared") }
+                }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showFullRescanConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFullRescanConfirm = false },
+            title = { Text("Full AI Rescan?") },
+            text  = {
+                Text(
+                    "This will clear all AI data and re-run every pipeline stage from scratch. " +
+                    "Processing will take several minutes. Your manually applied tags are not affected."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFullRescanConfirm = false
+                    aiViewModel.fullAiRescan()
+                    scope.launch { snackbarHostState.showSnackbar("Full AI rescan queued") }
+                }) { Text("Rescan", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFullRescanConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    SettingsSubScreen("Tagging & AI", navController, snackbarHostState) {
+        val runStats = indexingStats.filter { it.totalRunCount > 0 }
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
-            item { SettingSectionHeader("AI Analysis", "Automatic categorization of your photos") }
-            item { ValueSelectorRow("Suggestion Confidence", "Medium", "Threshold for automatic tag proposals") {} }
-            item { 
-                var checked by remember { mutableStateOf(true) }
-                ToggleRow("Auto-merge Synonyms", "Groups similar tags like 'cat' and 'feline'", checked = checked, onCheckedChange = { checked = it }) 
+
+            // ── Model suspension warnings ──────────────────────────────────
+            items(suspendedModels, key = { it.id }) { category ->
+                SuspendedModelBanner(
+                    categoryName = category.displayName,
+                    onReset = {
+                        aiViewModel.clearModelSuspension(category)
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Failure counter reset for ${category.displayName}")
+                        }
+                    }
+                )
             }
-            item { 
-                var checked by remember { mutableStateOf(true) }
-                ToggleRow("Discovery Mode", "Suggest tags based on visual similarities", checked = checked, onCheckedChange = { checked = it }) 
+
+            // ── General AI ────────────────────────────────────────────────
+            item {
+                SettingSectionHeader(
+                    "General AI",
+                    "Core controls for what the AI analyses and how it runs"
+                )
             }
-            item { 
-                var checked by remember { mutableStateOf(true) }
-                ToggleRow("Background Tagging", "Analyze new media immediately when added", checked = checked, onCheckedChange = { checked = it }) 
+
+            item {
+                NavigationRow(
+                    title = "Model Management",
+                    subtitle = "Download, activate, and verify AI model files",
+                    icon = Icons.Default.Storage
+                ) { navController.navigate(com.example.boxpandora.ui.main.Screen.ModelManagement.route) }
             }
-            
-            item { SettingSectionHeader("Tag Database", "Maintain your taxonomy") }
-            item { NavigationRow("Manage Categories", "Organize tags into custom groups", Icons.Default.Category) {} }
-            item { ActionRow("Rebuild Search Index", "Optimize for faster tag searching", Icons.Default.Build) {} }
+
+            item {
+                ToggleRow(
+                    title = "Enable Scene Suggestions",
+                    subtitle = "Analyse image content to propose tags automatically",
+                    checked = settings.sceneTaggingEnabled,
+                    onCheckedChange = { aiViewModel.setSceneTaggingEnabled(it) }
+                )
+            }
+
+            item {
+                ToggleRow(
+                    title = "Enable People Suggestions",
+                    subtitle = "Detect faces and suggest who appears in your photos",
+                    checked = settings.faceProcessingEnabled,
+                    onCheckedChange = { aiViewModel.setFaceProcessingEnabled(it) }
+                )
+            }
+
+            item {
+                ToggleRow(
+                    title = "Background Indexing",
+                    subtitle = "Analyse new media when the device is idle and charging",
+                    checked = settings.backgroundIndexingEnabled,
+                    onCheckedChange = { aiViewModel.setBackgroundIndexingEnabled(it) }
+                )
+            }
+
+            item {
+                ValueSelectorRow(
+                    title = "Suggestion Confidence",
+                    value = with(com.example.boxpandora.ml.config.AiSettings.Companion) {
+                        settings.confidenceThreshold.toConfidenceLabel()
+                    },
+                    subtitle = "Minimum confidence required before a suggestion is shown"
+                ) {
+                    val next = when {
+                        settings.confidenceThreshold < 0.35f -> 0.5f
+                        settings.confidenceThreshold < 0.65f -> 0.75f
+                        else -> 0.2f
+                    }
+                    aiViewModel.setConfidenceThreshold(next)
+                }
+            }
+
+            item {
+                ToggleRow(
+                    title = "Auto-index on Sync",
+                    subtitle = "Start scene indexing automatically after each library sync",
+                    checked = settings.autoIndexOnSync,
+                    onCheckedChange = { aiViewModel.setAutoIndexOnSync(it) }
+                )
+            }
+
+            item {
+                ToggleRow(
+                    title = "Wi-Fi Only Downloads",
+                    subtitle = "Fetch model files only when on an unmetered connection",
+                    checked = settings.wifiOnlyDownloads,
+                    onCheckedChange = { aiViewModel.setWifiOnlyDownloads(it) }
+                )
+            }
+
+            item {
+                NavigationRow(
+                    title = "Review AI Suggestions",
+                    subtitle = "Accept or reject pending tag proposals",
+                    icon = Icons.Default.AutoAwesome
+                ) { navController.navigate(com.example.boxpandora.ui.main.Screen.AiSuggestions.route) }
+            }
+
+            // ── Experimental ──────────────────────────────────────────────
+            item {
+                SettingSectionHeader(
+                    "Experimental",
+                    "Features that may use more battery or produce lower-quality results"
+                )
+            }
+
+            item {
+                ToggleRow(
+                    title = "People Detection in Videos",
+                    subtitle = "Detect and identify faces in video frames — increases battery use",
+                    checked = settings.faceDetectionInVideos,
+                    onCheckedChange = { aiViewModel.setFaceDetectionInVideos(it) }
+                )
+            }
+
+            // ── AI Maintenance ────────────────────────────────────────────
+            item {
+                SettingSectionHeader(
+                    "AI Maintenance",
+                    "All actions enqueue background workers and return immediately. " +
+                    "Requires battery not low + storage not low."
+                )
+            }
+
+            item {
+                ActionRow(
+                    title = "Scan New Media",
+                    subtitle = "Pick up any media added since the last indexing run",
+                    icon = Icons.Default.Refresh
+                ) {
+                    aiViewModel.scanNewMedia()
+                    scope.launch { snackbarHostState.showSnackbar("Media scan queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Repair Stale AI Data",
+                    subtitle = "Re-run all workers to fill gaps from partial failures",
+                    icon = Icons.Default.Build
+                ) {
+                    aiViewModel.repairStaleAiData()
+                    scope.launch { snackbarHostState.showSnackbar("Repair queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild Scene Embeddings",
+                    subtitle = "Clear and re-embed all images from scratch",
+                    icon = Icons.Default.ImageSearch
+                ) {
+                    aiViewModel.rebuildSceneEmbeddings()
+                    scope.launch { snackbarHostState.showSnackbar("Scene embeddings rebuild queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild Tag Prototypes",
+                    subtitle = "Recompute per-tag embedding centroids from confirmed tags",
+                    icon = Icons.Default.Category
+                ) {
+                    aiViewModel.rebuildTagPrototypes()
+                    scope.launch { snackbarHostState.showSnackbar("Tag prototypes rebuild queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild Tag Suggestions",
+                    subtitle = "Rescore all images against current tag prototypes",
+                    icon = Icons.Default.AutoAwesome
+                ) {
+                    aiViewModel.rebuildTagSuggestions()
+                    scope.launch { snackbarHostState.showSnackbar("Tag suggestions rebuild queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Re-scan Faces",
+                    subtitle = "Clear and re-detect + re-embed all faces",
+                    icon = Icons.Default.Face
+                ) {
+                    aiViewModel.rebuildFaceIndex()
+                    scope.launch { snackbarHostState.showSnackbar("Face re-scan queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild People Matching",
+                    subtitle = "Rebuild person profiles and regenerate match suggestions",
+                    icon = Icons.Default.People
+                ) {
+                    aiViewModel.rebuildPeopleMatching()
+                    scope.launch { snackbarHostState.showSnackbar("People matching rebuild queued") }
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Full AI Rescan",
+                    subtitle = "Clear all AI data and reprocess everything from scratch",
+                    icon = Icons.Default.Autorenew,
+                    iconColor = MaterialTheme.colorScheme.error
+                ) {
+                    showFullRescanConfirm = true
+                }
+            }
+
+            // ── Last Run Statistics ────────────────────────────────────────
+            item {
+                SettingSectionHeader(
+                    "Last Run Statistics",
+                    "Per-pipeline summary of the most recent worker run"
+                )
+            }
+            if (runStats.isEmpty()) {
+                item {
+                    Text(
+                        "No indexing runs recorded yet",
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                items(runStats, key = { it.pipeline }) { stat ->
+                    PipelineStatRow(stat)
+                }
+            }
+
+            // ── Danger Zone ───────────────────────────────────────────────
+            item { SettingSectionHeader("Danger Zone", "Destructive operations — cannot be undone") }
+
+            item {
+                ActionRow(
+                    title = "Clear All AI Data",
+                    subtitle = "Delete all embeddings, prototypes, suggestions, faces and clusters",
+                    icon = Icons.Default.DeleteSweep,
+                    iconColor = MaterialTheme.colorScheme.error
+                ) {
+                    showClearConfirm = true
+                }
+            }
         }
     }
 }

@@ -18,6 +18,7 @@ import androidx.room.PrimaryKey
 )
 data class FaceEmbedding(
     @PrimaryKey @ColumnInfo(name = "face_id") val faceId: String,
+    @ColumnInfo(name = "model_id") val modelId: String,
     @ColumnInfo(name = "model_version") val modelVersion: String,
     @ColumnInfo(name = "dim") val dim: Int = 128,
     @ColumnInfo(name = "embedding") val embedding: ByteArray,

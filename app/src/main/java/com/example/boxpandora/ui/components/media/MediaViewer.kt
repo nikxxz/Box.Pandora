@@ -105,10 +105,10 @@ private var sharedVideoMuted by mutableStateOf(true)
 private const val FLING_VELOCITY = 500f
 private const val FallbackMaxFraction = 0.45f
 
-// Calmer animation spec for info panel
-private val PanelAnimationSpec = spring<Float>(
-    dampingRatio = Spring.DampingRatioNoBouncy,
-    stiffness = Spring.StiffnessLow
+// Snappy tween for info panel — avoids the slow spring tail that stutters near open position
+private val PanelAnimationSpec = tween<Float>(
+    durationMillis = 280,
+    easing = FastOutSlowInEasing
 )
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
@@ -119,6 +119,7 @@ fun MediaViewer(
     initialIndex: Int,
     onBackClick: () -> Unit,
     onNavigateToTag: (Long) -> Unit = {},
+    onFindSimilar: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -265,10 +266,7 @@ fun MediaViewer(
             ) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = panelFraction.value > 0.02f,
-                    enter = slideInVertically(
-                        initialOffsetY = { 80 },
-                        animationSpec = tween(durationMillis = 240, easing = EaseOut)
-                    ) + fadeIn(animationSpec = tween(durationMillis = 200, easing = EaseOut)),
+                    enter = fadeIn(animationSpec = tween(durationMillis = 180, easing = LinearOutSlowInEasing)),
                     exit = ExitTransition.None
                 ) {
                     if (currentItem != null) {
@@ -276,6 +274,7 @@ fun MediaViewer(
                             item = currentItem,
                             viewModel = viewModel,
                             onNavigateToTag = onNavigateToTag,
+                            onFindSimilar = onFindSimilar,
                             onDragPanel = { velocityY -> snapPanel(velocityY) },
                             onHeightMeasured = { if (it > 0f) contentHeightPx = it }
                         )
@@ -759,6 +758,7 @@ private fun InfoPanelContent(
     item: MediaItem,
     viewModel: MediaViewerViewModel,
     onNavigateToTag: (Long) -> Unit,
+    onFindSimilar: ((String) -> Unit)?,
     onDragPanel: (Float) -> Unit,
     onHeightMeasured: (Float) -> Unit
 ) {
@@ -906,6 +906,17 @@ private fun InfoPanelContent(
                     },
                     popTrigger = favPopTrigger
                 )
+
+                // Find Similar (images only)
+                if (item.mediaType == "image" && onFindSimilar != null) {
+                    QuickActionButton(
+                        icon = Icons.Default.Collections,
+                        contentDescription = "Find Similar",
+                        backgroundColor = tokens.cardBackground,
+                        iconColor = tokens.secondaryText,
+                        onClick = { onFindSimilar(item.uri) }
+                    )
+                }
 
                 // Share
                 QuickActionButton(

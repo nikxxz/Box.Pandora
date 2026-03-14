@@ -93,6 +93,16 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 
+    // TensorFlow Lite — CPU inference
+    implementation(libs.tensorflow.lite)
+    implementation(libs.tensorflow.lite.support)
+
+    // ONNX Runtime — face_detection and optional face_embedding ONNX models
+    implementation(libs.onnxruntime.android)
+
+    // DataStore — AI settings persistence
+    implementation(libs.androidx.datastore.preferences)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"embedding\\\\|inference\\\\|model\\\\|face\\\\|cluster\\\\|suggestion\\\\|prototype\\\\|heuristic\" /c/Dev/Apps/app/src/main/java/com/example/boxpandora/ui --include=*.kt)",
+      "Bash(grep -r \"tflite\\\\|onnx\\\\|tensorflow\\\\|mediapipe\\\\|ml\\\\|ai\" /c/Dev/Apps/app/src/main --include=*.kt --include=*.gradle*)",
+      "Bash(grep -r \"PENDING\\\\|TODO\\\\|FIXME\\\\|stub\\\\|placeholder\" /c/Dev/Apps/app/src/main/java/com/example/boxpandora/data --include=*.kt)",
+      "Bash(git log:*)",
+      "Bash(curl -s \"https://github.com/nikxxz/Pandora_assets/tree/master/models\")"
+    ]
+  }
+}

@@ -24,6 +24,7 @@ import androidx.room.PrimaryKey
     ],
     indices = [
         Index("tag_id"),
+        Index("review_queue_id"),
         Index("changed_at")
     ]
 )

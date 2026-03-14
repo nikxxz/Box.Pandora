@@ -34,6 +34,9 @@ fun SettingsScreen(navController: NavController) {
             Screen.AboutSettings
         )
     }
+    val developerItems = remember {
+        listOf(Screen.MediaGridTest)
+    }
 
     Scaffold(
         topBar = {
@@ -73,6 +76,17 @@ fun SettingsScreen(navController: NavController) {
             }
 
             items(settingsItems) { screen ->
+                SettingsNavigationRow(screen, navController)
+            }
+
+            item {
+                SettingSectionHeader(
+                    title = "Developer",
+                    subtitle = "Tools for testing and previewing internal features"
+                )
+            }
+
+            items(developerItems) { screen ->
                 SettingsNavigationRow(screen, navController)
             }
         }

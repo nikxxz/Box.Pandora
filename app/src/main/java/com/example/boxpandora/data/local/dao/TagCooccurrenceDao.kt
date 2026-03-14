@@ -56,4 +56,24 @@ interface TagCooccurrenceDao {
         LIMIT :limit
     """)
     fun getRelatedTagsWithCountFlow(tagId: Long, limit: Int = 8): Flow<List<RelatedTagResult>>
+
+    /**
+     * Suspend (non-Flow) version used by TagSuggestionEngine during scoring.
+     * Returns normalized tag keys and co-occurrence counts for tags related to [tagId].
+     */
+    @Query("""
+        SELECT t.normalized_name AS tagKey, tc.count AS coCount FROM tags t
+        INNER JOIN tag_cooccurrences tc
+            ON (tc.tag_id_a = t.id AND tc.tag_id_b = :tagId)
+            OR (tc.tag_id_b = t.id AND tc.tag_id_a = :tagId)
+        WHERE t.id != :tagId
+        ORDER BY tc.count DESC
+        LIMIT :limit
+    """)
+    suspend fun getRelatedTagKeys(tagId: Long, limit: Int = 8): List<RelatedTagKeyResult>
 }
+
+data class RelatedTagKeyResult(
+    @ColumnInfo(name = "tagKey") val tagKey: String,
+    @ColumnInfo(name = "coCount") val coCount: Int
+)

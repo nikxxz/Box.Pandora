@@ -48,4 +48,8 @@ interface TagDao {
 
     @Query("SELECT * FROM tags WHERE id IN (:ids)")
     suspend fun getByIds(ids: List<Long>): List<Tag>
+
+    /** One-shot suspend version of getAllTagsFlow() used by TagPrototypeEngine. */
+    @Query("SELECT * FROM tags ORDER BY usage_count DESC")
+    suspend fun getAll(): List<Tag>
 }

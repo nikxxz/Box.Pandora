@@ -25,5 +25,9 @@ data class ImageEmbedding(
     @ColumnInfo(name = "model_version") val modelVersion: String,
     @ColumnInfo(name = "dim") val dim: Int,
     @ColumnInfo(name = "embedding") val embedding: ByteArray,
+    /** "image", "gif", or "video" — matches [SceneEmbeddingService.MEDIA_TYPE_*] constants. */
+    @ColumnInfo(name = "media_type") val mediaType: String = "image",
+    /** Frame-sampling descriptor used to produce this embedding; null for still images. */
+    @ColumnInfo(name = "scan_method") val scanMethod: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
 )

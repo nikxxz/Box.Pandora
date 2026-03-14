@@ -11,7 +11,11 @@ import coil.decode.ImageDecoderDecoder
 import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import com.example.boxpandora.data.local.AppDatabase
 import com.example.boxpandora.data.manager.FileSystemManager
 import com.example.boxpandora.data.manager.MediaContentObserver
@@ -19,6 +23,10 @@ import com.example.boxpandora.data.manager.ThumbnailManager
 import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.MediaStoreRepository
 import com.example.boxpandora.data.repository.TagRepository
+import com.example.boxpandora.ml.config.AiSettingsRepository
+import com.example.boxpandora.ml.manager.ModelManager
+import com.example.boxpandora.worker.AiIndexScheduler
+import com.example.boxpandora.worker.IndexingStatsStore
 
 private const val TAG = "PandoraApp"
 
@@ -26,7 +34,11 @@ class PandoraApp : Application(), ImageLoaderFactory {
     lateinit var database: AppDatabase
     lateinit var repository: MediaRepository
     lateinit var thumbnailManager: ThumbnailManager
+    lateinit var modelManager: ModelManager
+    lateinit var aiSettingsRepository: AiSettingsRepository
+    lateinit var indexingStatsStore: IndexingStatsStore
     private lateinit var contentObserver: MediaContentObserver
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
@@ -37,7 +49,13 @@ class PandoraApp : Application(), ImageLoaderFactory {
             AppDatabase::class.java,
             "pandora_db"
         )
-        .addMigrations(AppDatabase.MIGRATION_5_6)
+        .addMigrations(
+            AppDatabase.MIGRATION_5_6,
+            AppDatabase.MIGRATION_6_7,
+            AppDatabase.MIGRATION_7_8,
+            AppDatabase.MIGRATION_8_9,
+            AppDatabase.MIGRATION_9_10
+        )
         .fallbackToDestructiveMigration()
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .build()
@@ -70,12 +88,26 @@ class PandoraApp : Application(), ImageLoaderFactory {
             tagRepository = tagRepository
         )
 
+        modelManager = ModelManager(this)
+        aiSettingsRepository = AiSettingsRepository(this)
+        indexingStatsStore = IndexingStatsStore(this)
+
         contentObserver = MediaContentObserver(this)
         contentObserver.register()
 
         // Trigger startup resync fallback
         Log.d(TAG, "Triggering startup resync fallback")
         contentObserver.triggerSync("App Startup")
+
+        // Schedule scene indexing on startup if enabled in settings.
+        // Uses KEEP policy — safe to call every launch; no-ops if already running.
+        appScope.launch {
+            val settings = aiSettingsRepository.settings.first()
+            AiIndexScheduler.scheduleSceneIndexIfEnabled(this@PandoraApp, settings)
+            AiIndexScheduler.scheduleFaceIndexIfEnabled(this@PandoraApp, settings)
+            AiIndexScheduler.schedulePersonProfileIfEnabled(this@PandoraApp, settings)
+            AiIndexScheduler.schedulePersonSuggestionsIfEnabled(this@PandoraApp, settings)
+        }
     }
 
     override fun onTerminate() {
