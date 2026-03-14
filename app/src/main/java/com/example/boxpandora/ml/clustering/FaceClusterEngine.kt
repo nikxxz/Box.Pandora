@@ -61,15 +61,19 @@ class FaceClusterEngine(
     /**
      * Runs a full clustering rebuild.
      *
-     * @param faces         All faces with embeddings, sorted by qualityScore DESC.
+     * @param faces            All faces with embeddings, sorted by qualityScore DESC.
      * @param existingClusters All clusters currently in the database (with metadata to preserve).
-     * @param corrections   All user corrections — the latest correction per face wins.
-     * @param now           Timestamp to write into updated_at fields.
+     * @param corrections      All user corrections — the latest correction per face wins.
+     * @param embedderVersion  Room version key of the active face embedding model.
+     *                         Written into every output [FaceCluster.embedderVersion] so that
+     *                         [PersonSuggestionWorker] can skip stale centroids after a model change.
+     * @param now              Timestamp to write into updated_at fields.
      */
     fun run(
         faces: List<FaceInput>,
         existingClusters: List<FaceCluster>,
         corrections: List<FaceClusterCorrection>,
+        embedderVersion: String,
         now: Long = System.currentTimeMillis()
     ): ClusterResult {
         // Build a map of the latest correction per faceId
@@ -82,14 +86,15 @@ class FaceClusterEngine(
         for (c in existingClusters) {
             if (c.centroidBlob != null) {
                 clusterStates[c.clusterId] = MutableClusterState(
-                    clusterId       = c.clusterId,
-                    centroid        = EmbeddingUtils.bytesToFloatArray(c.centroidBlob),
-                    n               = 0, // reset; will be rebuilt
-                    name            = c.name,
-                    confirmedByUser = c.confirmedByUser,
-                    isHidden        = c.isHidden,
-                    tagId           = c.tagId,
-                    createdAt       = c.createdAt
+                    clusterId        = c.clusterId,
+                    centroid         = EmbeddingUtils.bytesToFloatArray(c.centroidBlob),
+                    n                = 0, // reset; will be rebuilt
+                    name             = c.name,
+                    confirmedByUser  = c.confirmedByUser,
+                    isHidden         = c.isHidden,
+                    tagId            = c.tagId,
+                    createdAt        = c.createdAt,
+                    embedderVersion  = embedderVersion  // centroid is rebuilt this run; stamp current version
                 )
             }
         }
@@ -118,14 +123,15 @@ class FaceClusterEngine(
                         // Target cluster may not exist yet if user typed a custom clusterId;
                         // create a minimal state.
                         MutableClusterState(
-                            clusterId = targetId,
-                            centroid  = face.embedding.copyOf(),
-                            n         = 0,
-                            name      = noCentroidClusters[targetId]?.name,
-                            confirmedByUser = noCentroidClusters[targetId]?.confirmedByUser ?: false,
-                            isHidden  = noCentroidClusters[targetId]?.isHidden ?: false,
-                            tagId     = noCentroidClusters[targetId]?.tagId,
-                            createdAt = noCentroidClusters[targetId]?.createdAt ?: now
+                            clusterId        = targetId,
+                            centroid         = face.embedding.copyOf(),
+                            n                = 0,
+                            name             = noCentroidClusters[targetId]?.name,
+                            confirmedByUser  = noCentroidClusters[targetId]?.confirmedByUser ?: false,
+                            isHidden         = noCentroidClusters[targetId]?.isHidden ?: false,
+                            tagId            = noCentroidClusters[targetId]?.tagId,
+                            createdAt        = noCentroidClusters[targetId]?.createdAt ?: now,
+                            embedderVersion  = embedderVersion
                         )
                     }
                     state.addFace(face.embedding)
@@ -144,14 +150,15 @@ class FaceClusterEngine(
                         // Start a new cluster
                         val newId = UUID.randomUUID().toString()
                         clusterStates[newId] = MutableClusterState(
-                            clusterId       = newId,
-                            centroid        = face.embedding.copyOf(),
-                            n               = 1,
-                            name            = null,
-                            confirmedByUser = false,
-                            isHidden        = false,
-                            tagId           = null,
-                            createdAt       = now
+                            clusterId        = newId,
+                            centroid         = face.embedding.copyOf(),
+                            n                = 1,
+                            name             = null,
+                            confirmedByUser  = false,
+                            isHidden         = false,
+                            tagId            = null,
+                            createdAt        = now,
+                            embedderVersion  = embedderVersion
                         )
                         newId
                     }
@@ -209,7 +216,8 @@ class FaceClusterEngine(
         val confirmedByUser: Boolean,
         val isHidden: Boolean,
         val tagId: Long?,
-        val createdAt: Long
+        val createdAt: Long,
+        val embedderVersion: String
     ) {
         // Keep an unnormalised accumulator so we can compute the normalised mean cheaply
         private val accumulator: FloatArray = centroid.copyOf().also { v ->
@@ -228,16 +236,17 @@ class FaceClusterEngine(
         }
 
         fun toEntity(now: Long) = FaceCluster(
-            clusterId       = clusterId,
-            centroidBlob    = EmbeddingUtils.floatArrayToBytes(centroid),
-            dim             = centroid.size,
-            n               = n,
-            tagId           = tagId,
-            name            = name,
-            confirmedByUser = confirmedByUser,
-            isHidden        = isHidden,
-            createdAt       = createdAt,
-            updatedAt       = now
+            clusterId        = clusterId,
+            centroidBlob     = EmbeddingUtils.floatArrayToBytes(centroid),
+            dim              = centroid.size,
+            n                = n,
+            tagId            = tagId,
+            name             = name,
+            confirmedByUser  = confirmedByUser,
+            isHidden         = isHidden,
+            embedderVersion  = embedderVersion,
+            createdAt        = createdAt,
+            updatedAt        = now
         )
     }
 }

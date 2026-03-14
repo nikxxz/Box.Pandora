@@ -23,6 +23,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.boxpandora.PandoraApp
+import com.example.boxpandora.ml.config.AiFeatureFlags
+import com.example.boxpandora.ml.config.AiSettings
+import com.example.boxpandora.ml.detection.MediaType
 import com.example.boxpandora.ml.model.ModelCategory
 import com.example.boxpandora.ml.model.ModelMetadata
 import com.example.boxpandora.ui.settings.viewmodel.ModelManagerViewModel
@@ -96,9 +99,10 @@ fun ModelManagementScreen(navController: NavController) {
     val app = activity.application as PandoraApp
     val viewModel: ModelManagerViewModel = viewModel(
         viewModelStoreOwner = activity,
-        factory = ModelManagerViewModelFactory(app.modelManager, app)
+        factory = ModelManagerViewModelFactory(app.modelManager, app, app.aiSettingsRepository)
     )
     val models by viewModel.models.collectAsState()
+    val settings by viewModel.settings.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // Refresh on entry so install state is up-to-date
@@ -178,6 +182,15 @@ fun ModelManagementScreen(navController: NavController) {
                     )
                 }
             }
+
+            // Face pipeline coverage diagnostics
+            item {
+                SettingSectionHeader(
+                    title    = "Face Pipeline Coverage",
+                    subtitle = "Which media types are scanned for faces"
+                )
+                FacePipelineDiagnosticsSection(settings = settings)
+            }
         }
     }
 }
@@ -194,6 +207,7 @@ private fun ModelCard(
 ) {
     val meta = state.meta
     var infoExpanded by remember { mutableStateOf(false) }
+    var diagExpanded by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier
@@ -283,19 +297,31 @@ private fun ModelCard(
                 meta.sizeBytes > 0 -> "%.1f MB".format(meta.sizeBytes / 1_048_576.0)
                 else -> "size unknown"
             }
-            val checksumLabel = when {
-                meta.sha256.isNotBlank() -> "SHA-256: …${meta.sha256.takeLast(8)}"
-                else -> "No checksum in manifest"
-            }
             val inputLabel = "${meta.inputWidth}×${meta.inputHeight} → dim ${meta.outputDim}"
-
             Text(
-                text = "$sizeLabel  ·  $inputLabel  ·  $checksumLabel",
+                text = "$sizeLabel  ·  ${meta.format.uppercase()}  ·  $inputLabel",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+
+            // ── Diagnostics toggle + content ──────────────────────────────────
+            Spacer(Modifier.height(2.dp))
+            TextButton(
+                onClick = { diagExpanded = !diagExpanded },
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.height(24.dp)
+            ) {
+                Text(
+                    text = if (diagExpanded) "Hide diagnostics" else "Diagnostics",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+            AnimatedVisibility(visible = diagExpanded) {
+                ModelDiagnosticsChecklist(state = state)
+            }
 
             // ── Failure reason ────────────────────────────────────────────────
             if (!state.failureReason.isNullOrBlank()) {
@@ -417,6 +443,218 @@ private fun ModelCard(
         }
     }
 }
+
+// ── Model diagnostics checklist ───────────────────────────────────────────────
+
+/**
+ * Expandable checklist showing per-model health indicators:
+ *  - Installed / Active
+ *  - Runtime format supported
+ *  - Checksum present in manifest
+ *  - Expected size present in manifest
+ *  - On-disk file size matches manifest (when installed)
+ *  - Crash-loop failure count
+ */
+@Composable
+private fun ModelDiagnosticsChecklist(state: ModelUiState) {
+    val meta = state.meta
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        DiagRow(
+            ok    = state.status != ModelStatus.NOT_INSTALLED,
+            label = if (state.status != ModelStatus.NOT_INSTALLED) "Installed" else "Not installed"
+        )
+        DiagRow(
+            ok    = state.status == ModelStatus.ACTIVE,
+            label = if (state.status == ModelStatus.ACTIVE) "Active" else "Not active"
+        )
+        DiagRow(
+            ok    = state.isRuntimeSupported,
+            label = if (state.isRuntimeSupported)
+                "Runtime supported (${meta.format.uppercase()})"
+            else
+                "${meta.format.uppercase()} runtime not available on this device — model cannot run"
+        )
+        DiagRow(
+            ok    = state.isChecksumInManifest,
+            label = if (state.isChecksumInManifest)
+                "Checksum in manifest (SHA-256 …${meta.sha256.takeLast(8)})"
+            else
+                "Checksum missing from manifest — integrity unverifiable"
+        )
+        DiagRow(
+            ok    = state.isSizeInManifest,
+            label = if (state.isSizeInManifest)
+                "Size in manifest (%.1f MB)".format(meta.sizeBytes / 1_048_576.0)
+            else
+                "Size missing from manifest — download size unknown"
+        )
+        state.fileSizeMatchesManifest?.let { matches ->
+            DiagRow(
+                ok    = matches,
+                label = if (matches) "File size matches manifest" else "File size mismatch — file may be corrupt or partially downloaded"
+            )
+        }
+        if (state.failureCount > 0) {
+            DiagRow(
+                ok    = false,
+                label = "Inference failures: ${state.failureCount}/3 — ${if (state.failureCount >= 3) "suspended" else "approaching limit"}"
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagRow(ok: Boolean, label: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = if (ok) Icons.Default.CheckCircle else Icons.Default.Warning,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = if (ok) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (ok) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+        )
+    }
+}
+
+// ── Face pipeline diagnostics section ────────────────────────────────────────
+
+/**
+ * Shows which media types are currently eligible for face detection,
+ * based on [AiFeatureFlags] compile-time constants and the user's [AiSettings].
+ */
+@Composable
+private fun FacePipelineDiagnosticsSection(settings: AiSettings) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            // Images — always on
+            FacePipelineRow(
+                label  = "Images (JPEG, PNG, HEIC, WebP)",
+                state  = PipelineState.ENABLED,
+                detail = "Face detection runs on all still images"
+            )
+
+            // GIFs — compile-time flag
+            val gifState = when {
+                AiFeatureFlags.FACE_DETECTION_ON_GIF -> PipelineState.EXPERIMENTAL
+                else                                  -> PipelineState.DISABLED
+            }
+            FacePipelineRow(
+                label  = "Animated GIFs",
+                state  = gifState,
+                detail = when (gifState) {
+                    PipelineState.DISABLED     -> "Disabled — frame-sampling for GIFs is not yet implemented"
+                    PipelineState.EXPERIMENTAL -> "Experimental — compile-time flag enabled; frame sampling in progress"
+                    else                        -> ""
+                }
+            )
+
+            // Videos — compile-time flag AND user runtime toggle
+            val videoCompileEnabled = AiFeatureFlags.FACE_DETECTION_ON_VIDEO
+            val videoUserEnabled    = settings.faceDetectionInVideos
+            val videoState = when {
+                !videoCompileEnabled           -> PipelineState.DISABLED
+                videoUserEnabled               -> PipelineState.EXPERIMENTAL
+                else                           -> PipelineState.DISABLED
+            }
+            FacePipelineRow(
+                label  = "Videos",
+                state  = videoState,
+                detail = when {
+                    !videoCompileEnabled  -> "Disabled — frame extraction for videos is not yet implemented"
+                    !videoUserEnabled     -> "Disabled — toggle 'People detection in videos' in AI Settings to enable"
+                    else                  -> "Experimental — enabled via AI Settings; frame-level sampling in progress"
+                }
+            )
+        }
+    }
+}
+
+private enum class PipelineState { ENABLED, EXPERIMENTAL, DISABLED }
+
+@Composable
+private fun FacePipelineRow(label: String, state: PipelineState, detail: String) {
+    Column(modifier = Modifier.padding(vertical = 5.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val (icon, tint, badge, badgeBg, badgeFg) = when (state) {
+                PipelineState.ENABLED      -> FiveTuple(
+                    Icons.Default.CheckCircle,
+                    MaterialTheme.colorScheme.tertiary,
+                    "Enabled",
+                    MaterialTheme.colorScheme.tertiaryContainer,
+                    MaterialTheme.colorScheme.onTertiaryContainer
+                )
+                PipelineState.EXPERIMENTAL -> FiveTuple(
+                    Icons.Default.Info,
+                    MaterialTheme.colorScheme.secondary,
+                    "Experimental",
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                PipelineState.DISABLED     -> FiveTuple(
+                    Icons.Default.Block,
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Disabled",
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(icon, null, Modifier.size(16.dp), tint = tint)
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                modifier = Modifier.weight(1f)
+            )
+            Surface(shape = RoundedCornerShape(999.dp), color = badgeBg) {
+                Text(
+                    badge,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = badgeFg
+                )
+            }
+        }
+        if (detail.isNotEmpty()) {
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp)
+            )
+        }
+    }
+}
+
+// Destructured data carrier for FacePipelineRow local variables
+private data class FiveTuple(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val tint: androidx.compose.ui.graphics.Color,
+    val badge: String,
+    val badgeBg: androidx.compose.ui.graphics.Color,
+    val badgeFg: androidx.compose.ui.graphics.Color
+)
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 

@@ -36,7 +36,7 @@ import com.example.boxpandora.data.local.util.Converters
         TagReviewQueue::class,
         TagChangeHistory::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -156,6 +156,25 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL(
                     "ALTER TABLE face_scan_log " +
                     "ADD COLUMN result_status TEXT NOT NULL DEFAULT 'no_faces_found'"
+                )
+            }
+        }
+
+        /**
+         * Schema v12 — Face cluster embedder provenance.
+         *
+         * Adds `embedder_version` to `face_clusters` so [PersonSuggestionWorker] can detect
+         * stale centroids after a face embedding model upgrade.
+         *
+         * Default '' means "produced before v12 / embedder version unknown". Such rows are
+         * skipped by [PersonSuggestionWorker] until [FaceClusterWorker] rebuilds them with
+         * the current model version stamped in.
+         */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE face_clusters " +
+                    "ADD COLUMN embedder_version TEXT NOT NULL DEFAULT ''"
                 )
             }
         }

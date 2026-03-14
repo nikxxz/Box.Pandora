@@ -4,14 +4,19 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.boxpandora.ml.config.AiSettings
+import com.example.boxpandora.ml.config.AiSettingsRepository
 import com.example.boxpandora.ml.manager.ModelInstallResult
 import com.example.boxpandora.ml.manager.ModelManager
 import com.example.boxpandora.ml.model.ModelCategory
 import com.example.boxpandora.ml.model.ModelMetadata
 import com.example.boxpandora.ml.model.ModelSource
+import com.example.boxpandora.ml.runtime.ModelRuntimeFactory
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -43,13 +48,20 @@ enum class ModelStatus {
 /**
  * UI representation of a single manifest entry, produced by [ModelManagerViewModel].
  *
- * @param meta          Manifest metadata (id, category, version, format, source, etc.).
- * @param status        Current lifecycle state of this model on the device.
- * @param isDownloadable True when [meta.source] is [ModelSource.RemoteDownload] with a
- *                      non-blank URL — so the "Download" action should be offered.
- * @param downloadProgress 0.0..1.0 while [status] == [ModelStatus.DOWNLOADING]; null otherwise.
- * @param failureReason  Human-readable reason populated when [status] is [ModelStatus.INVALID]
- *                      or [ModelStatus.FAILED].
+ * @param meta                    Manifest metadata (id, category, version, format, source, etc.).
+ * @param status                  Current lifecycle state of this model on the device.
+ * @param isDownloadable          True when [meta.source] is [ModelSource.RemoteDownload] with a
+ *                                non-blank URL — so the "Download" action should be offered.
+ * @param downloadProgress        0.0..1.0 while [status] == [ModelStatus.DOWNLOADING]; null otherwise.
+ * @param failureReason           Human-readable reason populated when [status] is [ModelStatus.INVALID]
+ *                                or [ModelStatus.FAILED].
+ * @param isChecksumInManifest    True when [ModelMetadata.sha256] is non-blank; integrity data present.
+ * @param isSizeInManifest        True when [ModelMetadata.sizeBytes] > 0; expected size is known.
+ * @param fileSizeMatchesManifest null=not installed or size unknown; true=on-disk size matches manifest;
+ *                                false=mismatch (possible corruption or partial download).
+ * @param isRuntimeSupported      Whether this build can execute models in [ModelMetadata.format].
+ *                                TFLite is always supported; ONNX requires the ORT AAR.
+ * @param failureCount            Current crash-loop inference failure count for this model's category.
  */
 data class ModelUiState(
     val meta: ModelMetadata,
@@ -57,6 +69,12 @@ data class ModelUiState(
     val isDownloadable: Boolean,
     val downloadProgress: Float? = null,
     val failureReason: String? = null,
+    // Diagnostics
+    val isChecksumInManifest: Boolean = false,
+    val isSizeInManifest: Boolean = false,
+    val fileSizeMatchesManifest: Boolean? = null,
+    val isRuntimeSupported: Boolean = true,
+    val failureCount: Int = 0,
 )
 
 // ── ViewModel ────────────────────────────────────────────────────────────────
@@ -72,10 +90,18 @@ data class ModelUiState(
 class ModelManagerViewModel(
     private val modelManager: ModelManager,
     private val appContext: Context,
+    aiSettingsRepository: AiSettingsRepository,
 ) : ViewModel() {
 
     private val _models = MutableStateFlow(computeModelStates())
     val models: StateFlow<List<ModelUiState>> = _models.asStateFlow()
+
+    /** Current AI settings — used by the face pipeline diagnostics section in the UI. */
+    val settings: StateFlow<AiSettings> = aiSettingsRepository.settings.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = AiSettings.DEFAULT
+    )
 
     /** IDs of models currently being downloaded — prevents double-tap. */
     private val downloadingIds = mutableSetOf<String>()
@@ -193,14 +219,31 @@ class ModelManagerViewModel(
             }
             val isDownloadable = meta.source is ModelSource.RemoteDownload &&
                 (meta.source as ModelSource.RemoteDownload).url.isNotBlank()
-            val isSuspended = modelManager.hasTooManyFailures(meta.category) && found?.isActive == true
+            val failureCount = modelManager.getModelFailureCount(meta.category)
+            val isSuspended = failureCount >= 3 && found?.isActive == true
             val status = when {
-                isSuspended      -> ModelStatus.FAILED
-                found == null    -> ModelStatus.NOT_INSTALLED
-                found.isActive   -> ModelStatus.ACTIVE
-                else             -> ModelStatus.INSTALLED
+                isSuspended    -> ModelStatus.FAILED
+                found == null  -> ModelStatus.NOT_INSTALLED
+                found.isActive -> ModelStatus.ACTIVE
+                else           -> ModelStatus.INSTALLED
             }
-            ModelUiState(meta = meta, status = status, isDownloadable = isDownloadable)
+            // Diagnostics — cheap checks, no SHA-256 hashing
+            val isChecksumInManifest = meta.sha256.isNotBlank()
+            val isSizeInManifest = meta.sizeBytes > 0
+            val fileSizeMatchesManifest = if (found != null && meta.sizeBytes > 0)
+                found.file.length() == meta.sizeBytes
+            else null
+            val isRuntimeSupported = ModelRuntimeFactory.isFormatSupported(meta.format)
+            ModelUiState(
+                meta                  = meta,
+                status                = status,
+                isDownloadable        = isDownloadable,
+                isChecksumInManifest  = isChecksumInManifest,
+                isSizeInManifest      = isSizeInManifest,
+                fileSizeMatchesManifest = fileSizeMatchesManifest,
+                isRuntimeSupported    = isRuntimeSupported,
+                failureCount          = failureCount
+            )
         }
     }
 }
@@ -210,8 +253,9 @@ class ModelManagerViewModel(
 class ModelManagerViewModelFactory(
     private val modelManager: ModelManager,
     private val appContext: Context,
+    private val aiSettingsRepository: AiSettingsRepository,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
-        ModelManagerViewModel(modelManager, appContext) as T
+        ModelManagerViewModel(modelManager, appContext, aiSettingsRepository) as T
 }

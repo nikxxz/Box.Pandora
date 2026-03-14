@@ -9,6 +9,17 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.boxpandora.ml.config.AiSettings
 
+/**
+ * Work policy constants for [AiIndexScheduler] scheduling calls.
+ *
+ * Use [ExistingWorkPolicy.KEEP] for passive background scheduling (startup, sync hooks):
+ * no-ops if the same work is already queued or running.
+ *
+ * Use [ExistingWorkPolicy.REPLACE] for user-triggered maintenance actions (repair, rebuild):
+ * cancels any pending or running instance and enqueues a fresh one so the action takes
+ * effect immediately rather than being silently ignored.
+ */
+
 private const val TAG = "AiIndexScheduler"
 
 const val SCENE_INDEX_WORK_NAME    = "pandora_scene_index"
@@ -74,13 +85,17 @@ object AiIndexScheduler {
      *  - [AiSettings.sceneTaggingEnabled] must be true
      *  - [AiSettings.backgroundIndexingEnabled] must be true (unless [forceRun] is set)
      *
-     * @param forceRun  when true, bypasses the backgroundIndexingEnabled check.
-     *                  Use for the explicit "Rebuild Search Index" user action.
+     * @param forceRun    when true, bypasses the backgroundIndexingEnabled check and drops
+     *                    the charging constraint. Use for explicit user-triggered actions.
+     * @param workPolicy  [ExistingWorkPolicy.KEEP] (default) for passive scheduling that
+     *                    no-ops if already queued; [ExistingWorkPolicy.REPLACE] for repair
+     *                    and rebuild actions where the user expects the job to restart.
      */
     fun scheduleSceneIndexIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.sceneTaggingEnabled) {
             Log.d(TAG, "Scene tagging disabled — skipping schedule")
@@ -96,19 +111,22 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(SCENE_INDEX_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(SCENE_INDEX_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "SceneIndexWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "SceneIndexWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
      * Enqueues [PrototypeBuildWorker] if scene tagging is enabled.
      * Typically called after [scheduleSceneIndexIfEnabled] or after the user tags images manually.
+     *
+     * @param workPolicy  See [scheduleSceneIndexIfEnabled] — same KEEP/REPLACE semantics.
      */
     fun schedulePrototypeBuildIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.sceneTaggingEnabled) return
         if (!forceRun && !settings.backgroundIndexingEnabled) return
@@ -118,19 +136,22 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(PROTOTYPE_BUILD_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(PROTOTYPE_BUILD_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "PrototypeBuildWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "PrototypeBuildWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
      * Enqueues [TagSuggestionWorker] if scene tagging is enabled.
      * Typically called after prototypes have been (re)built.
+     *
+     * @param workPolicy  See [scheduleSceneIndexIfEnabled] — same KEEP/REPLACE semantics.
      */
     fun scheduleTagSuggestionsIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.sceneTaggingEnabled) return
         if (!forceRun && !settings.backgroundIndexingEnabled) return
@@ -140,24 +161,26 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(TAG_SUGGESTION_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(TAG_SUGGESTION_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "TagSuggestionWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "TagSuggestionWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
      * Convenience: schedules the full AI pipeline in order — scene index → prototypes → suggestions.
-     * Each step uses KEEP policy and runs independently; they are not chained.
-     * Safe to call on startup or from the "Rebuild" button.
+     * Each step runs independently (not chained); the [workPolicy] is forwarded to all three.
+     *
+     * @param workPolicy  Use KEEP for passive scheduling; REPLACE for maintenance actions.
      */
     fun scheduleFullPipelineIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
-        scheduleSceneIndexIfEnabled(context, settings, forceRun)
-        schedulePrototypeBuildIfEnabled(context, settings, forceRun)
-        scheduleTagSuggestionsIfEnabled(context, settings, forceRun)
+        scheduleSceneIndexIfEnabled(context, settings, forceRun, workPolicy)
+        schedulePrototypeBuildIfEnabled(context, settings, forceRun, workPolicy)
+        scheduleTagSuggestionsIfEnabled(context, settings, forceRun, workPolicy)
     }
 
     /**
@@ -174,7 +197,8 @@ object AiIndexScheduler {
     fun scheduleFaceIndexIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.faceProcessingEnabled) {
             Log.d(TAG, "Face processing disabled — skipping schedule")
@@ -190,9 +214,9 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(FACE_INDEX_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(FACE_INDEX_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "FaceIndexWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "FaceIndexWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
@@ -203,7 +227,8 @@ object AiIndexScheduler {
     fun scheduleFaceClusterIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.faceProcessingEnabled) {
             Log.d(TAG, "Face processing disabled — skipping cluster schedule")
@@ -219,9 +244,9 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(FACE_CLUSTER_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(FACE_CLUSTER_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "FaceClusterWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "FaceClusterWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
@@ -235,7 +260,8 @@ object AiIndexScheduler {
     fun schedulePersonProfileIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.faceProcessingEnabled) {
             Log.d(TAG, "Face processing disabled — skipping person profile schedule")
@@ -251,9 +277,9 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(PERSON_PROFILE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(PERSON_PROFILE_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "PersonProfileWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "PersonProfileWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
@@ -263,7 +289,8 @@ object AiIndexScheduler {
     fun schedulePersonSuggestionsIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
         if (!settings.faceProcessingEnabled) {
             Log.d(TAG, "Face processing disabled — skipping person suggestion schedule")
@@ -279,9 +306,9 @@ object AiIndexScheduler {
             .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(PERSON_SUGGESTION_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+            .enqueueUniqueWork(PERSON_SUGGESTION_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "PersonSuggestionWorker enqueued (forceRun=$forceRun)")
+        Log.i(TAG, "PersonSuggestionWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
     }
 
     /**
@@ -291,15 +318,24 @@ object AiIndexScheduler {
      * All four steps use KEEP policy and run independently (not chained). Safe to call on
      * startup or from "Rebuild Face Index" in Settings.
      */
+    /**
+     * Schedules the full face pipeline:
+     *   face index → face clustering → person profiles → person suggestions.
+     *
+     * All four steps run independently (not chained); the [workPolicy] is forwarded to all.
+     *
+     * @param workPolicy  Use KEEP for passive scheduling; REPLACE for maintenance actions.
+     */
     fun scheduleFacePipelineIfEnabled(
         context: Context,
         settings: AiSettings,
-        forceRun: Boolean = false
+        forceRun: Boolean = false,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.KEEP
     ) {
-        scheduleFaceIndexIfEnabled(context, settings, forceRun)
-        scheduleFaceClusterIfEnabled(context, settings, forceRun)
-        schedulePersonProfileIfEnabled(context, settings, forceRun)
-        schedulePersonSuggestionsIfEnabled(context, settings, forceRun)
+        scheduleFaceIndexIfEnabled(context, settings, forceRun, workPolicy)
+        scheduleFaceClusterIfEnabled(context, settings, forceRun, workPolicy)
+        schedulePersonProfileIfEnabled(context, settings, forceRun, workPolicy)
+        schedulePersonSuggestionsIfEnabled(context, settings, forceRun, workPolicy)
     }
 
     /**

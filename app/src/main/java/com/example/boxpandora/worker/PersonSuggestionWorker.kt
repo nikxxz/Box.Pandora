@@ -84,11 +84,19 @@ class PersonSuggestionWorker(
         }
         val embedderVersion = activeEmbedder.metadata.roomVersionKey
 
-        // Load confirmed clusters with a valid centroid
-        val confirmedClusters = clusterDao.getConfirmedClusters()
-            .filter { it.centroidBlob != null && it.n > 0 }
+        // Load confirmed clusters with a valid centroid, produced by the current embedder.
+        // Clusters with an empty embedderVersion are pre-provenance rows (schema < v12);
+        // they are skipped because we cannot verify the centroid is comparable to current embeddings.
+        val allConfirmed = clusterDao.getConfirmedClusters()
+        val confirmedClusters = allConfirmed
+            .filter { it.centroidBlob != null && it.n > 0 && it.embedderVersion == embedderVersion }
+        val staleCount = allConfirmed.count { it.centroidBlob != null && it.n > 0 && it.embedderVersion != embedderVersion }
+        if (staleCount > 0) {
+            Log.i(TAG, "$staleCount confirmed cluster(s) skipped — centroid embedder version " +
+                "does not match active embedder ($embedderVersion); re-run FaceClusterWorker to rebuild")
+        }
         if (confirmedClusters.isEmpty()) {
-            Log.i(TAG, "No confirmed clusters — nothing to suggest")
+            Log.i(TAG, "No confirmed clusters for current embedder — nothing to suggest")
             return@withContext Result.success(workDataOf("suggestionsWritten" to 0))
         }
         Log.i(TAG, "Matching against ${confirmedClusters.size} confirmed clusters")

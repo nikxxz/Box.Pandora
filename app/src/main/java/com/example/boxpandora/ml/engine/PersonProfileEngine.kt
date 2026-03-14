@@ -105,16 +105,17 @@ class PersonProfileEngine(
 
             faceDao.insertCluster(
                 FaceCluster(
-                    clusterId       = clusterId,
-                    centroidBlob    = centroidBytes,
-                    dim             = centroid.size,
-                    n               = samples.size,
-                    tagId           = tagId,
-                    name            = tag.name,
-                    confirmedByUser = true,
-                    isHidden        = existing?.isHidden ?: false,
-                    createdAt       = existing?.createdAt ?: System.currentTimeMillis(),
-                    updatedAt       = System.currentTimeMillis()
+                    clusterId        = clusterId,
+                    centroidBlob     = centroidBytes,
+                    dim              = centroid.size,
+                    n                = samples.size,
+                    tagId            = tagId,
+                    name             = tag.name,
+                    confirmedByUser  = true,
+                    isHidden         = existing?.isHidden ?: false,
+                    embedderVersion  = embedderVersion,
+                    createdAt        = existing?.createdAt ?: System.currentTimeMillis(),
+                    updatedAt        = System.currentTimeMillis()
                 )
             )
 

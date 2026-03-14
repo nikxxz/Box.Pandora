@@ -124,6 +124,17 @@ interface FaceClusterDao {
     suspend fun deleteAllFaceScanLogs()
 
     /**
+     * Deletes only scan log entries whose result was a processing failure.
+     * Items that were successfully scanned (faces_found / no_faces_found) are left in place
+     * so they are not unnecessarily re-processed.
+     *
+     * Used by the "Repair Stale AI Data" action to force retry of previously-failed assets
+     * without discarding results for successfully-completed ones.
+     */
+    @Query("DELETE FROM face_scan_log WHERE result_status = 'failed'")
+    suspend fun deleteFailedScanLogs()
+
+    /**
      * Returns the cluster linked to [tagId], or null if none exists.
      * Used by [PersonProfileEngine] to find the existing cluster for a person tag so its
      * non-centroid metadata (is_hidden, created_at) can be preserved across profile rebuilds.
@@ -153,6 +164,10 @@ interface FaceClusterDao {
 
     @Query("DELETE FROM person_suggestions WHERE cluster_id = :clusterId")
     suspend fun deleteSuggestionsForCluster(clusterId: String)
+
+    /** Delete all person suggestion rows. Used when clusters are fully rebuilt. */
+    @Query("DELETE FROM person_suggestions")
+    suspend fun deleteAllPersonSuggestions()
 
     // ── FaceScanLog ───────────────────────────────────────────────────────────
 

@@ -33,6 +33,16 @@ data class FaceCluster(
     @ColumnInfo(name = "confirmed_by_user") val confirmedByUser: Boolean = false,
     /** Hidden clusters are excluded from the PeopleScreen grid but not deleted. */
     @ColumnInfo(name = "is_hidden") val isHidden: Boolean = false,
+    /**
+     * Room version key of the face embedding model that produced the [centroidBlob].
+     * Format: "face_embedding:<model-id>-<version>" — matches [ModelMetadata.roomVersionKey].
+     *
+     * Empty string for clusters created before schema v12 (pre-provenance rows).
+     * [PersonSuggestionWorker] skips clusters where this does not match the active embedder
+     * version to prevent stale centroids from generating misleading suggestions after a
+     * model upgrade.
+     */
+    @ColumnInfo(name = "embedder_version") val embedderVersion: String = "",
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 )

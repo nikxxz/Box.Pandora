@@ -94,7 +94,8 @@ class FaceClusterWorker(
         val result = engine.run(
             faces            = faceInputs,
             existingClusters = existingClusters,
-            corrections      = corrections
+            corrections      = corrections,
+            embedderVersion  = embedderVersion
         )
 
         // ── 4. Write results ──────────────────────────────────────────────────
