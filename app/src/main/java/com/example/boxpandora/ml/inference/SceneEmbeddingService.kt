@@ -80,6 +80,8 @@ class SceneEmbeddingService(
                     throw SceneEmbeddingException("Model failed compatibility check: ${result.reason}")
                 is ModelInstallResult.Error ->
                     throw SceneEmbeddingException("Model install error", result.cause)
+                is ModelInstallResult.ManifestIncomplete ->
+                    throw SceneEmbeddingException("Scene embedding model manifest incomplete: ${result.reason}")
             }
         }
 

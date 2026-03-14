@@ -10,6 +10,8 @@ import androidx.work.workDataOf
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.DetectedFace
 import com.example.boxpandora.data.local.entity.FaceEmbedding
+import com.example.boxpandora.data.local.entity.FaceScanLog
+import com.example.boxpandora.ml.config.AiFeatureFlags
 import com.example.boxpandora.ml.detection.MediaType
 import com.example.boxpandora.ml.engine.EmbeddingUtils
 import com.example.boxpandora.ml.inference.FaceDetectionService
@@ -26,16 +28,21 @@ private const val TAG = "FaceIndexWorker"
 private const val BATCH_SIZE = 4  // Smaller than SceneIndexWorker; detection is heavier per image
 
 /**
- * Scans image-type media that has not yet been processed by the active face detector,
+ * Scans media that has not yet been processed by the active face detector,
  * runs detection, stores [DetectedFace] rows, then embeds each detected face and stores
  * [FaceEmbedding] rows.
  *
- * Idempotency: assets that already have at least one [DetectedFace] row for the current
- * detector version are skipped.
+ * Media-type gating (all decisions go through [AiFeatureFlags], not raw settings values):
+ *  - IMAGE (JPEG, PNG, HEIC, WebP …): always eligible.
+ *  - GIF: eligible only if [AiFeatureFlags.FACE_DETECTION_ON_GIF] is true (compile-time flag,
+ *    currently false). Pending GIFs are counted and logged when skipped; no scan-log rows are
+ *    written so they will be picked up automatically if the flag is enabled later.
+ *  - VIDEO: eligible only if [AiFeatureFlags.isFaceDetectionAllowed] (settings-aware overload)
+ *    returns true, which reads [AiSettings.faceDetectionInVideos]. Pending videos are counted
+ *    and logged when skipped; no scan-log rows are written.
  *
- * Known Phase 4 limitation: images where zero faces are detected produce no rows in
- * detected_faces, so they are re-processed on every worker run. A face_scan_log table
- * (planned for Phase 5) will track per-asset scan state independently of face count.
+ * Idempotency: face_scan_log tracks every scanned asset regardless of face count, so
+ * zero-face images are not re-processed on subsequent runs.
  *
  * Design constraints (same as SceneIndexWorker):
  *  - One [FaceDetectionService] and one [FaceEmbeddingService] instance per worker run, closed in finally.
@@ -126,6 +133,7 @@ class FaceIndexWorker(
         try {
             val detectorVersion = detector.modelVersionKey!!
             val embedderVersion = embedder.modelVersionKey
+            val scanLogDao = app.database.faceClusterDao()
 
             val total = faceDao.countUnprocessed(detectorVersion)
             Log.i(TAG, "Face index run — $total images to process " +
@@ -162,9 +170,30 @@ class FaceIndexWorker(
                         facesDetected += faces
                         embeddingsWritten += embeddings
                         totalProcessingMs += System.currentTimeMillis() - itemStartMs
+                        // ── Write scan log: successful outcome ────────────────
+                        val status = if (faces > 0) FaceScanLog.RESULT_FACES_FOUND
+                                     else           FaceScanLog.RESULT_NO_FACES_FOUND
+                        scanLogDao.insertScanLog(
+                            FaceScanLog(
+                                assetId        = uri,
+                                detectorVersion = detectorVersion,
+                                resultStatus   = status
+                            )
+                        )
                     }.onFailure { e ->
-                        Log.w(TAG, "Skipping $uri: ${e.message}")
+                        Log.w(TAG, "Processing failed for $uri: ${e.message}")
                         failures++
+                        // ── Write scan log: failed outcome ────────────────────
+                        // Row is written so failures are visible in the scan log,
+                        // but the query uses result_status != 'failed' so this item
+                        // remains eligible for retry on the next worker run.
+                        scanLogDao.insertScanLog(
+                            FaceScanLog(
+                                assetId        = uri,
+                                detectorVersion = detectorVersion,
+                                resultStatus   = FaceScanLog.RESULT_FAILED
+                            )
+                        )
                     }
                 }
 
@@ -178,23 +207,68 @@ class FaceIndexWorker(
                 offset += BATCH_SIZE
             }
 
+            // ── GIF media-type gate ───────────────────────────────────────────
+            // AiFeatureFlags.FACE_DETECTION_ON_GIF is a compile-time constant (currently false).
+            // When false: count and log pending GIFs but do NOT write scan-log rows — they
+            // remain eligible so enabling the flag in a future build picks them up automatically.
+            // When true: frame-sampling infrastructure is not yet implemented; log and skip.
+            val gifAllowed = AiFeatureFlags.isFaceDetectionAllowed(MediaType.GIF)
+            val pendingGifs = faceDao.countUnprocessedGifs(detectorVersion)
+            if (pendingGifs > 0) {
+                if (!gifAllowed) {
+                    Log.i(TAG, "GIF face detection: $pendingGifs GIF(s) pending — " +
+                        "skipped because AiFeatureFlags.FACE_DETECTION_ON_GIF is false")
+                } else {
+                    // Flag is on but frame-sampling is not yet implemented.
+                    // TODO(phase-gif): implement GIF frame extraction and pass each frame through
+                    //   processImage() with MediaType.GIF; write scan-log rows on completion.
+                    Log.i(TAG, "GIF face detection: $pendingGifs GIF(s) pending — " +
+                        "flag enabled but frame-sampling not yet implemented, skipping for now")
+                }
+            }
+
+            // ── VIDEO media-type gate ─────────────────────────────────────────
+            // AiFeatureFlags.isFaceDetectionAllowed(VIDEO, settings) reads the user-controlled
+            // AiSettings.faceDetectionInVideos experimental toggle.
+            // Same no-scan-log policy as GIFs: pending videos stay eligible if the setting is
+            // later turned on or frame-sampling is implemented.
+            val videoAllowed = AiFeatureFlags.isFaceDetectionAllowed(MediaType.VIDEO, settings)
+            val pendingVideos = faceDao.countUnprocessedVideos(detectorVersion)
+            if (pendingVideos > 0) {
+                if (!videoAllowed) {
+                    Log.i(TAG, "Video face detection: $pendingVideos video(s) pending — " +
+                        "skipped because 'People detection in videos' is disabled in AI Settings")
+                } else {
+                    // Setting is on but frame-sampling is not yet implemented.
+                    // TODO(phase-video): implement video frame extraction (keyframe sampler) and
+                    //   pass each sampled frame through processImage() with MediaType.VIDEO;
+                    //   write scan-log rows on completion.
+                    Log.i(TAG, "Video face detection: $pendingVideos video(s) pending — " +
+                        "experimental flag enabled but frame-sampling not yet implemented, skipping for now")
+                }
+            }
+
             val cancelled = !isActive
             val avgMs = if (imagesProcessed > 0) totalProcessingMs / imagesProcessed else 0L
             statsStore.recordRun(
                 pipeline            = IndexingStatsStore.PIPELINE_FACE,
                 indexedCount        = imagesProcessed,
-                skippedCount        = 0,
+                skippedCount        = pendingGifs + pendingVideos,
                 inferenceFailures   = failures,
                 avgProcessingTimeMs = avgMs,
                 wasCancelled        = cancelled
             )
 
-            Log.i(TAG, "Face index complete — $imagesProcessed images, $facesDetected faces, $embeddingsWritten embeddings, $failures failures")
+            Log.i(TAG, "Face index complete — $imagesProcessed images, $facesDetected faces, " +
+                "$embeddingsWritten embeddings, $failures failures " +
+                "(GIFs skipped: $pendingGifs, videos skipped: $pendingVideos)")
             Result.success(workDataOf(
-                "imagesProcessed" to imagesProcessed,
-                "facesDetected" to facesDetected,
+                "imagesProcessed"  to imagesProcessed,
+                "facesDetected"    to facesDetected,
                 "embeddingsWritten" to embeddingsWritten,
-                "failures" to failures
+                "failures"         to failures,
+                "gifsSkipped"      to pendingGifs,
+                "videosSkipped"    to pendingVideos
             ))
         } finally {
             embedder.close()

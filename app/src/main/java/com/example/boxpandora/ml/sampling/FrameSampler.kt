@@ -3,6 +3,9 @@ package com.example.boxpandora.ml.sampling
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Movie
+import android.graphics.Paint
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
@@ -17,20 +20,24 @@ private const val TAG = "FrameSampler"
  * [MAX_FRAME_DIMENSION] pixels before inference. Callers must recycle each
  * [SampledFrame.bitmap] after the embedding is computed.
  *
- * **GIF frame sampling** (Phase 6): decodes the first frame via [BitmapFactory].
- * Android does not expose multi-frame GIF iteration without a third-party library;
- * full N-frame support is a future upgrade.
+ * **GIF frame sampling**: uses [android.graphics.Movie] (deprecated API 31, still functional)
+ * to render up to [MAX_GIF_FRAMES] frames at evenly-spread time positions — always including
+ * the first and last frames. Falls back to [BitmapFactory] (first frame only) when Movie
+ * cannot open the file or reports zero duration.
  *
  * **Video frame sampling**: uses [MediaMetadataRetriever] to extract up to
  * [MAX_VIDEO_FRAMES] frames at uniform time intervals across the full duration.
  */
 object FrameSampler {
 
-    /** Maximum number of frames extracted from a GIF. */
-    const val MAX_GIF_FRAMES: Int = 1        // single representative frame (Phase 6 baseline)
+    /**
+     * Maximum number of frames sampled from a GIF.
+     * Sparse sampling always covers first + last; middle frames fill the remaining slots.
+     */
+    const val MAX_GIF_FRAMES: Int = 4
 
     /** Maximum number of frames extracted from a video. */
-    const val MAX_VIDEO_FRAMES: Int = 4
+    const val MAX_VIDEO_FRAMES: Int = 10
 
     /** Long-edge cap (px) applied to every sampled frame before inference. */
     const val MAX_FRAME_DIMENSION: Int = 480
@@ -40,10 +47,31 @@ object FrameSampler {
     /**
      * Returns up to [MAX_GIF_FRAMES] representative frames from the GIF at [uri].
      *
-     * Phase 6 baseline: always returns the first decoded frame.
-     * Returns an empty list if the URI cannot be opened or decoded.
+     * Sparse sampling strategy: frames are taken at evenly-distributed time positions
+     * across the full animation duration so that the first, last, and intermediate states
+     * are all represented. If the GIF has very few distinct frames (estimated from duration),
+     * fewer samples are taken to avoid redundant renders.
+     *
+     * Falls back to a single first frame if [Movie] cannot open the file.
+     *
+     * **Face detection**: GIF face detection remains off regardless of this function.
+     * This sampler is used only by the scene-embedding pipeline.
      */
     fun sampleGifFrames(context: Context, uri: Uri): List<SampledFrame> {
+        // Attempt multi-frame extraction via Movie. Movie is deprecated in API 31 but
+        // remains the only built-in way to render individual GIF frames without a
+        // third-party library, and continues to function on all current Android versions.
+        @Suppress("DEPRECATION")
+        val movie: Movie? = context.contentResolver.openInputStream(uri)?.use {
+            Movie.decodeStream(it)
+        }
+
+        if (movie != null && movie.width() > 0 && movie.height() > 0 && movie.duration() > 0) {
+            val frames = sampleMovieFrames(movie)
+            if (frames.isNotEmpty()) return frames
+        }
+
+        // Fallback: BitmapFactory returns the first frame of an animated GIF.
         val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
             BitmapFactory.decodeStream(stream)
         }
@@ -54,6 +82,59 @@ object FrameSampler {
         val scaled = downscaleIfNeeded(bitmap)
         if (scaled !== bitmap) bitmap.recycle()
         return listOf(SampledFrame(scaled, "gif_first_frame"))
+    }
+
+    /**
+     * Extracts up to [MAX_GIF_FRAMES] sparse frames from [movie].
+     *
+     * Time positions are spread evenly from 0 to (duration − 1) ms so the first frame
+     * (t = 0) and last frame (t = duration − 1) are always included. The number of
+     * positions is capped at [MAX_GIF_FRAMES] AND at the estimated number of distinct
+     * frames (duration / 100 ms ≈ 10 fps) to avoid rendering the same visual twice.
+     *
+     * Each frame is rendered into a fresh [Bitmap] via [Canvas], then downscaled if needed.
+     */
+    @Suppress("DEPRECATION")
+    private fun sampleMovieFrames(movie: Movie): List<SampledFrame> {
+        val duration  = movie.duration()  // total animation duration in ms
+        val w         = movie.width()
+        val h         = movie.height()
+
+        // Estimate distinct frame count assuming ~10 fps; avoid over-sampling short GIFs.
+        val estimatedFrames = (duration / 100).coerceAtLeast(1)
+        val n = minOf(MAX_GIF_FRAMES, estimatedFrames)
+
+        // Build n evenly-spaced time positions in [0, duration-1].
+        val times: List<Int> = if (n == 1) {
+            listOf(0)
+        } else {
+            (0 until n).map { i -> ((duration - 1L) * i / (n - 1)).toInt() }
+        }
+
+        val paint  = Paint(Paint.FILTER_BITMAP_FLAG)
+        val frames = mutableListOf<SampledFrame>()
+
+        for ((idx, t) in times.withIndex()) {
+            val bmp    = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            movie.setTime(t)
+            movie.draw(canvas, 0f, 0f, paint)
+
+            val scaled = downscaleIfNeeded(bmp)
+            if (scaled !== bmp) bmp.recycle()
+
+            // Label: "gif_first_frame" for the first position (backward-compatible with
+            // existing single-frame embeddings), positional labels for the rest.
+            val label = when {
+                idx == 0     -> "gif_first_frame"
+                idx == n - 1 -> "gif_last_frame"
+                else         -> "gif_mid_frame_$idx"
+            }
+            frames.add(SampledFrame(scaled, label))
+        }
+
+        Log.d(TAG, "sampleMovieFrames: sampled ${frames.size}/$n frames (duration=${duration}ms, ~${estimatedFrames} distinct)")
+        return frames
     }
 
     // ── Video ─────────────────────────────────────────────────────────────────

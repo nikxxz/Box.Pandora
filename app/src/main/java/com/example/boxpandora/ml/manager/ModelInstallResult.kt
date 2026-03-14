@@ -25,4 +25,11 @@ sealed class ModelInstallResult {
      * The file has already been deleted.
      */
     data class InvalidModel(val reason: String) : ModelInstallResult()
+
+    /**
+     * The manifest entry is missing required integrity fields for a remote download:
+     * [ModelMetadata.sha256] is blank, [ModelMetadata.sizeBytes] is zero, or
+     * the URL is absent. The download was not attempted; no existing model was touched.
+     */
+    data class ManifestIncomplete(val reason: String) : ModelInstallResult()
 }

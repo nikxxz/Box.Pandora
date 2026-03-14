@@ -34,11 +34,19 @@ interface FaceDao {
     suspend fun deleteForAssets(assetIds: List<String>)
 
     /**
-     * Returns URIs of plain image assets (JPEG, PNG, WEBP, etc.) not yet scanned by
-     * [detectorVersion]. GIFs are excluded — face detection on GIFs is disabled by default
-     * ([AiFeatureFlags.FACE_DETECTION_ON_GIF]) and GIFs enter the scene-embedding pipeline.
+     * Returns URIs of still-image assets (JPEG, PNG, WEBP, etc.) not yet scanned by
+     * [detectorVersion]. GIFs are excluded — face detection on animated GIFs requires
+     * frame-sampling infrastructure gated by [AiFeatureFlags.FACE_DETECTION_ON_GIF].
      *
      * Uses face_scan_log so that zero-face images are skipped on subsequent runs.
+     */
+    /**
+     * Returns URIs of still-image assets (JPEG, PNG, WEBP, etc.) not yet processed by
+     * [detectorVersion] — or processed with [FaceScanLog.RESULT_FAILED], which leaves the
+     * item eligible for retry.
+     *
+     * Items with [FaceScanLog.RESULT_FACES_FOUND] or [FaceScanLog.RESULT_NO_FACES_FOUND] are
+     * excluded; they were successfully processed and do not need to be re-run.
      */
     @Query("""
         SELECT m.uri FROM media_index m
@@ -46,7 +54,9 @@ interface FaceDao {
         AND LOWER(m.extension) != 'gif'
         AND NOT EXISTS (
             SELECT 1 FROM face_scan_log sl
-            WHERE sl.asset_id = m.uri AND sl.detector_version = :detectorVersion
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
         )
         ORDER BY m.device_created_at DESC
         LIMIT :limit OFFSET :offset
@@ -57,17 +67,57 @@ interface FaceDao {
         offset: Int
     ): List<String>
 
-    /** Count of plain (non-GIF) image assets not yet scanned by [detectorVersion]. */
+    /**
+     * Count of still (non-GIF) images not yet processed (or processed with [FaceScanLog.RESULT_FAILED])
+     * by [detectorVersion]. Drives the initial progress total in [FaceIndexWorker].
+     */
     @Query("""
         SELECT COUNT(*) FROM media_index m
         WHERE m.media_type = 'image'
         AND LOWER(m.extension) != 'gif'
         AND NOT EXISTS (
             SELECT 1 FROM face_scan_log sl
-            WHERE sl.asset_id = m.uri AND sl.detector_version = :detectorVersion
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
         )
     """)
     suspend fun countUnprocessed(detectorVersion: String): Int
+
+    /**
+     * Count of animated GIF assets not yet scanned by [detectorVersion] (or previously failed).
+     * Used by [FaceIndexWorker] to report how many GIFs are pending when the
+     * [AiFeatureFlags.FACE_DETECTION_ON_GIF] flag is off.
+     */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) = 'gif'
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+    """)
+    suspend fun countUnprocessedGifs(detectorVersion: String): Int
+
+    /**
+     * Count of video assets not yet scanned by [detectorVersion] (or previously failed).
+     * Used by [FaceIndexWorker] to report how many videos are pending when the
+     * [AiSettings.faceDetectionInVideos] experimental flag is off.
+     */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'video'
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+    """)
+    suspend fun countUnprocessedVideos(detectorVersion: String): Int
 
     /** Faces for an asset detected with a specific detector version. */
     @Query("SELECT * FROM detected_faces WHERE asset_id = :assetId AND detector_model_version = :detectorVersion")

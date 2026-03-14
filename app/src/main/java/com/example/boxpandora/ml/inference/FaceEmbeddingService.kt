@@ -88,6 +88,8 @@ class FaceEmbeddingService(
                     throw FaceEmbeddingException("Face embedding model failed compatibility check: ${result.reason}")
                 is ModelInstallResult.Error ->
                     throw FaceEmbeddingException("Face embedding model install error", result.cause)
+                is ModelInstallResult.ManifestIncomplete ->
+                    throw FaceEmbeddingException("Face embedding model manifest incomplete: ${result.reason}")
             }
         }
 

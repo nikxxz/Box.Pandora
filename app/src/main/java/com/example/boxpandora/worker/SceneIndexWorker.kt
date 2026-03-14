@@ -207,12 +207,12 @@ class SceneIndexWorker(
             }
         }
 
-        val scanMethod = frames.first().scanMethod
+        val scanMethod = if (frames.size == 1) frames.first().scanMethod
+                         else "sparse_${frames.size}_mean"
         val embedding  = EmbeddingUtils.normalizedMean(vectors) ?: return null
-        val result     = service  // borrow provenance fields
         return ImageEmbedding(
             assetId      = uriString,
-            modelVersion = result.modelVersionKey,
+            modelVersion = service.modelVersionKey,
             dim          = embedding.size,
             embedding    = EmbeddingUtils.floatArrayToBytes(embedding),
             mediaType    = SceneEmbeddingService.MEDIA_TYPE_GIF,

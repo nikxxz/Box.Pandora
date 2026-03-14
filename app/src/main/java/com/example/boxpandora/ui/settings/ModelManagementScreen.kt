@@ -30,6 +30,58 @@ import com.example.boxpandora.ui.settings.viewmodel.ModelManagerViewModelFactory
 import com.example.boxpandora.ui.settings.viewmodel.ModelStatus
 import com.example.boxpandora.ui.settings.viewmodel.ModelUiState
 
+// ── Per-model plain-language descriptions ────────────────────────────────────
+
+private data class ModelDescription(
+    /** One or two sentences: what this model does for the user. */
+    val summary: String,
+    /** Pro: the main reason to pick this model. */
+    val pro: String,
+    /** Con: the main trade-off or caveat. */
+    val con: String
+)
+
+private val MODEL_DESCRIPTIONS: Map<String, ModelDescription> = mapOf(
+
+    "mobilenet_v3_scene" to ModelDescription(
+        summary = "Powers the tag suggestions and \"find similar\" features. Analyses photo content on-device to understand what's in each image.",
+        pro     = "Lightweight (~8 MB). After install it works fully offline.",
+        con     = "Suggestions are broad — it understands general scenes, not fine-grained details like specific objects or text."
+    ),
+
+    "arcface_resnet100_fp16" to ModelDescription(
+        summary = "Recognises people across your photos so the app can group them and let you search by face. This is the recommended people model.",
+        pro     = "Half the size of the float32 version (~120 MB) with minimal accuracy difference for most photos.",
+        con     = "Requires People Detection to be enabled in AI Settings. Large download — best done over Wi-Fi."
+    ),
+
+    "arcface_resnet100_fp32" to ModelDescription(
+        summary = "Higher-precision version of the people recognition model. Use this if the default float16 model gives noticeably poor results.",
+        pro     = "Marginally better identity matching in difficult conditions (poor lighting, partial faces).",
+        con     = "Twice the download size (~240 MB) with little real-world gain for most users. Not recommended unless float16 is failing."
+    ),
+
+    "arcface_resnet100_onnx" to ModelDescription(
+        summary = "ONNX-format version of the people recognition model, for devices where the TFLite version is unreliable.",
+        pro     = "May perform better on devices whose NPU has strong ONNX support.",
+        con     = "~240 MB download. Only needed as a fallback if the .tflite models cause inference errors on your device."
+    ),
+
+    "yunet_face_detection" to ModelDescription(
+        summary = "Scans photos to find and locate faces. Required for any People features to work — without it no faces are detected.",
+        pro     = "Tiny download (~345 KB), fast inference, and accurate on well-lit front-facing photos.",
+        con     = "May miss very small, angled, or partially obscured faces. Try SCRFD if you notice frequent misses."
+    ),
+
+    "scrfd_10g_face_detection" to ModelDescription(
+        summary = "Alternative face detector that performs better on small, distant, or partially obscured faces.",
+        pro     = "Noticeably better recall on group shots, far-away subjects, and side profiles.",
+        con     = "~17 MB and significantly slower than YuNet. Only switch if YuNet misses faces regularly in your library."
+    )
+)
+
+// ── Screen ────────────────────────────────────────────────────────────────────
+
 /**
  * Settings screen for managing AI model files.
  *
@@ -75,12 +127,13 @@ fun ModelManagementScreen(navController: NavController) {
                 item {
                     SettingSectionHeader(
                         title = "Scene Embedding",
-                        subtitle = "Generates image content vectors for tag suggestions and similarity search"
+                        subtitle = "Understands photo content for tag suggestions and visual similarity search"
                     )
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state = entry,
+                        state       = entry,
+                        description = MODEL_DESCRIPTIONS[entry.meta.id],
                         onDownload  = { viewModel.download(it) },
                         onActivate  = { viewModel.activate(it) },
                         onDelete    = { viewModel.delete(it) },
@@ -92,13 +145,14 @@ fun ModelManagementScreen(navController: NavController) {
             byCategory[ModelCategory.FACE_EMBEDDING]?.let { entries ->
                 item {
                     SettingSectionHeader(
-                        title = "Face Embedding",
-                        subtitle = "Encodes aligned face crops for person clustering (ArcFace)"
+                        title = "Face Recognition",
+                        subtitle = "Learns to recognise people so the app can group photos by who's in them"
                     )
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state = entry,
+                        state       = entry,
+                        description = MODEL_DESCRIPTIONS[entry.meta.id],
                         onDownload  = { viewModel.download(it) },
                         onActivate  = { viewModel.activate(it) },
                         onDelete    = { viewModel.delete(it) },
@@ -111,12 +165,13 @@ fun ModelManagementScreen(navController: NavController) {
                 item {
                     SettingSectionHeader(
                         title = "Face Detection",
-                        subtitle = "Locates faces and produces 5-point landmarks (YuNet) — not yet available"
+                        subtitle = "Finds and locates faces in photos — required for the People feature"
                     )
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state = entry,
+                        state       = entry,
+                        description = MODEL_DESCRIPTIONS[entry.meta.id],
                         onDownload  = { viewModel.download(it) },
                         onActivate  = { viewModel.activate(it) },
                         onDelete    = { viewModel.delete(it) },
@@ -132,11 +187,14 @@ fun ModelManagementScreen(navController: NavController) {
 @Composable
 private fun ModelCard(
     state: ModelUiState,
+    description: ModelDescription?,
     onDownload: (ModelMetadata) -> Unit,
     onActivate: (ModelMetadata) -> Unit,
     onDelete: (ModelMetadata) -> Unit,
 ) {
     val meta = state.meta
+    var infoExpanded by remember { mutableStateOf(false) }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -165,6 +223,57 @@ private fun ModelCard(
                     )
                 }
                 ModelStatusBadge(state.status)
+            }
+
+            // ── Plain-language description ────────────────────────────────────
+            if (description != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = description.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(4.dp))
+                // Expandable pros/cons
+                TextButton(
+                    onClick = { infoExpanded = !infoExpanded },
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.height(24.dp)
+                ) {
+                    Text(
+                        text = if (infoExpanded) "Less info" else "More info",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                AnimatedVisibility(visible = infoExpanded) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "+",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.tertiary
+                            )
+                            Text(
+                                text = description.pro,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "−",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                text = description.con,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(8.dp))

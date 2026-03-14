@@ -36,7 +36,7 @@ import com.example.boxpandora.data.local.util.Converters
         TagReviewQueue::class,
         TagChangeHistory::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -131,6 +131,31 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     "ALTER TABLE face_embeddings ADD COLUMN model_id TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
+        /**
+         * Schema v11 — Face scan-log result status.
+         *
+         * Adds `result_status` to `face_scan_log` so the pipeline can distinguish between:
+         *   - "faces_found"     — detection ran; at least one face was stored.
+         *   - "no_faces_found"  — detection ran; zero faces found (image truly has no faces).
+         *   - "failed"          — processing threw an exception; item stays eligible for retry.
+         *   - "skipped"         — reserved for future GIF/video gating.
+         *
+         * Existing rows (written before v11 with no status) default to "no_faces_found", which
+         * is the safe choice: those rows were only written for successfully completed scans,
+         * and most had zero faces detected (images with faces were tracked via detected_faces).
+         *
+         * [FaceDao.getUnprocessedImageUris] is updated to use result_status so that
+         * "failed" items are always retried and "faces_found"/"no_faces_found" items are not.
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE face_scan_log " +
+                    "ADD COLUMN result_status TEXT NOT NULL DEFAULT 'no_faces_found'"
                 )
             }
         }

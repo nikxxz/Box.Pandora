@@ -196,6 +196,9 @@ class ModelManager(private val context: Context) {
      * (bytesDownloaded, totalBytes); totalBytes is -1 when Content-Length is unknown.
      *
      * Returns [ModelInstallResult.SourceNotFound] when the URL is blank.
+     * Returns [ModelInstallResult.ManifestIncomplete] when [meta.sha256] is blank or
+     * [meta.sizeBytes] is zero — the download is not attempted and the active model
+     * is not touched.
      * Returns [ModelInstallResult.AlreadyInstalled] when the model is already active
      * and passes integrity verification.
      */
@@ -208,6 +211,17 @@ class ModelManager(private val context: Context) {
                 IllegalArgumentException("${meta.id} source is not RemoteDownload")
             )
         if (source.url.isBlank()) return ModelInstallResult.SourceNotFound
+
+        // Integrity fields are mandatory for remote downloads — reject before downloading
+        // so no partial state is left on disk and the active model is never disturbed.
+        if (meta.sha256.isBlank()) {
+            Log.e(TAG, "installFromUrl: sha256 missing in manifest for ${meta.id} — refusing install")
+            return ModelInstallResult.ManifestIncomplete("sha256 is missing for ${meta.id}")
+        }
+        if (meta.sizeBytes <= 0L) {
+            Log.e(TAG, "installFromUrl: sizeBytes missing in manifest for ${meta.id} — refusing install")
+            return ModelInstallResult.ManifestIncomplete("sizeBytes is missing for ${meta.id}")
+        }
 
         val finalFile = storage.modelFile(meta)
         if (isAlreadyInstalled(meta, finalFile)) return ModelInstallResult.AlreadyInstalled

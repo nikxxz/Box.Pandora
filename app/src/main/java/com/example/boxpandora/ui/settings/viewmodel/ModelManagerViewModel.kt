@@ -166,6 +166,15 @@ class ModelManagerViewModel(
                             failureReason = result.cause.message ?: "Unknown error"
                         )
                     }
+
+                is ModelInstallResult.ManifestIncomplete ->
+                    patchEntry(meta.id) {
+                        it.copy(
+                            status = ModelStatus.NOT_INSTALLED,
+                            downloadProgress = null,
+                            failureReason = result.reason
+                        )
+                    }
             }
         }
     }
