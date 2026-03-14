@@ -9,6 +9,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -65,6 +67,7 @@ fun FolderDetailScreen(
         factory = FolderDetailViewModelFactory(app.repository, app.repository.tagRepository, albumId)
     )
     val pagingItems = viewModel.pagedMediaItems.collectAsLazyPagingItems()
+    val mediaItems by viewModel.mediaItems.collectAsState()
     val allAlbums by viewModel.allAlbums.collectAsState()
     val selectedUris by viewModel.selectedUris.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
@@ -81,6 +84,7 @@ fun FolderDetailScreen(
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
     var showBulkTagDialog by remember { mutableStateOf(false) }
+    var showPropertiesSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
@@ -148,6 +152,15 @@ fun FolderDetailScreen(
                     onSearchClick = { viewModel.openSearch() },
                     selectionCount = selectedUris.size,
                     onClearSelection = { viewModel.clearSelection() },
+                    canSelectAll = if (isSearchOpen) {
+                        searchResults.isNotEmpty() && selectedUris.size < searchResults.size
+                    } else {
+                        mediaItems.isNotEmpty() && selectedUris.size < mediaItems.size
+                    },
+                    onSelectAll = {
+                        val visibleItems = if (isSearchOpen) searchResults else mediaItems
+                        viewModel.selectItems(visibleItems.map { it.uri })
+                    },
                     showHideOption = showHideLabel,
                     onActionClick = { action ->
                         when (action) {
@@ -159,6 +172,7 @@ fun FolderDetailScreen(
                             "move" -> {
                                 viewModel.loadAlbums(); showMoveDialog = true
                             }
+                            "properties" -> showPropertiesSheet = true
                             "hide_show" -> viewModel.toggleHiddenForSelected()
                             "tag" -> showBulkTagDialog = true
                             "share" -> {
@@ -316,6 +330,16 @@ fun FolderDetailScreen(
         )
     }
 
+    if (showPropertiesSheet) {
+        val item = (if (isSearchOpen) searchResults else mediaItems).find { it.uri in selectedUris }
+        item?.let {
+            MediaPropertiesSheet(
+                item = it,
+                onDismiss = { showPropertiesSheet = false }
+            )
+        }
+    }
+
     pendingConflict?.let { conflict ->
         FileConflictDialog(
             conflict = conflict,
@@ -329,6 +353,7 @@ fun FolderDetailScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BulkTagDialog(
     allTags: List<Tag>,
@@ -338,29 +363,106 @@ fun BulkTagDialog(
     var input by remember { mutableStateOf("") }
     val selectedTagNames = remember { mutableStateListOf<String>() }
     val tokens = boxPandoraModalTokens()
-    
-    val suggestions = remember(input, allTags) {
-        if (input.isBlank()) emptyList()
-        else allTags.filter { 
-            it.name.contains(input, ignoreCase = true) && 
-            !selectedTagNames.contains(it.name)
-        }.take(5)
+
+    val normalizedInput = input.trim()
+    val selectedSnapshot = selectedTagNames.toList()
+    val suggestions = remember(normalizedInput, allTags, selectedSnapshot) {
+        val available = allTags.filterNot { selectedTagNames.contains(it.name) }
+        if (normalizedInput.isBlank()) {
+            available
+                .sortedWith(compareByDescending<Tag> { it.usageCount }.thenBy { it.name.lowercase() })
+                .take(12)
+        } else {
+            available
+                .filter { it.name.contains(normalizedInput, ignoreCase = true) }
+                .sortedWith(
+                    compareBy<Tag> { !it.name.startsWith(normalizedInput, ignoreCase = true) }
+                        .thenByDescending { it.usageCount }
+                        .thenBy { it.name.lowercase() }
+                )
+                .take(15)
+        }
     }
 
-    AppDialog(onDismiss = onDismiss) {
-        ModalHeader(title = "Bulk Tag")
+    val canCreateTypedTag = remember(normalizedInput, selectedTagNames) {
+        normalizedInput.isNotEmpty() && selectedTagNames.none { it.equals(normalizedInput, ignoreCase = true) }
+    }
 
+    fun addTag(tagName: String) {
+        val trimmed = tagName.trim()
+        if (trimmed.isNotEmpty() && selectedTagNames.none { it.equals(trimmed, ignoreCase = true) }) {
+            selectedTagNames.add(trimmed)
+            input = ""
+        }
+    }
+
+    TagPopupDialog(
+        title = "Add Tags",
+        subtitle = if (selectedTagNames.isEmpty()) {
+            "Search or pick from the most relevant tags below."
+        } else {
+            "${selectedTagNames.size} tag${if (selectedTagNames.size == 1) "" else "s"} ready to apply."
+        },
+        query = input,
+        onQueryChange = { input = it },
+        onDismiss = onDismiss,
+        onAddClick = { addTag(normalizedInput) },
+        addEnabled = canCreateTypedTag,
+        placeholder = "Type to search tags",
+        footer = {
+            if (canCreateTypedTag) {
+                Surface(
+                    onClick = { addTag(normalizedInput) },
+                    shape = RoundedCornerShape(14.dp),
+                    color = Color.Transparent,
+                    tonalElevation = 0.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = tokens.selectedAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Create \"$normalizedInput\"",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                            color = tokens.selectedAccent
+                        )
+                    }
+                }
+            }
+            TagPopupFooter(
+                dismissLabel = "Cancel",
+                confirmLabel = "Apply",
+                onDismiss = onDismiss,
+                onConfirm = { onConfirm(selectedTagNames.toList()) }
+            )
+        }
+    ) {
         if (selectedTagNames.isNotEmpty()) {
-            ModalSection(title = "Selected") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                TagPopupSectionLabel(
+                    title = "Selected",
+                    meta = "Tap a tag to remove it"
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     selectedTagNames.forEach { tagName ->
-                        ModalChip(
+                        TagPopupChip(
                             label = tagName,
+                            backgroundColor = tokens.selectedAccent.copy(alpha = 0.12f),
+                            borderColor = tokens.selectedAccent.copy(alpha = 0.24f),
+                            textColor = tokens.bodyText,
                             trailingIcon = Icons.Default.Close,
                             trailingTint = tokens.secondaryText,
                             onClick = { selectedTagNames.remove(tagName) }
@@ -370,58 +472,26 @@ fun BulkTagDialog(
             }
         }
 
-        ModalSection {
-            Row(
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TagPopupSectionLabel(
+                title = if (normalizedInput.isBlank()) "Top Suggestions" else "Matching Tags",
+                meta = "${suggestions.size} shown"
+            )
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                ModalTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    placeholder = "New tag",
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = {
-                    val tag = input.trim()
-                    if (tag.isNotEmpty() && !selectedTagNames.contains(tag)) {
-                        selectedTagNames.add(tag)
-                        input = ""
-                    }
-                }) {
-                    Icon(Icons.Default.Add, null, tint = tokens.selectedAccent)
+                suggestions.forEach { tag ->
+                    TagPopupChip(
+                        label = tag.name.uppercase(),
+                        count = tag.usageCount,
+                        backgroundColor = tagPopupChipBackground(tag.color, tokens),
+                        borderColor = tagPopupChipBorder(tag.color, tokens),
+                        textColor = tokens.bodyText,
+                        onClick = { addTag(tag.name) }
+                    )
                 }
-            }
-
-            if (suggestions.isNotEmpty()) {
-                ModalSection(title = "Suggestions") {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        suggestions.forEach { tag ->
-                            ModalChip(
-                                label = tag.name,
-                                onClick = {
-                                    selectedTagNames.add(tag.name)
-                                    input = ""
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = tokens.secondaryText)
-            }
-            TextButton(onClick = { onConfirm(selectedTagNames.toList()) }) {
-                Text("Apply", color = tokens.selectedAccent, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium))
             }
         }
     }

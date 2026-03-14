@@ -42,6 +42,11 @@ class FolderDetailViewModel(
         }
         .cachedIn(viewModelScope)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val mediaItems: StateFlow<List<MediaItem>> = _showHidden
+        .flatMapLatest { showHidden -> repository.getMediaByAlbumIdFlow(albumId, showHidden) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
     val allAlbums: StateFlow<List<Album>> = _allAlbums
     private var albumsJob: Job? = null
@@ -111,6 +116,10 @@ class FolderDetailViewModel(
 
     fun clearSelection() {
         _selectedUris.value = emptySet()
+    }
+
+    fun selectItems(uris: Collection<String>) {
+        _selectedUris.value = uris.toSet()
     }
 
     fun deleteSelectedItems() {

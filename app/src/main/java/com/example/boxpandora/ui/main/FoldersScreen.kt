@@ -93,6 +93,7 @@ fun FoldersScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
+    var showPropertiesSheet by remember { mutableStateOf(false) }
 
     val pullToRefreshState = rememberPullToRefreshState()
     if (pullToRefreshState.isRefreshing) {
@@ -230,6 +231,8 @@ fun FoldersScreen(
             onSearchClick = { viewModel.openSearch() },
             selectionCount = selectedIds.size,
             onClearSelection = { viewModel.clearSelection() },
+            canSelectAll = albums.isNotEmpty() && selectedIds.size < albums.size,
+            onSelectAll = { viewModel.selectAlbums(albums.map { it.id }) },
             showHideOption = showHideLabel,
             isPinned = albums.find { it.id in selectedIds }?.isPinned == true,
             allowOpenWith = false,
@@ -239,6 +242,7 @@ fun FoldersScreen(
                     "rename" -> showRenameDialog = true
                     "copy" -> showCopyDialog = true
                     "move" -> showMoveDialog = true
+                    "properties" -> showPropertiesSheet = true
                     "hide_show" -> viewModel.toggleHiddenForSelected()
                     "pin" -> viewModel.togglePinSelectedAlbums()
                     else -> viewModel.clearSelection()
@@ -494,6 +498,16 @@ fun FoldersScreen(
                 showMoveDialog = false
             }
         )
+    }
+
+    if (showPropertiesSheet) {
+        val album = albums.find { it.id in selectedIds }
+        album?.let {
+            FolderPropertiesSheet(
+                album = it,
+                onDismiss = { showPropertiesSheet = false }
+            )
+        }
     }
 }
 

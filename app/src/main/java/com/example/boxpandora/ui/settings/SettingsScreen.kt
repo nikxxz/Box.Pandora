@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.luminance
 import androidx.navigation.NavController
 import com.example.boxpandora.ui.main.Screen
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
@@ -56,51 +57,11 @@ fun SettingsScreen(navController: NavController) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(bottom = 28.dp, top = 8.dp)
+            contentPadding = PaddingValues(bottom = 28.dp, top = 10.dp)
         ) {
             item {
-                Surface(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(32.dp)),
-                    shape = RoundedCornerShape(32.dp),
-                    color = tokens.cardBackground.copy(alpha = 0.88f),
-                    border = BorderStroke(1.dp, tokens.border),
-                    tonalElevation = 0.dp
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 22.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(44.dp)
-                                .height(4.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.82f),
-                                    shape = RoundedCornerShape(999.dp)
-                                )
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "Tune how Pandora scans, sorts, and protects your library.",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "A quieter control surface built around neutral black and white panels, with accent used only as detail.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.82f)
-                            )
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SettingsMetaChip("Library")
-                            SettingsMetaChip("Display")
-                            SettingsMetaChip("Support")
-                        }
-                    }
+                 {
+                   
                 }
             }
 

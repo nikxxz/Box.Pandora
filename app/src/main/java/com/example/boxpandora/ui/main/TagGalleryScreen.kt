@@ -94,6 +94,8 @@ fun TagGalleryScreen(
                     SelectionToolbar(
                         selectedCount = uiState.selectedUris.size,
                         onClearSelection = { viewModel.clearSelection() },
+                        canSelectAll = uiState.media.isNotEmpty() && uiState.selectedUris.size < uiState.media.size,
+                        onSelectAll = { viewModel.selectItems(uiState.media.map { it.uri }) },
                         onRemoveTag = { viewModel.removeTagFromSelected() },
                         onAddTag = { viewModel.ensureAllTagsLoaded(); showBulkTagDialog = true },
                         onFavorite = { viewModel.toggleFavoriteSelected() },
@@ -292,12 +294,12 @@ fun TagGalleryHeader(
                     Icon(Icons.Default.MoreVert, contentDescription = "More")
                 }
                 AppContextMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    AppContextMenuItem("Rename tag", onClick = { onMenuAction("Rename tag"); showMenu = false }, icon = Icons.Default.Edit)
+                    AppContextMenuItem("Rename tag", onClick = { onMenuAction("Rename tag"); showMenu = false }, assetIcon = "pencil.svg")
                     AppContextMenuItem("Merge tag", onClick = { onMenuAction("Merge tag"); showMenu = false }, icon = Icons.AutoMirrored.Filled.CallMerge)
                     AppContextMenuItem("Change category", onClick = { onMenuAction("Change category"); showMenu = false }, icon = Icons.Default.Category)
                     AppContextMenuItem("Add alias", onClick = { onMenuAction("Add alias"); showMenu = false }, icon = Icons.AutoMirrored.Filled.Label)
                     AppContextMenuItem("Add description", onClick = { onMenuAction("Add description"); showMenu = false }, icon = Icons.Default.Description)
-                    AppContextMenuItem("Delete tag", onClick = { onMenuAction("Delete tag"); showMenu = false }, icon = Icons.Default.Delete, destructive = true)
+                    AppContextMenuItem("Delete tag", onClick = { onMenuAction("Delete tag"); showMenu = false }, assetIcon = "delete.svg", destructive = true)
                 }
             }
         },
@@ -312,11 +314,15 @@ fun TagGalleryHeader(
 fun SelectionToolbar(
     selectedCount: Int,
     onClearSelection: () -> Unit,
+    canSelectAll: Boolean,
+    onSelectAll: () -> Unit,
     onRemoveTag: () -> Unit,
     onAddTag: () -> Unit,
     onFavorite: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     TopAppBar(
         title = { Text("$selectedCount selected", style = MaterialTheme.typography.titleMedium) },
         navigationIcon = {
@@ -329,13 +335,30 @@ fun SelectionToolbar(
                 Icon(Icons.AutoMirrored.Filled.LabelOff, contentDescription = "Remove Tag")
             }
             IconButton(onClick = onAddTag) {
-                Icon(Icons.AutoMirrored.Filled.Label, contentDescription = "Add Tag")
+                AppAssetIcon(assetIcon = "tag.svg", tint = LocalContentColor.current, modifier = Modifier.size(21.dp))
             }
             IconButton(onClick = onFavorite) {
-                Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorite")
+                AppAssetIcon(assetIcon = "heart.svg", tint = LocalContentColor.current, modifier = Modifier.size(21.dp))
             }
             IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete")
+                AppAssetIcon(assetIcon = "delete.svg", tint = LocalContentColor.current, modifier = Modifier.size(21.dp))
+            }
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More")
+                }
+                AppContextMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    if (canSelectAll) {
+                        AppContextMenuItem(
+                            label = "Select All",
+                            assetIcon = "list-check.svg",
+                            onClick = {
+                                onSelectAll()
+                                showMenu = false
+                            }
+                        )
+                    }
+                }
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(

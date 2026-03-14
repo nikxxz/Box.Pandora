@@ -3,6 +3,7 @@ package com.example.boxpandora.ui.settings
 import android.net.Uri
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.app.Activity
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,8 +34,17 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.boxpandora.PandoraApp
+import com.example.boxpandora.ui.common.AppLockModeSheet
+import com.example.boxpandora.ui.common.AppLockRemovalConfirmationDialog
+import com.example.boxpandora.ui.common.AppLockTimeoutSheet
+import com.example.boxpandora.ui.common.AppPasscodeSetupDialog
+import com.example.boxpandora.ui.common.AppPasscodeVerificationDialog
+import com.example.boxpandora.ui.common.createDeviceCredentialIntent
 import com.example.boxpandora.ui.main.Screen
 import com.example.boxpandora.ui.main.viewmodel.AccentColor
+import com.example.boxpandora.ui.main.viewmodel.AppLockMode
+import com.example.boxpandora.ui.main.viewmodel.AppLockViewModel
+import com.example.boxpandora.ui.main.viewmodel.AppLockViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModel
 import com.example.boxpandora.ui.main.viewmodel.MaintenanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.SortOrder
@@ -51,6 +61,7 @@ import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModel
 import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,7 +79,7 @@ fun SettingsSubScreen(
                 title = {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.headlineSmall,
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 },
@@ -76,7 +87,7 @@ fun SettingsSubScreen(
                     IconButton(onClick = { navController.popBackStack() }, modifier = Modifier.padding(start = 8.dp)) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
                                 .background(tokens.iconBackgroundNeutral)
                                 .border(1.dp, tokens.border, CircleShape),
@@ -126,7 +137,7 @@ fun LibrarySettingsScreen(navController: NavController) {
 
     SettingsSubScreen("Library Scanning", navController) {
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
-            item { SettingSectionHeader("Library Scanning", "Configure how your media is discovered") }
+            item { SettingSectionHeader("Library scanning", "Configure how your media is discovered") }
             item {
                 NavigationRow(
                     "Included Directories",
@@ -164,7 +175,7 @@ fun LibrarySettingsScreen(navController: NavController) {
                     onCheckedChange = { themeViewModel.setShowHidden(it) }
                 )
             }
-            item { SettingSectionHeader("Media Types", "Choose what appears in your gallery") }
+            item { SettingSectionHeader("Media types", "Choose what appears in your gallery") }
             item {
                 NavigationRow(
                     "Filter Media Types",
@@ -760,6 +771,7 @@ fun PerformanceSettingsScreen(navController: NavController) {
     val opState by vm.opState.collectAsState()
     val isRunning = opState is PerformanceOpState.Running
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // Surface result messages via snackbar, then return to Idle
     LaunchedEffect(opState) {
@@ -814,14 +826,229 @@ fun PerformanceSettingsScreen(navController: NavController) {
 
 @Composable
 fun PrivacySettingsScreen(navController: NavController) {
-    SettingsSubScreen("Privacy", navController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app = activity.application as PandoraApp
+    val vm: AppLockViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = AppLockViewModelFactory(app.database.userPreferenceDao())
+    )
+    val settings by vm.settings.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var showMethodSheet by remember { mutableStateOf(false) }
+    var showTimeoutSheet by remember { mutableStateOf(false) }
+    var showSetPinDialog by remember { mutableStateOf(false) }
+    var showChangePinDialog by remember { mutableStateOf(false) }
+    var showRemoveConfirmation by remember { mutableStateOf(false) }
+    var showVerifyPinRemoval by remember { mutableStateOf(false) }
+    var removePinError by remember { mutableStateOf<String?>(null) }
+    var pendingCredentialAction by remember { mutableStateOf<PrivacyCredentialAction?>(null) }
+
+    val credentialLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val action = pendingCredentialAction
+        pendingCredentialAction = null
+        if (result.resultCode == Activity.RESULT_OK) {
+            when (action) {
+                PrivacyCredentialAction.ENABLE_OR_SWITCH -> vm.enableDeviceCredentialLock()
+                PrivacyCredentialAction.REMOVE -> vm.disableLock()
+                null -> Unit
+            }
+        }
+    }
+
+    SettingsSubScreen("Privacy", navController, snackbarHostState) {
         LazyColumn(contentPadding = PaddingValues(bottom = 20.dp, top = 4.dp)) {
-            item { SettingSectionHeader("Content Protection", "Secure your private media") }
+            item { SettingSectionHeader("App Lock", "Protect Pandora with your phone lock or a private 4-digit passcode") }
+            item {
+                ToggleRow(
+                    title = "Enable app lock",
+                    subtitle = if (settings.isEnabled) {
+                        "Currently using ${settings.statusLabel.lowercase()}"
+                    } else {
+                        "Require authentication before opening Pandora"
+                    },
+                    checked = settings.isEnabled,
+                    onCheckedChange = { enabled ->
+                        if (enabled) {
+                            showMethodSheet = true
+                        } else {
+                            showRemoveConfirmation = true
+                        }
+                    }
+                )
+            }
+            item {
+                ValueSelectorRow(
+                    title = "Unlock method",
+                    value = if (settings.isEnabled) settings.statusLabel else "Not configured",
+                    subtitle = "Choose between phone lock and a custom passcode",
+                    onClick = { showMethodSheet = true }
+                )
+            }
+            if (settings.isEnabled) {
+                item {
+                    ValueSelectorRow(
+                        title = "Re-lock after",
+                        value = settings.timeout.displayName,
+                        subtitle = "How long Pandora stays unlocked after backgrounding",
+                        onClick = { showTimeoutSheet = true }
+                    )
+                }
+                if (settings.mode == AppLockMode.PIN) {
+                    item {
+                        ActionRow(
+                            title = "Change passcode",
+                            subtitle = "Replace the current 4-digit passcode",
+                            icon = Icons.Default.Edit,
+                            onClick = { showChangePinDialog = true }
+                        )
+                    }
+                }
+                item {
+                    ActionRow(
+                        title = "Remove app lock",
+                        subtitle = if (settings.mode == AppLockMode.PIN) {
+                            "Requires your current 4-digit passcode"
+                        } else {
+                            "Requires your phone lock"
+                        },
+                        icon = Icons.Default.LockOpen,
+                        iconColor = MaterialTheme.colorScheme.error,
+                        onClick = { showRemoveConfirmation = true }
+                    )
+                }
+            }
+
+            item { SettingSectionHeader("Content Protection", "Privacy controls for private media and AI processing") }
             item { NavigationRow("Sensitive Tags", "Manage tags that mark items as private", Icons.Default.NoEncryption) {} }
-            item { ValueSelectorRow("App Lock", "Fingerprint / PIN", "Secure access with biometrics") {} }
             item { NavigationRow("Excluded AI Paths", "Prevent AI from scanning specific folders", Icons.Default.PsychologyAlt) {} }
         }
     }
+
+    if (showMethodSheet) {
+        AppLockModeSheet(
+            selectedMode = settings.mode,
+            onDismiss = { showMethodSheet = false },
+            onSelect = { mode ->
+                showMethodSheet = false
+                when (mode) {
+                    AppLockMode.PIN -> showSetPinDialog = true
+                    AppLockMode.DEVICE_CREDENTIAL -> {
+                        val intent = createDeviceCredentialIntent(
+                            context = activity,
+                            title = "Confirm phone lock",
+                            description = "Use your phone lock to secure Pandora."
+                        )
+                        if (intent == null) {
+                            pendingCredentialAction = null
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Set up a phone screen lock in system settings first.")
+                            }
+                        } else {
+                            pendingCredentialAction = PrivacyCredentialAction.ENABLE_OR_SWITCH
+                            credentialLauncher.launch(intent)
+                        }
+                    }
+                    AppLockMode.NONE -> Unit
+                }
+            }
+        )
+    }
+
+    if (showTimeoutSheet) {
+        AppLockTimeoutSheet(
+            selectedTimeout = settings.timeout,
+            onDismiss = { showTimeoutSheet = false },
+            onSelect = {
+                vm.setLockTimeout(it)
+                showTimeoutSheet = false
+            }
+        )
+    }
+
+    if (showSetPinDialog) {
+        AppPasscodeSetupDialog(
+            title = if (settings.mode == AppLockMode.PIN) "Change passcode" else "Set passcode",
+            subtitle = "Create a 4-digit passcode stored in Pandora's database-backed settings.",
+            confirmLabel = if (settings.mode == AppLockMode.PIN) "Save passcode" else "Enable passcode",
+            onDismiss = { showSetPinDialog = false },
+            onConfirm = { pin ->
+                vm.enablePinLock(pin)
+                showSetPinDialog = false
+            }
+        )
+    }
+
+    if (showChangePinDialog) {
+        AppPasscodeSetupDialog(
+            title = "Change passcode",
+            subtitle = "Set a new 4-digit passcode for Pandora.",
+            confirmLabel = "Save passcode",
+            onDismiss = { showChangePinDialog = false },
+            onConfirm = { pin ->
+                vm.enablePinLock(pin)
+                showChangePinDialog = false
+            }
+        )
+    }
+
+    if (showRemoveConfirmation && settings.isEnabled) {
+        AppLockRemovalConfirmationDialog(
+            mode = settings.mode,
+            onDismiss = { showRemoveConfirmation = false },
+            onConfirm = {
+                showRemoveConfirmation = false
+                if (settings.mode == AppLockMode.PIN) {
+                    removePinError = null
+                    showVerifyPinRemoval = true
+                } else {
+                    val intent = createDeviceCredentialIntent(
+                        context = activity,
+                        title = "Remove app lock",
+                        description = "Use your phone lock to remove Pandora app lock."
+                    )
+                    if (intent == null) {
+                        pendingCredentialAction = null
+                        scope.launch {
+                            snackbarHostState.showSnackbar("Set up a phone screen lock in system settings first.")
+                        }
+                    } else {
+                        pendingCredentialAction = PrivacyCredentialAction.REMOVE
+                        credentialLauncher.launch(intent)
+                    }
+                }
+            }
+        )
+    }
+
+    if (showVerifyPinRemoval) {
+        AppPasscodeVerificationDialog(
+            title = "Confirm passcode",
+            subtitle = "Enter the current 4-digit passcode to remove Pandora app lock.",
+            confirmLabel = "Remove app lock",
+            errorMessage = removePinError,
+            onDismiss = {
+                showVerifyPinRemoval = false
+                removePinError = null
+            },
+            onConfirm = { pin ->
+                if (vm.verifyPin(pin)) {
+                    vm.disableLock()
+                    showVerifyPinRemoval = false
+                    removePinError = null
+                } else {
+                    removePinError = "Incorrect passcode."
+                }
+            }
+        )
+    }
+}
+
+private enum class PrivacyCredentialAction {
+    ENABLE_OR_SWITCH,
+    REMOVE
 }
 
 @Composable

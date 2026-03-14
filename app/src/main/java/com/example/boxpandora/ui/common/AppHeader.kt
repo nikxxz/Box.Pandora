@@ -4,7 +4,6 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,6 +27,8 @@ fun AppHeader(
     onSearchClick: () -> Unit = {},
     selectionCount: Int = 0,
     onClearSelection: () -> Unit = {},
+    canSelectAll: Boolean = false,
+    onSelectAll: () -> Unit = {},
     showHideOption: String = "Hide", // "Hide" or "Show"
     isPinned: Boolean = false,
     allowOpenWith: Boolean = true,
@@ -185,47 +186,42 @@ fun AppHeader(
                         }
                     } else {
                         IconButton(onClick = { onActionClick("pin") }) {
-                            Icon(
-                                imageVector = Icons.Default.PushPin,
-                                contentDescription = "Pin/Unpin",
-                                modifier = Modifier.size(22.dp),
-                                tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground
+                            AppAssetIcon(
+                                assetIcon = "pin.svg",
+                                tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
                         IconButton(onClick = { onActionClick("share") }) {
-                            Icon(
-                                imageVector = Icons.Default.Share,
-                                contentDescription = "Share",
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onBackground
+                            AppAssetIcon(
+                                assetIcon = "share.svg",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
                         IconButton(onClick = { onActionClick("hide_show") }) {
-                            Icon(
-                                imageVector = if (showHideOption == "Show") Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                contentDescription = showHideOption,
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onBackground
+                            AppAssetIcon(
+                                assetIcon = if (showHideOption == "Show") "eye.svg" else "eye-crossed.svg",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
                         IconButton(onClick = { onActionClick("tag") }) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Label,
-                                contentDescription = "Tag",
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onBackground
+                            AppAssetIcon(
+                                assetIcon = "tag.svg",
+                                tint = MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
                         IconButton(onClick = { onActionClick("delete") }) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.error
+                            AppAssetIcon(
+                                assetIcon = "delete.svg",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
@@ -242,6 +238,17 @@ fun AppHeader(
                                 expanded = showMenu,
                                 onDismissRequest = { showMenu = false }
                             ) {
+                                if (canSelectAll) {
+                                    AppContextMenuItem(
+                                        label = "Select All",
+                                        assetIcon = "list-check.svg",
+                                        onClick = {
+                                            onSelectAll()
+                                            showMenu = false
+                                        }
+                                    )
+                                    AppContextMenuDivider()
+                                }
                                 if (selectionCount == 1 && allowOpenWith) {
                                     AppContextMenuItem(
                                         label = "Open With",
@@ -251,23 +258,23 @@ fun AppHeader(
                                 }
                                 AppContextMenuItem(
                                     label = "Copy To",
-                                    icon = Icons.Default.ContentCopy,
+                                    assetIcon = "copy.svg",
                                     onClick = { onActionClick("copy"); showMenu = false }
                                 )
                                 AppContextMenuItem(
                                     label = "Move To",
-                                    icon = Icons.Default.FolderOpen,
+                                    assetIcon = "move.svg",
                                     onClick = { onActionClick("move"); showMenu = false }
                                 )
                                 if (selectionCount == 1) {
                                     AppContextMenuItem(
                                         label = "Rename",
-                                        icon = Icons.Default.Edit,
+                                        assetIcon = "pencil.svg",
                                         onClick = { onActionClick("rename"); showMenu = false }
                                     )
                                     AppContextMenuItem(
                                         label = "Properties",
-                                        icon = Icons.Default.Info,
+                                        assetIcon = "info.svg",
                                         onClick = { onActionClick("properties"); showMenu = false }
                                     )
                                 }

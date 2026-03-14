@@ -1,5 +1,6 @@
 package com.example.boxpandora.ui.common
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -31,11 +32,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -51,14 +55,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
+import coil.compose.rememberAsyncImagePainter
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +96,7 @@ fun AppModalSheet(
         scrimColor = tokens.scrim,
         tonalElevation = 0.dp,
         dragHandle = if (showHandle) ({ ModalHandle() }) else null,
+        windowInsets = WindowInsets(0),
         shape = RoundedCornerShape(
             topStart = tokens.sheetTopRadius,
             topEnd = tokens.sheetTopRadius
@@ -110,6 +122,7 @@ fun AppDialog(
     modifier: Modifier = Modifier,
     dismissOnClickOutside: Boolean = true,
     dismissOnBackPress: Boolean = true,
+    maxWidth: androidx.compose.ui.unit.Dp = 420.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -156,13 +169,13 @@ fun AppDialog(
                 modifier = modifier
                     .fillMaxWidth()
                     .heightIn(max = maxDialogHeight)
-                    .widthIn(max = 420.dp)
+                    .widthIn(max = maxWidth)
                     .padding(horizontal = tokens.horizontalPadding),
                 shape = RoundedCornerShape(tokens.dialogRadius),
                 color = tokens.background,
                 tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-                border = null
+                shadowElevation = 12.dp,
+                border = BorderStroke(1.dp, tokens.border)
             ) {
                 Column(
                     modifier = Modifier
@@ -214,14 +227,14 @@ fun ModalHeader(
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                 color = tokens.titleText
             )
             subtitle?.let {
                 Text(
                     text = it,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.secondaryText.copy(alpha = 0.88f)
+                    color = tokens.secondaryText.copy(alpha = 0.82f)
                 )
             }
         }
@@ -260,6 +273,7 @@ fun ModalActionRow(
     modifier: Modifier = Modifier,
     supportingText: String? = null,
     icon: ImageVector? = null,
+    assetIcon: String? = null,
     iconTint: Color = Color.Unspecified,
     iconContainerColor: Color = Color.Unspecified,
     destructive: Boolean = false,
@@ -280,21 +294,18 @@ fun ModalActionRow(
             modifier = Modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = tokens.rowMinHeight)
-                .padding(horizontal = 2.dp)
-                .padding(vertical = 2.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            icon?.let {
-                Box(
-                    modifier = Modifier
-                        .size(tokens.iconChipSize)
-                        .background(
-                            color = if (destructive) tokens.destructiveAccent.copy(alpha = 0.12f) else tokens.iconBackgroundNeutral,
-                            shape = RoundedCornerShape(12.dp)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
+            if (assetIcon != null || icon != null) {
+                if (assetIcon != null) {
+                    AppAssetIcon(
+                        assetIcon = assetIcon,
+                        tint = if (destructive) tokens.destructiveAccent else resolvedIconTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                } else if (icon != null) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
@@ -309,7 +320,7 @@ fun ModalActionRow(
             ) {
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.bodyLarge.copy(
+                    style = MaterialTheme.typography.titleMedium.copy(
                         fontWeight = if (destructive) FontWeight.SemiBold else FontWeight.Medium
                     ),
                     color = contentColor,
@@ -338,6 +349,7 @@ fun ModalSelectableRow(
     modifier: Modifier = Modifier,
     supportingText: String? = null,
     icon: ImageVector? = null,
+    assetIcon: String? = null,
     iconTint: Color = Color.Unspecified,
     onClick: () -> Unit
 ) {
@@ -348,6 +360,7 @@ fun ModalSelectableRow(
         modifier = modifier,
         supportingText = supportingText,
         icon = icon,
+        assetIcon = assetIcon,
         iconTint = iconTint,
         trailingContent = if (selected) ({
             Icon(
@@ -409,16 +422,22 @@ fun ModalFooterAction(
 ) {
     val tokens = boxPandoraModalTokens()
 
-    TextButton(
+    Button(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = 48.dp)
+            .defaultMinSize(minHeight = 52.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (destructive) tokens.destructiveAccent.copy(alpha = 0.12f) else tokens.iconBackgroundNeutral,
+            contentColor = if (destructive) tokens.destructiveAccent else tokens.bodyText
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-            color = if (destructive) tokens.destructiveAccent else tokens.secondaryText
+            color = if (destructive) tokens.destructiveAccent else tokens.bodyText
         )
     }
 }
@@ -435,7 +454,9 @@ fun ModalTextField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     placeholder: String,
-    singleLine: Boolean = true
+    singleLine: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     val tokens = boxPandoraModalTokens()
 
@@ -451,6 +472,8 @@ fun ModalTextField(
             )
         },
         singleLine = singleLine,
+        keyboardOptions = keyboardOptions,
+        visualTransformation = visualTransformation,
         shape = RoundedCornerShape(18.dp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = tokens.iconBackgroundNeutral,
@@ -506,16 +529,22 @@ fun ModalChip(
 fun ModalRowSurface(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    shape: RoundedCornerShape = RoundedCornerShape(12.dp),
-    backgroundColor: Color = Color.Transparent,
+    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
+    backgroundColor: Color = Color.Unspecified,
     content: @Composable () -> Unit
 ) {
+    val resolvedBackground = if (backgroundColor == Color.Unspecified) {
+        boxPandoraModalTokens().cardBackground
+    } else {
+        backgroundColor
+    }
+
     if (onClick != null) {
         Surface(
             onClick = onClick,
             modifier = modifier,
             shape = shape,
-            color = backgroundColor,
+            color = resolvedBackground,
             tonalElevation = 0.dp
         ) {
             Box { content() }
@@ -524,7 +553,7 @@ fun ModalRowSurface(
         Surface(
             modifier = modifier,
             shape = shape,
-            color = backgroundColor,
+            color = resolvedBackground,
             tonalElevation = 0.dp
         ) {
             Box { content() }
@@ -554,20 +583,20 @@ fun AppContextMenu(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
+    val menuShape = RoundedCornerShape(18.dp)
 
-    // Override extraSmall shape so the popup Surface clips at 16dp corners.
-    // (DropdownMenu's internal Surface uses MaterialTheme.shapes.extraSmall.)
-    MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(16.dp))) {
+    MaterialTheme(shapes = MaterialTheme.shapes.copy(extraSmall = menuShape)) {
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = onDismissRequest,
             modifier = modifier
-                .widthIn(min = 160.dp, max = 260.dp)
-                .background(tokens.background)
+                .widthIn(min = 168.dp, max = 210.dp)
+                .background(tokens.background, menuShape)
+                .border(BorderStroke(1.dp, tokens.border), menuShape)
         ) {
             Column(
-                modifier = Modifier.padding(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 content(this)
             }
@@ -581,44 +610,67 @@ fun AppContextMenuItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    assetIcon: String? = null,
     destructive: Boolean = false,
     selected: Boolean = false
 ) {
     val tokens = boxPandoraModalTokens()
     val contentColor = if (destructive) tokens.destructiveAccent else tokens.bodyText
+    val itemShape = RoundedCornerShape(14.dp)
+    val itemBackground = when {
+        destructive -> Color.Transparent
+        selected -> tokens.selectedAccent.copy(alpha = 0.10f)
+        else -> Color.Transparent
+    }
+    val iconTint = if (selected && !destructive) tokens.selectedAccent else contentColor
 
     DropdownMenuItem(
         text = {
             Text(
                 text = label,
                 color = if (selected && !destructive) tokens.selectedAccent else contentColor,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
             )
         },
         onClick = onClick,
-        modifier = modifier,
-        leadingIcon = icon?.let {
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(itemShape)
+            .background(itemBackground)
+            .defaultMinSize(minHeight = 40.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        leadingIcon = if (assetIcon != null) {
             {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (destructive) tokens.destructiveAccent else contentColor,
-                    modifier = Modifier.size(18.dp)
+                AppAssetIcon(
+                    assetIcon = assetIcon,
+                    tint = iconTint,
+                    modifier = Modifier.size(16.dp)
                 )
+            }
+        } else {
+            icon?.let {
+                {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         },
         trailingIcon = if (selected) ({
             Box(
                 modifier = Modifier
-                    .size(20.dp)
-                    .background(tokens.selectedAccent.copy(alpha = 0.14f), CircleShape),
+                    .size(18.dp)
+                    .background(tokens.selectedAccent.copy(alpha = 0.16f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Check,
                     contentDescription = null,
                     tint = tokens.selectedAccent,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(10.dp)
                 )
             }
         }) else null
@@ -629,7 +681,29 @@ fun AppContextMenuItem(
 fun AppContextMenuDivider() {
     val tokens = boxPandoraModalTokens()
     HorizontalDivider(
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         color = tokens.divider
+    )
+}
+
+@Composable
+fun AppAssetIcon(
+    assetIcon: String,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val painter = rememberAsyncImagePainter(
+        model = ImageRequest.Builder(context)
+            .data("file:///android_asset/$assetIcon")
+            .decoderFactory(SvgDecoder.Factory())
+            .build()
+    )
+
+    Image(
+        painter = painter,
+        contentDescription = null,
+        modifier = modifier,
+        colorFilter = ColorFilter.tint(tint)
     )
 }

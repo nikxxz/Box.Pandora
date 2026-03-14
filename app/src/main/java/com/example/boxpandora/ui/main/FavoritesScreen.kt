@@ -58,6 +58,7 @@ fun FavoritesScreen(
     val isSearching by viewModel.isSearching.collectAsState()
     val selectedUris by viewModel.selectedUris.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
+    var showPropertiesSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
@@ -122,10 +123,20 @@ fun FavoritesScreen(
             onSearchClick = { viewModel.openSearch() },
             selectionCount = selectedUris.size,
             onClearSelection = { viewModel.clearSelection() },
+            canSelectAll = if (isSearchOpen) {
+                searchResults.isNotEmpty() && selectedUris.size < searchResults.size
+            } else {
+                favorites.isNotEmpty() && selectedUris.size < favorites.size
+            },
+            onSelectAll = {
+                val visibleItems = if (isSearchOpen) searchResults else favorites
+                viewModel.selectItems(visibleItems.map { it.uri })
+            },
             showHideOption = "Hide",
             allowOpenWith = false,
             onActionClick = { action ->
                 when (action) {
+                    "properties" -> showPropertiesSheet = true
                     "unfavourite" -> viewModel.removeFromFavoritesSelected()
                     else -> viewModel.clearSelection()
                 }
@@ -170,6 +181,16 @@ fun FavoritesScreen(
                     onLongPress = { item -> viewModel.toggleSelection(item.uri) }
                 )
             }
+        }
+    }
+
+    if (showPropertiesSheet) {
+        val item = (if (isSearchOpen) searchResults else favorites).find { it.uri in selectedUris }
+        item?.let {
+            MediaPropertiesSheet(
+                item = it,
+                onDismiss = { showPropertiesSheet = false }
+            )
         }
     }
 }

@@ -13,6 +13,10 @@ android {
     namespace = "com.example.boxpandora"
     compileSdk = 35
 
+    sourceSets {
+        getByName("main").assets.srcDirs("src/main/java/com/example/boxpandora/assets")
+    }
+
     defaultConfig {
         applicationId = "com.example.boxpandora"
         minSdk = 24
@@ -77,6 +81,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
     implementation(libs.coil.gif)
+    implementation(libs.coil.svg)
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)

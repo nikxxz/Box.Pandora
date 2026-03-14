@@ -11,6 +11,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,18 +65,24 @@ import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.data.manager.FileConflictResolution
-import com.example.boxpandora.ui.common.AppDialog
+import com.example.boxpandora.ui.common.AppAssetIcon
 import com.example.boxpandora.ui.common.AppContextMenu
 import com.example.boxpandora.ui.common.AppContextMenuItem
 import com.example.boxpandora.ui.common.DeleteConfirmationDialog
 import com.example.boxpandora.ui.common.FileConflictDialog
 import com.example.boxpandora.ui.common.FolderSelectorDialog
-import com.example.boxpandora.ui.common.ModalChip
+import com.example.boxpandora.ui.common.MediaPropertiesSheet
 import com.example.boxpandora.ui.common.ModalTextField
 import com.example.boxpandora.ui.common.ModalHeader
 import com.example.boxpandora.ui.common.ModalRichRow
 import com.example.boxpandora.ui.common.ModalFooterAction
 import com.example.boxpandora.ui.common.RenameDialog
+import com.example.boxpandora.ui.common.TagPopupChip
+import com.example.boxpandora.ui.common.TagPopupDialog
+import com.example.boxpandora.ui.common.TagPopupSectionLabel
+import com.example.boxpandora.ui.common.TagPopupSuggestionChip
+import com.example.boxpandora.ui.common.tagPopupChipBackground
+import com.example.boxpandora.ui.common.tagPopupChipBorder
 import com.example.boxpandora.ui.theme.panelEnterTransition
 import com.example.boxpandora.ui.theme.panelExitTransition
 import com.example.boxpandora.ui.theme.PandoraSpacing
@@ -149,6 +157,7 @@ fun MediaViewer(
     var showRenameDialog by remember { mutableStateOf(false) }
     var showCopyDialog by remember { mutableStateOf(false) }
     var showMoveDialog by remember { mutableStateOf(false) }
+    var showPropertiesSheet by remember { mutableStateOf(false) }
     val allAlbums by viewModel.allAlbums.collectAsState()
     val pendingConflict by viewModel.pendingConflict.collectAsState()
 
@@ -168,7 +177,7 @@ fun MediaViewer(
     ) {
         val screenHeightPx = constraints.maxHeight.toFloat()
         val maxFraction = if (contentHeightPx > 0f && screenHeightPx > 0f)
-            (contentHeightPx / screenHeightPx).coerceIn(0.35f, 0.65f)
+            (contentHeightPx / screenHeightPx).coerceIn(0.3f, 0.45f)
         else
             FallbackMaxFraction
 
@@ -227,6 +236,7 @@ fun MediaViewer(
                                 "Rename" -> showRenameDialog = true
                                 "Copy To" -> { viewModel.loadAlbums(); showCopyDialog = true }
                                 "Move To" -> { viewModel.loadAlbums(); showMoveDialog = true }
+                                "Properties" -> showPropertiesSheet = true
                                 "Delete" -> showDeleteDialog = true
                             }
                         }
@@ -330,6 +340,13 @@ fun MediaViewer(
         )
     }
 
+    if (showPropertiesSheet && currentItem != null) {
+        MediaPropertiesSheet(
+            item = currentItem,
+            onDismiss = { showPropertiesSheet = false }
+        )
+    }
+
     pendingConflict?.let { conflict ->
         FileConflictDialog(
             conflict = conflict,
@@ -381,13 +398,14 @@ private fun ViewerHeader(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
-                    AppContextMenuItem("Rename", onClick = { onAction("Rename"); showMenu = false }, icon = Icons.Default.Edit)
-                    AppContextMenuItem("Open With", onClick = { onAction("Open With"); showMenu = false }, icon = Icons.Default.OpenInNew)
-                    AppContextMenuItem("Copy To", onClick = { onAction("Copy To"); showMenu = false }, icon = Icons.Default.ContentCopy)
-                    AppContextMenuItem("Move To", onClick = { onAction("Move To"); showMenu = false }, icon = Icons.AutoMirrored.Default.ArrowBack)
-                    AppContextMenuItem("Share", onClick = { onAction("Share"); showMenu = false }, icon = Icons.Default.Share)
+                    AppContextMenuItem("Rename", onClick = { onAction("Rename"); showMenu = false }, assetIcon = "pencil.svg")
+                    AppContextMenuItem("Open With", onClick = { onAction("Open With"); showMenu = false }, icon = Icons.AutoMirrored.Filled.OpenInNew)
+                    AppContextMenuItem("Copy To", onClick = { onAction("Copy To"); showMenu = false }, assetIcon = "copy.svg")
+                    AppContextMenuItem("Move To", onClick = { onAction("Move To"); showMenu = false }, assetIcon = "move.svg")
+                    AppContextMenuItem("Properties", onClick = { onAction("Properties"); showMenu = false }, assetIcon = "info.svg")
+                    AppContextMenuItem("Share", onClick = { onAction("Share"); showMenu = false }, assetIcon = "share.svg")
                     HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = tokens.divider)
-                    AppContextMenuItem("Delete", onClick = { onAction("Delete"); showMenu = false }, icon = Icons.Default.Delete, destructive = true)
+                    AppContextMenuItem("Delete", onClick = { onAction("Delete"); showMenu = false }, assetIcon = "delete.svg", destructive = true)
                 }
             }
         }
@@ -774,13 +792,22 @@ private fun InfoPanelContent(
     val context = LocalContext.current
     val tagMatches = remember(tagQuery, allTags, tags) {
         val query = tagQuery.trim()
+        val available = allTags.filter { tag ->
+            tags.none { currentTag -> currentTag.id == tag.id }
+        }
         if (query.isBlank()) {
-            emptyList()
+            available
+                .sortedWith(compareByDescending<Tag> { it.usageCount }.thenBy { it.name.lowercase() })
+                .take(12)
         } else {
-            allTags.filter { tag ->
-                tag.name.contains(query, ignoreCase = true) &&
-                    tags.none { currentTag -> currentTag.id == tag.id }
-            }.take(8)
+            available
+                .filter { tag -> tag.name.contains(query, ignoreCase = true) }
+                .sortedWith(
+                    compareBy<Tag> { !it.name.startsWith(query, ignoreCase = true) }
+                        .thenByDescending { it.usageCount }
+                        .thenBy { it.name.lowercase() }
+                )
+                .take(15)
         }
     }
 
@@ -867,7 +894,7 @@ private fun InfoPanelContent(
 
                 // Favourite
                 QuickActionButton(
-                    icon = if (isFavoriteLocal) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    assetIcon = if (isFavoriteLocal) "heart-filled.svg" else "heart.svg",
                     contentDescription = "Favorite",
                     backgroundColor = tokens.cardBackground,
                     iconColor = if (isFavoriteLocal) tokens.selectedAccent else tokens.secondaryText,
@@ -882,7 +909,7 @@ private fun InfoPanelContent(
 
                 // Share
                 QuickActionButton(
-                    icon = Icons.Default.Share,
+                    assetIcon = "share.svg",
                     contentDescription = "Share",
                     backgroundColor = tokens.cardBackground,
                     iconColor = tokens.secondaryText,
@@ -901,7 +928,7 @@ private fun InfoPanelContent(
                 // Delete
                 var showLocalDeleteDialog by remember { mutableStateOf(false) }
                 QuickActionButton(
-                    icon = Icons.Default.Delete,
+                    assetIcon = "delete.svg",
                     contentDescription = "Delete",
                     backgroundColor = tokens.cardBackground,
                     iconColor = tokens.accentDim,
@@ -935,7 +962,7 @@ private fun InfoPanelContent(
                     ) {
                         AppContextMenuItem(
                             label = "Move to",
-                            icon = Icons.Default.FolderOpen,
+                            assetIcon = "move.svg",
                             onClick = {
                                 showOptionsMenu = false
                                 viewModel.loadAlbums()
@@ -944,7 +971,7 @@ private fun InfoPanelContent(
                         )
                         AppContextMenuItem(
                             label = "Copy to",
-                            icon = Icons.Default.ContentCopy,
+                            assetIcon = "copy.svg",
                             onClick = {
                                 showOptionsMenu = false
                                 viewModel.loadAlbums()
@@ -1162,20 +1189,26 @@ private fun SuggestionReviewChip(
     onAccept: () -> Unit,
     onReject: () -> Unit
 ) {
+    val tokens = boxPandoraModalTokens()
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(boxPandoraModalTokens().rowPressedBackground)
-            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            .clip(RoundedCornerShape(999.dp))
+            .background(tokens.rowPressedBackground)
+            .border(1.dp, tokens.border, RoundedCornerShape(999.dp))
+            .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(text, color = boxPandoraModalTokens().bodyText, style = MaterialTheme.typography.labelMedium)
-        IconButton(onClick = onAccept, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Check, null, tint = Color(0xFF8AE0A6), modifier = Modifier.size(16.dp))
+        Text(
+            text.uppercase(),
+            color = tokens.bodyText,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+        )
+        IconButton(onClick = onAccept, modifier = Modifier.size(22.dp)) {
+            Icon(Icons.Default.Check, null, tint = Color(0xFF8AE0A6), modifier = Modifier.size(14.dp))
         }
-        IconButton(onClick = onReject, modifier = Modifier.size(24.dp)) {
-            Icon(Icons.Default.Close, null, tint = Color(0xFFF36B6B), modifier = Modifier.size(16.dp))
+        IconButton(onClick = onReject, modifier = Modifier.size(22.dp)) {
+            Icon(Icons.Default.Close, null, tint = Color(0xFFF36B6B), modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -1261,6 +1294,7 @@ private fun ManageTagsButton(onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ManageTagsPopup(
     query: String,
@@ -1273,53 +1307,49 @@ private fun ManageTagsPopup(
     onAcceptSuggestion: (String) -> Unit,
     onRejectSuggestion: (String) -> Unit
 ) {
-    AppDialog(
+    val trimmedQuery = query.trim()
+    val tokens = boxPandoraModalTokens()
+
+    TagPopupDialog(
+        title = "Manage Tags",
+        subtitle = if (query.isBlank()) {
+            "Search, create, or confirm tags from the current suggestions."
+        } else {
+            "Filter existing tags as you type."
+        },
+        query = query,
+        onQueryChange = onQueryChange,
         onDismiss = onDismiss,
-        modifier = Modifier.padding(horizontal = 8.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+        onAddClick = onAddTypedTag,
+        addEnabled = trimmedQuery.isNotBlank()
     ) {
-        Text(
-            text = "Manage Tags",
-            color = boxPandoraModalTokens().titleText,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            ModalTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                placeholder = "Search or create tag",
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = onAddTypedTag) {
-                Icon(Icons.Default.Add, contentDescription = "Add tag", tint = boxPandoraModalTokens().selectedAccent)
-            }
-        }
-
-        if (query.isNotBlank()) {
+        if (matches.isNotEmpty() || query.isNotBlank()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "Matches",
-                            color = boxPandoraModalTokens().secondaryText,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                        )
+                TagPopupSectionLabel(
+                    title = if (query.isBlank()) "Top Suggestions" else "Matches",
+                    meta = "${matches.size} shown"
+                )
                 if (matches.isEmpty()) {
                     Text(
-                        text = "No match. Tap + to create \"${query.trim()}\"",
-                        color = boxPandoraModalTokens().secondaryText.copy(alpha = 0.85f),
+                        text = "No match. Tap + to create \"$trimmedQuery\".",
+                        color = tokens.secondaryText.copy(alpha = 0.85f),
                         style = MaterialTheme.typography.bodySmall
                     )
                 } else {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         matches.forEach { tag ->
-                            ModalChip(label = tag.name, onClick = { onSelectTag(tag.name) })
+                            TagPopupChip(
+                                label = tag.name.uppercase(),
+                                count = tag.usageCount,
+                                backgroundColor = tagPopupChipBackground(tag.color, tokens),
+                                borderColor = tagPopupChipBorder(tag.color, tokens),
+                                textColor = tokens.bodyText,
+                                onClick = { onSelectTag(tag.name) }
+                            )
                         }
                     }
                 }
@@ -1328,17 +1358,17 @@ private fun ManageTagsPopup(
 
         if (suggestions.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = "Suggestions",
-                        color = boxPandoraModalTokens().secondaryText,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                    )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                TagPopupSectionLabel(
+                    title = "Suggestions",
+                    meta = "${suggestions.size} available"
+                )
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     suggestions.forEach { suggestion ->
-                        SuggestionReviewChip(
+                        TagPopupSuggestionChip(
                             text = suggestion,
                             onAccept = { onAcceptSuggestion(suggestion) },
                             onReject = { onRejectSuggestion(suggestion) }
@@ -1544,7 +1574,8 @@ private fun AddTagsButton(accent: Color, onClick: () -> Unit) {
 
 @Composable
 private fun QuickActionButton(
-    icon: ImageVector,
+    icon: ImageVector? = null,
+    assetIcon: String? = null,
     contentDescription: String?,
     backgroundColor: Color,
     iconColor: Color,
@@ -1622,12 +1653,20 @@ private fun QuickActionButton(
                     .background(Color.Black.copy(alpha = pressedOverlayAlpha))
             )
         }
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = iconColor,
-            modifier = Modifier.size(22.dp)
-        )
+        if (assetIcon != null) {
+            AppAssetIcon(
+                assetIcon = assetIcon,
+                tint = iconColor,
+                modifier = Modifier.size(20.dp)
+            )
+        } else if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = iconColor,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }
 

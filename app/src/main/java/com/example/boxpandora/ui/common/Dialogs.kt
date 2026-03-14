@@ -10,23 +10,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DriveFileMoveRtl
-import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
-import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.Style
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,10 +38,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.boxpandora.data.local.entity.Album
+import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.data.manager.PendingFileConflict
+import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun RenameDialog(
@@ -102,6 +104,64 @@ fun DeleteConfirmationDialog(
             onDismiss = onDismiss,
             onConfirm = onConfirm
         )
+    }
+}
+
+@Composable
+fun FolderPropertiesSheet(
+    album: Album,
+    onDismiss: () -> Unit
+) {
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalHeader(
+            title = album.name,
+            subtitle = "${album.mediaCount} items • ${album.albumType}"
+        )
+        PropertiesSection(
+            entries = listOf(
+                "Path" to (album.path ?: "Unknown"),
+                "Type" to album.albumType,
+                "Photos" to album.photoCount.toString(),
+                "Videos" to album.videoCount.toString(),
+                "Hidden" to yesNo(album.isHidden),
+                "Pinned" to yesNo(album.isPinned),
+                "Last modified" to formatTimestamp(album.lastModifiedAt),
+                "Last scanned" to formatTimestamp(album.lastScannedAt),
+                "Created" to formatTimestamp(album.createdAt)
+            )
+        )
+    }
+}
+
+@Composable
+fun MediaPropertiesSheet(
+    item: MediaItem,
+    onDismiss: () -> Unit
+) {
+    val entries = buildList {
+        add("Type" to item.mediaType.replaceFirstChar { it.uppercase() })
+        add("Format" to item.extension.ifBlank { "Unknown" }.uppercase())
+        add("Album" to (item.albumName ?: "Unknown"))
+        add("Path" to (item.filePath ?: "Unknown"))
+        add("Size" to formatFileSize(item.fileSize))
+        add("Resolution" to formatResolution(item.width, item.height))
+        if (item.duration != null && item.mediaType == "video") {
+            add("Duration" to formatDuration(item.duration))
+        }
+        add("Favourite" to yesNo(item.isFavorite == 1))
+        add("Hidden" to yesNo(item.isHidden == 1))
+        add("Captured" to formatTimestamp(item.deviceCreatedAt))
+        add("Modified" to formatTimestamp(item.deviceModifiedAt))
+        add("Indexed" to formatTimestamp(item.indexedAt))
+        add("URI" to item.uri)
+    }
+
+    AppModalSheet(onDismiss = onDismiss) {
+        ModalHeader(
+            title = item.filename,
+            subtitle = item.albumName ?: item.mediaType.replaceFirstChar { it.uppercase() }
+        )
+        PropertiesSection(entries = entries)
     }
 }
 
@@ -232,6 +292,7 @@ fun CategorySelectorSheet(
                     selected = category == currentCategory,
                     supportingText = categorySheetDescription(category),
                     icon = categorySheetIcon(category),
+                    assetIcon = categorySheetAssetIcon(category),
                     iconTint = boxPandoraModalTokens().bodyText,
                     onClick = { onConfirm(category) }
                 )
@@ -270,16 +331,22 @@ private fun categorySheetDescription(category: String): String = when (category)
 }
 
 private fun categorySheetIcon(category: String) = when (category) {
-    "people" -> Icons.Default.Person
-    "character" -> Icons.Default.Face
     "style" -> Icons.Default.Palette
-    "clothing" -> Icons.Default.Style
-    "pose" -> Icons.Default.FitnessCenter
-    "place" -> Icons.Default.LocationOn
-    "animal" -> Icons.Default.Pets
-    "object" -> Icons.Default.Category
-    "mood" -> Icons.Default.Mood
-    else -> Icons.AutoMirrored.Filled.Label
+    "animal" -> null
+    "misc" -> Icons.Default.Category
+    else -> null
+}
+
+private fun categorySheetAssetIcon(category: String): String? = when (category) {
+    "people" -> "man-head.svg"
+    "character" -> "Character.svg"
+    "clothing" -> "dress.svg"
+    "pose" -> "ballet-dance.svg"
+    "place" -> "world.svg"
+    "animal" -> "paw.svg"
+    "object" -> "shopping-bag.svg"
+    "mood" -> "face-awesome.svg"
+    else -> null
 }
 
 @Composable
@@ -294,19 +361,37 @@ private fun DialogActionRow(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        TextButton(onClick = onDismiss) {
+        Button(
+            onClick = onDismiss,
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = tokens.iconBackgroundNeutral,
+                contentColor = tokens.bodyText
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+        ) {
             Text(
                 text = dismissLabel,
-                color = tokens.secondaryText,
-                style = MaterialTheme.typography.bodyLarge
+                color = tokens.bodyText,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
             )
         }
-        TextButton(onClick = onConfirm) {
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (confirmDestructive) tokens.destructiveAccent else tokens.selectedAccent,
+                contentColor = if (confirmDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+        ) {
             Text(
                 text = confirmLabel,
-                color = if (confirmDestructive) tokens.destructiveAccent else tokens.selectedAccent,
+                color = if (confirmDestructive) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
             )
         }
@@ -399,4 +484,72 @@ fun FileConflictDialog(
 
         ModalFooterAction(label = "Cancel", onClick = onDismiss)
     }
+}
+
+@Composable
+private fun PropertiesSection(entries: List<Pair<String, String>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+        entries.filter { it.second.isNotBlank() }.forEachIndexed { index, (label, value) ->
+            PropertyRow(label = label, value = value)
+            if (index < entries.lastIndex) {
+                ModalDivider()
+            }
+        }
+    }
+}
+
+@Composable
+private fun PropertyRow(
+    label: String,
+    value: String
+) {
+    val tokens = boxPandoraModalTokens()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = tokens.secondaryText.copy(alpha = 0.8f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.bodyText
+        )
+    }
+}
+
+private fun yesNo(value: Boolean): String = if (value) "Yes" else "No"
+
+private fun formatTimestamp(timestamp: Long?): String {
+    if (timestamp == null || timestamp <= 0L) return "Unknown"
+    val millis = if (timestamp < 10_000_000_000L) timestamp * 1000 else timestamp
+    return SimpleDateFormat("d MMM yyyy, h:mm a", Locale.getDefault()).format(Date(millis))
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0L) return "Unknown"
+    val units = listOf("B", "KB", "MB", "GB", "TB")
+    var size = bytes.toDouble()
+    var index = 0
+    while (size >= 1024 && index < units.lastIndex) {
+        size /= 1024.0
+        index++
+    }
+    val value = if (size >= 100 || index == 0) String.format(Locale.US, "%.0f", size) else String.format(Locale.US, "%.1f", size)
+    return "$value ${units[index]}"
+}
+
+private fun formatResolution(width: Int, height: Int): String {
+    return if (width > 0 && height > 0) "$width × $height" else "Unknown"
+}
+
+private fun formatDuration(duration: Double): String {
+    val millis = if (duration > 10_000) duration.toLong() else (duration * 1000).toLong()
+    return Formatters.formatDuration(millis)
 }

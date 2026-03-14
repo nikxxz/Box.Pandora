@@ -138,6 +138,7 @@ class TagGalleryViewModel(
         _selectedUris.update { if (it.contains(uri)) it - uri else it + uri }
     }
     fun clearSelection() { _selectedUris.value = emptySet() }
+    fun selectItems(uris: Collection<String>) { _selectedUris.value = uris.toSet() }
 
     // Tag Management
     fun updateDescription(description: String?) = viewModelScope.launch {

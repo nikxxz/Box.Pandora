@@ -2,6 +2,7 @@ package com.example.boxpandora.ui.main
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,26 +48,30 @@ import com.example.boxpandora.ui.theme.inlineRevealExit
 
 // ─── Category metadata ────────────────────────────────────────────────────────
 
-private data class CategoryMeta(val icon: ImageVector, val color: Color)
+private data class CategoryMeta(
+    val color: Color,
+    val assetIcon: String? = null,
+    val materialIcon: ImageVector? = null
+)
 
 private val CATEGORY_META: Map<String, CategoryMeta> = mapOf(
-    "people"    to CategoryMeta(Icons.Default.Person,       Color(0xFF5C7CFA)),
-    "character" to CategoryMeta(Icons.Default.Face,         Color(0xFF82C91E)),
-    "style"     to CategoryMeta(Icons.Default.Palette,      Color(0xFFCC5DE8)),
-    "clothing"  to CategoryMeta(Icons.Default.Style,         Color(0xFFFF6B6B)),
-    "pose"      to CategoryMeta(Icons.Default.FitnessCenter, Color(0xFF339AF0)),
-    "place"     to CategoryMeta(Icons.Default.LocationOn,   Color(0xFF20C997)),
-    "animal"    to CategoryMeta(Icons.Default.Pets,         Color(0xFF94D82D)),
-    "object"    to CategoryMeta(Icons.Default.Category,     Color(0xFFFF922B)),
-    "mood"      to CategoryMeta(Icons.Default.Mood,         Color(0xFFF59F00)),
-    "misc"      to CategoryMeta(Icons.AutoMirrored.Filled.Label, Color(0xFF868E96))
+    "people"    to CategoryMeta(Color(0xFF5C7CFA), assetIcon = "man-head.svg"),
+    "character" to CategoryMeta(Color(0xFF82C91E), assetIcon = "Character.svg"),
+    "style"     to CategoryMeta(Color(0xFFCC5DE8), materialIcon = Icons.Default.Palette),
+    "clothing"  to CategoryMeta(Color(0xFFFF6B6B), assetIcon = "dress.svg"),
+    "pose"      to CategoryMeta(Color(0xFF339AF0), assetIcon = "ballet-dance.svg"),
+    "place"     to CategoryMeta(Color(0xFF20C997), assetIcon = "world.svg"),
+    "animal"    to CategoryMeta(Color(0xFF94D82D), assetIcon = "paw.svg"),
+    "object"    to CategoryMeta(Color(0xFFFF922B), assetIcon = "shopping-bag.svg"),
+    "mood"      to CategoryMeta(Color(0xFFF59F00), assetIcon = "face-awesome.svg"),
+    "misc"      to CategoryMeta(Color(0xFF868E96), materialIcon = Icons.Default.Category)
 )
 
 private fun categoryColor(category: String): Color =
     CATEGORY_META[category.lowercase()]?.color ?: Color(0xFF868E96)
 
-private fun categoryIcon(category: String): ImageVector =
-    CATEGORY_META[category.lowercase()]?.icon ?: Icons.AutoMirrored.Filled.Label
+private fun categoryMeta(category: String): CategoryMeta =
+    CATEGORY_META[category.lowercase()] ?: CategoryMeta(Color(0xFF868E96), materialIcon = Icons.Default.Category)
 
 val TAG_CATEGORIES = listOf(
     "All", "people", "character", "style", "clothing", "pose", "place", "animal", "object", "mood", "misc"
@@ -557,6 +562,8 @@ private fun FeaturedTagCard(
             .clip(RoundedCornerShape(16.dp))
             .combinedClickable(onClick = onClick)
     ) {
+        val meta = categoryMeta(item.tag.category)
+
         // Background: cover image or category-tinted fallback
         if (item.coverMediaUri != null) {
             AsyncImage(
@@ -578,14 +585,24 @@ private fun FeaturedTagCard(
                     .background(accentColor.copy(alpha = 0.15f))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
             )
-            Icon(
-                imageVector = categoryIcon(item.tag.category),
-                contentDescription = null,
-                tint        = accentColor.copy(alpha = 0.18f),
-                modifier    = Modifier
-                    .size(80.dp)
-                    .align(Alignment.Center)
-            )
+            if (meta.assetIcon != null) {
+                AppAssetIcon(
+                    assetIcon = meta.assetIcon,
+                    tint = accentColor.copy(alpha = 0.18f),
+                    modifier = Modifier
+                        .size(80.dp)
+                        .align(Alignment.Center)
+                )
+            } else if (meta.materialIcon != null) {
+                Icon(
+                    imageVector = meta.materialIcon,
+                    contentDescription = null,
+                    tint = accentColor.copy(alpha = 0.18f),
+                    modifier = Modifier
+                        .size(80.dp)
+                        .align(Alignment.Center)
+                )
+            }
         }
 
         // Gradient scrim at bottom
@@ -748,7 +765,8 @@ private fun TagListRow(
     onLongPress: () -> Unit
 ) {
     val isUnused = tag.usageCount == 0
-    val accentColor = categoryColor(tag.category)
+    val meta = categoryMeta(tag.category)
+    val accentColor = meta.color
     val updatedLabel = if (tag.updatedAt != null) "Updated" else "Created"
     val timestampMs  = tag.updatedAt ?: tag.createdAt
     val dateStr      = formatShortDate(timestampMs)
@@ -769,12 +787,20 @@ private fun TagListRow(
                 .background(accentColor.copy(alpha = if (isUnused) 0.08f else 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector        = categoryIcon(tag.category),
-                contentDescription = null,
-                tint               = accentColor.copy(alpha = if (isUnused) 0.45f else 1f),
-                modifier           = Modifier.size(20.dp)
-            )
+            if (meta.assetIcon != null) {
+                AppAssetIcon(
+                    assetIcon = meta.assetIcon,
+                    tint = accentColor.copy(alpha = if (isUnused) 0.45f else 1f),
+                    modifier = Modifier.size(20.dp)
+                )
+            } else if (meta.materialIcon != null) {
+                Icon(
+                    imageVector = meta.materialIcon,
+                    contentDescription = null,
+                    tint = accentColor.copy(alpha = if (isUnused) 0.45f else 1f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
 
         // Name + metadata
@@ -876,58 +902,94 @@ private fun TagQuickActionsSheet(
             subtitle = "${tag.usageCount} items • ${categoryDisplayName(tag.category)}"
         )
 
-        ModalDivider()
-
-        ModalSection {
-            ModalActionRow(
-                label = "Rename",
-                icon = Icons.Default.Edit,
-                onClick = {
-                    onDismiss()
-                    onRename()
-                }
-            )
-            ModalDivider(modifier = Modifier.padding(start = 56.dp))
-            ModalActionRow(
-                label = "Merge into another tag",
-                icon = Icons.AutoMirrored.Filled.CallMerge,
-                onClick = {
-                    onDismiss()
-                    onMerge()
-                }
-            )
-            ModalDivider(modifier = Modifier.padding(start = 56.dp))
-            ModalActionRow(
-                label = "Change category",
-                icon = Icons.Default.Category,
-                supportingText = categoryDisplayName(tag.category),
-                onClick = {
-                    onDismiss()
-                    onChangeCategory()
-                }
-            )
-            ModalDivider(modifier = Modifier.padding(start = 56.dp))
-            ModalActionRow(
-                label = "Add alias",
-                icon = Icons.Default.AddLink,
-                onClick = {
-                    onDismiss()
-                    onAddAlias()
-                }
-            )
-        }
-
-        ModalDivider()
-
-        ModalActionRow(
+        CompactSheetActionRow(
+            label = "Rename",
+            assetIcon = "pencil.svg",
+            onClick = {
+                onDismiss()
+                onRename()
+            }
+        )
+        ModalDivider(modifier = Modifier.padding(start = 30.dp))
+        CompactSheetActionRow(
+            label = "Merge into another tag",
+            icon = Icons.AutoMirrored.Filled.CallMerge,
+            onClick = {
+                onDismiss()
+                onMerge()
+            }
+        )
+        ModalDivider(modifier = Modifier.padding(start = 30.dp))
+        CompactSheetActionRow(
+            label = "Change category",
+            supportingText = categoryDisplayName(tag.category),
+            icon = Icons.Default.Category,
+            onClick = {
+                onDismiss()
+                onChangeCategory()
+            }
+        )
+        ModalDivider(modifier = Modifier.padding(start = 30.dp))
+        CompactSheetActionRow(
+            label = "Add alias",
+            icon = Icons.Default.AddLink,
+            onClick = {
+                onDismiss()
+                onAddAlias()
+            }
+        )
+        ModalDivider(modifier = Modifier.padding(start = 30.dp))
+        CompactSheetActionRow(
             label = "Delete tag",
-            icon = Icons.Default.Delete,
             supportingText = "This action cannot be undone",
+            assetIcon = "delete.svg",
             destructive = true,
             onClick = {
                 onDismiss()
                 onDelete()
             }
         )
+    }
+}
+
+@Composable
+private fun CompactSheetActionRow(
+    label: String,
+    supportingText: String? = null,
+    icon: ImageVector? = null,
+    assetIcon: String? = null,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val tokens = boxPandoraModalTokens()
+    val tint = if (destructive) tokens.destructiveAccent else tokens.bodyText
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 4.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        if (assetIcon != null) {
+            AppAssetIcon(assetIcon = assetIcon, tint = tint, modifier = Modifier.size(18.dp))
+        } else if (icon != null) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                color = tint
+            )
+            supportingText?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = tokens.secondaryText.copy(alpha = 0.76f)
+                )
+            }
+        }
     }
 }

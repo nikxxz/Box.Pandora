@@ -70,18 +70,12 @@ fun NavigationRow(
         iconColor = iconColor,
         onClick = onClick,
         trailing = {
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = tokens.iconBackgroundNeutral,
-                tonalElevation = 0.dp
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null,
-                    modifier = Modifier.padding(7.dp).size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+            )
         }
     )
 }
@@ -131,21 +125,15 @@ fun ValueSelectorRow(
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
                 )
                 Spacer(Modifier.width(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = tokens.iconBackgroundNeutral,
-                    tonalElevation = 0.dp
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null,
-                        modifier = Modifier.padding(7.dp).size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
-                    )
-                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
+                )
             }
         }
     )
@@ -170,20 +158,19 @@ fun ActionRow(
 
 @Composable
 fun SettingSectionHeader(title: String, subtitle: String? = null) {
-    Column(modifier = Modifier.padding(start = 18.dp, top = 26.dp, end = 18.dp, bottom = 8.dp)) {
+    Column(modifier = Modifier.padding(start = 18.dp, top = 22.dp, end = 18.dp, bottom = 10.dp)) {
         Text(
-            text = title.uppercase(),
-            style = MaterialTheme.typography.labelMedium.copy(
-                letterSpacing = 1.4.sp,
-                fontWeight = FontWeight.Bold
+            text = title,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.SemiBold
             ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.88f)
+            color = MaterialTheme.colorScheme.onSurface
         )
         if (subtitle != null) {
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.68f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 modifier = Modifier.padding(top = 4.dp)
             )
         }
@@ -202,44 +189,36 @@ private fun SettingsListRow(
     val tokens = boxPandoraModalTokens()
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val resolvedIconColor = iconColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f)
-    val cardColor = tokens.cardBackground.copy(alpha = if (isDark) 0.84f else 0.94f)
-    val iconChipColor = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.08f else 0.05f)
+    val cardColor = if (isDark) tokens.cardBackground.copy(alpha = 0.84f) else Color.White.copy(alpha = 0.96f)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
     ) {
         Surface(
             onClick = onClick,
             color = cardColor,
             tonalElevation = 0.dp,
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(22.dp),
             border = BorderStroke(1.dp, tokens.border),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 82.dp)
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                    .heightIn(min = 70.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 icon?.let {
-                    Box(
-                        modifier = Modifier
-                            .size(46.dp)
-                            .background(iconChipColor, RoundedCornerShape(16.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = it,
-                            contentDescription = null,
-                            tint = resolvedIconColor,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = it,
+                        contentDescription = null,
+                        tint = resolvedIconColor,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
 
                 Column(
@@ -248,7 +227,7 @@ private fun SettingsListRow(
                 ) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     subtitle?.let {

@@ -167,6 +167,10 @@ class FoldersViewModel(private val repository: MediaRepository) : ViewModel() {
         _selectedAlbumIds.value = emptySet()
     }
 
+    fun selectAlbums(ids: Collection<Long>) {
+        _selectedAlbumIds.value = ids.toSet()
+    }
+
     fun refresh() {
         viewModelScope.launch {
             _isRefreshing.value = true

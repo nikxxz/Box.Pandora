@@ -1,6 +1,10 @@
 package com.example.boxpandora.ui.main
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -25,9 +29,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -36,8 +43,10 @@ import androidx.navigation.navArgument
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.ui.components.media.MediaViewer
+import com.example.boxpandora.ui.common.AppLockGateDialog
 import com.example.boxpandora.ui.common.AppDialog
 import com.example.boxpandora.ui.common.ModalHeader
+import com.example.boxpandora.ui.common.createDeviceCredentialIntent
 import com.example.boxpandora.ui.main.viewmodel.*
 import com.example.boxpandora.ui.settings.*
 import com.example.boxpandora.ui.theme.BoxPandoraTheme
@@ -60,10 +69,15 @@ import com.example.boxpandora.ui.theme.panelExitTransition
 
 @Composable
 fun MainScreen() {
-    val context = LocalContext.current
+    val activity = LocalContext.current as ComponentActivity
+    val context = activity
     val app = context.applicationContext as PandoraApp
     val themeViewModel: ThemeViewModel = viewModel(
         factory = ThemeViewModelFactory(app.database.userPreferenceDao())
+    )
+    val appLockViewModel: AppLockViewModel = viewModel(
+        viewModelStoreOwner = activity,
+        factory = AppLockViewModelFactory(app.database.userPreferenceDao())
     )
     val maintenanceViewModel: MaintenanceViewModel = viewModel(
         factory = MaintenanceViewModelFactory(app.repository)
@@ -78,8 +92,12 @@ fun MainScreen() {
     val sortOrder    by themeViewModel.sortOrder.collectAsState()
     val showGradient by themeViewModel.showGradient.collectAsState()
     val accentColor  by themeViewModel.accentColor.collectAsState()
+    val appLockSettings by appLockViewModel.settings.collectAsState()
+    val isAppLocked by appLockViewModel.isLocked.collectAsState()
+    val appLockError by appLockViewModel.unlockError.collectAsState()
 
     val navController = rememberNavController()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
@@ -90,8 +108,54 @@ fun MainScreen() {
     val status by maintenanceViewModel.status.collectAsState()
     val progress by maintenanceViewModel.progress.collectAsState()
 
-    if (isDrawerOpen) {
+    val deviceCredentialLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            appLockViewModel.unlockSuccess()
+        }
+    }
+
+    if (isDrawerOpen && !isAppLocked) {
         BackHandler { isDrawerOpen = false }
+    }
+
+    if (isAppLocked) {
+        BackHandler {}
+    }
+
+    DisposableEffect(lifecycleOwner, activity, appLockSettings.isEnabled, appLockSettings.timeout) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> {
+                    if (!activity.isChangingConfigurations) {
+                        appLockViewModel.onAppBackgrounded()
+                    }
+                }
+                Lifecycle.Event.ON_START -> appLockViewModel.onAppForegrounded()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(isAppLocked) {
+        if (isAppLocked) {
+            isDrawerOpen = false
+        }
+    }
+
+    LaunchedEffect(isAppLocked, appLockSettings.mode) {
+        if (isAppLocked && appLockSettings.mode == AppLockMode.DEVICE_CREDENTIAL) {
+            createDeviceCredentialIntent(
+                context = activity,
+                title = "Unlock Pandora",
+                description = "Use your phone lock to continue."
+            )?.let(deviceCredentialLauncher::launch)
+        }
     }
 
     BoxPandoraTheme(themeMode = themeMode, showGradient = showGradient, accentColor = accentColor) {
@@ -232,6 +296,22 @@ fun MainScreen() {
                     onDismiss = { maintenanceViewModel.resetProgress() }
                 )
             }
+
+            if (appLockSettings.isEnabled && isAppLocked) {
+                AppLockGateDialog(
+                    mode = appLockSettings.mode,
+                    errorMessage = appLockError,
+                    onUnlockWithPin = { pin -> appLockViewModel.unlockWithPin(pin) },
+                    onUnlockWithPhoneLock = {
+                        createDeviceCredentialIntent(
+                            context = activity,
+                            title = "Unlock Pandora",
+                            description = "Use your phone lock to continue."
+                        )?.let(deviceCredentialLauncher::launch)
+                    },
+                    onClearError = { appLockViewModel.clearUnlockError() }
+                )
+            }
         }
     }
 }
@@ -254,74 +334,80 @@ fun SettingsDrawer(
     var showAccentPicker by remember { mutableStateOf(false) }
 
     if (showAccentPicker) {
-        AlertDialog(
-            onDismissRequest = { showAccentPicker = false },
-            containerColor   = MaterialTheme.colorScheme.surface,
-            title = { Text("Accent Color", style = MaterialTheme.typography.titleMedium) },
-            text  = {
-                Column(
-                    modifier            = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    AccentColor.values().toList().chunked(5).forEach { rowColors ->
-                        Row(
-                            modifier              = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            rowColors.forEach { c ->
-                                val swatchColor = Color(c.colorLong)
-                                val isSelected  = accentColor == c
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(swatchColor)
-                                        .then(
-                                            if (isSelected)
-                                                Modifier.border(3.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f), CircleShape)
-                                            else Modifier
-                                        )
-                                        .clickable {
-                                            onAccentColorSet(c)
-                                            showAccentPicker = false
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector        = Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint               = if (swatchColor.luminance() > 0.5f) Color(0xFF333333) else Color.White,
-                                            modifier           = Modifier.size(20.dp)
-                                        )
-                                    }
+        AppDialog(onDismiss = { showAccentPicker = false }) {
+            ModalHeader(
+                title = "Accent Color",
+                subtitle = "Choose the primary accent used across the interface."
+            )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                AccentColor.values().toList().chunked(5).forEach { rowColors ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        rowColors.forEach { c ->
+                            val swatchColor = Color(c.colorLong)
+                            val isSelected = accentColor == c
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(swatchColor)
+                                    .then(
+                                        if (isSelected)
+                                            Modifier.border(3.dp, MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f), CircleShape)
+                                        else Modifier
+                                    )
+                                    .clickable {
+                                        onAccentColorSet(c)
+                                        showAccentPicker = false
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = if (swatchColor.luminance() > 0.5f) Color(0xFF333333) else Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
                                 }
                             }
                         }
                     }
-                    Text(
-                        text  = accentColor.displayName,
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = Color(accentColor.colorLong)
-                    )
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAccentPicker = false }) {
-                    Text("Close", color = MaterialTheme.colorScheme.primary)
-                }
+                Text(
+                    text = accentColor.displayName,
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    color = Color(accentColor.colorLong)
+                )
             }
-        )
+            Button(
+                onClick = { showAccentPicker = false },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = tokens.iconBackgroundNeutral,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp)
+            ) {
+                Text("Close")
+            }
+        }
     }
 
     Surface(
         modifier = Modifier
             .fillMaxHeight()
-            .width(296.dp),
+            .width(308.dp),
         color = Color.Transparent,
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
+        shape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp)
     ) {
         Box(
             modifier = Modifier
@@ -330,8 +416,8 @@ fun SettingsDrawer(
         ) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
-                shape = RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp),
-                color = tokens.cardBackground.copy(alpha = 0.94f),
+                shape = RoundedCornerShape(topEnd = 32.dp, bottomEnd = 32.dp),
+                color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) tokens.cardBackground.copy(alpha = 0.94f) else Color.White.copy(alpha = 0.95f),
                 border = BorderStroke(1.dp, tokens.border),
                 tonalElevation = 0.dp
             ) {
@@ -339,13 +425,13 @@ fun SettingsDrawer(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                        .padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(28.dp),
-                        color = MaterialTheme.colorScheme.background.copy(alpha = 0.42f),
+                        color = tokens.cardBackground.copy(alpha = 0.86f),
                         border = BorderStroke(1.dp, tokens.border),
                         tonalElevation = 0.dp
                     ) {
@@ -364,7 +450,7 @@ fun SettingsDrawer(
                             Spacer(Modifier.height(14.dp))
                             Text(
                                 text = "pandora",
-                                style = MaterialTheme.typography.displaySmall.copy(
+                                style = MaterialTheme.typography.headlineLarge.copy(
                                     fontWeight = FontWeight.W200,
                                     letterSpacing = 4.sp
                                 ),
@@ -583,7 +669,7 @@ private fun DrawerSectionCard(
 fun QuickSectionHeader(title: String) {
     Text(
         text = title.uppercase(),
-        style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp, fontWeight = FontWeight.Bold),
+        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
         modifier = Modifier.padding(bottom = 12.dp)
     )
@@ -601,8 +687,8 @@ fun <T> SegmentedSelector(
 
     Column {
         Text(
-            text = label.uppercase(),
-            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.1.sp, fontWeight = FontWeight.SemiBold),
+            text = label,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
             modifier = Modifier.padding(bottom = 8.dp)
         )
@@ -639,6 +725,7 @@ fun <T> SegmentedSelector(
 fun CompactToggleRow(
     title: String,
     checked: Boolean,
+    showDivider: Boolean = false,
     onCheckedChange: (Boolean) -> Unit
 ) {
     val tokens = boxPandoraModalTokens()
@@ -669,7 +756,9 @@ fun CompactToggleRow(
                 )
             )
         }
-        HorizontalDivider(color = tokens.divider)
+        if (showDivider) {
+            HorizontalDivider(color = tokens.divider)
+        }
     }
 }
 

@@ -88,6 +88,10 @@ class FavoritesViewModel(private val repository: MediaRepository) : ViewModel() 
         _selectedUris.value = emptySet()
     }
 
+    fun selectItems(uris: Collection<String>) {
+        _selectedUris.value = uris.toSet()
+    }
+
     fun removeFromFavoritesSelected() {
         val uris = _selectedUris.value.toList()
         if (uris.isEmpty()) return
