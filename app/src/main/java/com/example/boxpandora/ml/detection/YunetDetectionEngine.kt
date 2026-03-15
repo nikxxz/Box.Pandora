@@ -45,6 +45,8 @@ class YunetDetectionEngine(
         val valPerDet  = shape[2]   // 15
         val srcW       = bitmap.width.toFloat()
         val srcH       = bitmap.height.toFloat()
+        val inW        = meta.inputWidth.toFloat()
+        val inH        = meta.inputHeight.toFloat()
 
         val candidates = mutableListOf<DetectionResult>()
         for (i in 0 until n) {
@@ -55,17 +57,19 @@ class YunetDetectionEngine(
             val xc = flat[base + 1]; val yc = flat[base + 2]
             val bw = flat[base + 3]; val bh = flat[base + 4]
 
-            val left   = (xc - bw / 2f).coerceIn(0f, 1f)
-            val top    = (yc - bh / 2f).coerceIn(0f, 1f)
-            val right  = (xc + bw / 2f).coerceIn(0f, 1f)
-            val bottom = (yc + bh / 2f).coerceIn(0f, 1f)
+            // YuNet outputs pixel coordinates relative to the input tensor size;
+            // divide by input dimensions to get normalised [0, 1] values.
+            val left   = ((xc - bw / 2f) / inW).coerceIn(0f, 1f)
+            val top    = ((yc - bh / 2f) / inH).coerceIn(0f, 1f)
+            val right  = ((xc + bw / 2f) / inW).coerceIn(0f, 1f)
+            val bottom = ((yc + bh / 2f) / inH).coerceIn(0f, 1f)
 
             if ((bottom - top) * srcH < config.minFaceHeightPx) continue
 
             val landmarks = if (valPerDet >= 15) {
                 (0 until 5).map { k ->
-                    flat[base + 5 + k * 2].coerceIn(0f, 1f) to
-                    flat[base + 5 + k * 2 + 1].coerceIn(0f, 1f)
+                    (flat[base + 5 + k * 2]     / inW).coerceIn(0f, 1f) to
+                    (flat[base + 5 + k * 2 + 1] / inH).coerceIn(0f, 1f)
                 }
             } else emptyList()
 

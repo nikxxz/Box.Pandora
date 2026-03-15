@@ -6,11 +6,8 @@ import android.util.Log
 import com.example.boxpandora.ml.config.AiFeatureFlags
 import com.example.boxpandora.ml.detection.MediaType
 import com.example.boxpandora.ml.engine.EmbeddingUtils
-import com.example.boxpandora.ml.manager.ModelInstallResult
 import com.example.boxpandora.ml.manager.ModelManager
 import com.example.boxpandora.ml.model.ModelCategory
-import com.example.boxpandora.ml.model.ModelManifest
-import com.example.boxpandora.ml.model.ModelManifest.Companion.defaultForCategory
 import com.example.boxpandora.ml.runtime.ModelRuntime
 import com.example.boxpandora.ml.runtime.ModelRuntimeFactory
 import org.tensorflow.lite.support.common.ops.NormalizeOp
@@ -67,31 +64,11 @@ class FaceEmbeddingService(
     init {
         val active = modelManager.getActiveModel(ModelCategory.FACE_EMBEDDING)
 
-        val installed = if (active != null) {
-            active
-        } else {
-            val meta = ModelManifest.load(context).defaultForCategory(ModelCategory.FACE_EMBEDDING)
-                ?: throw FaceEmbeddingException("No face_embedding model in manifest")
-
-            Log.i(TAG, "Active model not found — attempting install for ${meta.id}")
-            val result = kotlinx.coroutines.runBlocking { modelManager.installFromAsset(meta) }
-            when (result) {
-                is ModelInstallResult.Success    -> result.installed
-                ModelInstallResult.AlreadyInstalled ->
-                    modelManager.getActiveModel(ModelCategory.FACE_EMBEDDING)
-                        ?: throw FaceEmbeddingException("AlreadyInstalled but active model is null")
-                ModelInstallResult.SourceNotFound ->
-                    throw FaceEmbeddingException("ArcFace model not found at the declared source path.")
-                ModelInstallResult.ChecksumMismatch ->
-                    throw FaceEmbeddingException("Face embedding model failed integrity check")
-                is ModelInstallResult.InvalidModel ->
-                    throw FaceEmbeddingException("Face embedding model failed compatibility check: ${result.reason}")
-                is ModelInstallResult.Error ->
-                    throw FaceEmbeddingException("Face embedding model install error", result.cause)
-                is ModelInstallResult.ManifestIncomplete ->
-                    throw FaceEmbeddingException("Face embedding model manifest incomplete: ${result.reason}")
-            }
-        }
+        val installed = active
+            ?: throw FaceEmbeddingException(
+                "No face embedding model is installed. " +
+                "Download one via Settings → AI Models before face recognition can run."
+            )
 
         inputWidth      = installed.metadata.inputWidth
         inputHeight     = installed.metadata.inputHeight

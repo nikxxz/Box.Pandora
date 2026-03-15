@@ -18,6 +18,7 @@ import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
 import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
 import com.example.boxpandora.data.local.dao.TagCooccurrenceDao
+import com.example.boxpandora.data.local.entity.TagSuggestion
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -41,7 +42,10 @@ class MediaViewerViewModel(
     )
 
     private val _selectedMediaUri = MutableStateFlow<String?>(null)
-    
+
+    /** Bumped on every accept/reject so suggestion flows re-fetch from DB. */
+    private val _suggestionVersion = MutableStateFlow(0)
+
     val tagsForSelectedMedia: StateFlow<List<Tag>> = _selectedMediaUri
         .filterNotNull()
         .flatMapLatest { uri -> 
@@ -51,14 +55,26 @@ class MediaViewerViewModel(
         .onEach { Log.d("MediaViewerVM", "Tags updated for current URI, count: ${it.size}") }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val suggestionsForSelectedMedia: StateFlow<List<String>> = _selectedMediaUri
-        .filterNotNull()
-        .flatMapLatest { uri -> 
+    val suggestionsForSelectedMedia: StateFlow<List<String>> = combine(
+        _selectedMediaUri.filterNotNull(),
+        _suggestionVersion
+    ) { uri, _ -> uri }
+        .flatMapLatest { uri ->
             Log.d("MediaViewerVM", "Fetching suggestions for URI: $uri")
             flow { emit(tagRepository.getSuggestionsForMedia(uri)) }
         }
         .onEach { Log.d("MediaViewerVM", "Suggestions updated for current URI, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Full suggestion objects (with score + source) for the 3-layer tag popup. */
+    val suggestionObjectsForSelectedMedia: StateFlow<List<TagSuggestion>> = combine(
+        _selectedMediaUri.filterNotNull(),
+        _suggestionVersion
+    ) { uri, _ -> uri }
+        .flatMapLatest { uri ->
+            flow { emit(tagRepository.getSuggestionObjectsForMedia(uri)) }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private var albumsJob: Job? = null
 
@@ -103,6 +119,7 @@ class MediaViewerViewModel(
             tagRepository.attachTagToMedia(item.uri, tagName)
             logTagHistory(item, tagName, "media_attached")
             updateCooccurrences(item, tagName)
+            _suggestionVersion.value++  // accepted tag may have been a pending suggestion
         }
     }
 
@@ -111,12 +128,14 @@ class MediaViewerViewModel(
             tagRepository.acceptSuggestion(item.uri, tagKey)
             logTagHistory(item, tagKey, "suggestion_accepted")
             updateCooccurrences(item, tagKey)
+            _suggestionVersion.value++  // remove accepted suggestion from displayed list
         }
     }
 
     fun rejectSuggestion(item: MediaItem, tagKey: String) {
         viewModelScope.launch {
             tagRepository.rejectSuggestion(item.uri, tagKey)
+            _suggestionVersion.value++  // remove rejected suggestion from displayed list
         }
     }
 
@@ -174,6 +193,17 @@ class MediaViewerViewModel(
     fun mergeTag(sourceTagId: Long, targetTagId: Long) {
         viewModelScope.launch {
             tagRepository.mergeTags(sourceTagId, targetTagId)
+        }
+    }
+
+    /**
+     * Applies a list of tag names to multiple media items in a single batch transaction.
+     * Used by the similarity-based batch tagging workflow.
+     */
+    fun applyTagsToMediaBatch(uris: List<String>, tagNames: List<String>) {
+        if (uris.isEmpty() || tagNames.isEmpty()) return
+        viewModelScope.launch {
+            tagRepository.bulkAttachTags(uris, tagNames)
         }
     }
 

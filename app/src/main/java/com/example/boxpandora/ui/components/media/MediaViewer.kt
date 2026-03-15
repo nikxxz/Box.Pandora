@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -63,6 +64,9 @@ import coil.request.ImageRequest
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
+import com.example.boxpandora.data.local.entity.TagSuggestion
+import com.example.boxpandora.ui.common.components.TagSuggestionRow
+import com.example.boxpandora.ui.common.components.shouldShowSuggestion
 import com.example.boxpandora.data.util.Formatters
 import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.ui.common.AppAssetIcon
@@ -76,11 +80,11 @@ import com.example.boxpandora.ui.common.ModalTextField
 import com.example.boxpandora.ui.common.ModalHeader
 import com.example.boxpandora.ui.common.ModalRichRow
 import com.example.boxpandora.ui.common.ModalFooterAction
+import com.example.boxpandora.ui.common.ModalDivider
 import com.example.boxpandora.ui.common.RenameDialog
 import com.example.boxpandora.ui.common.TagPopupChip
 import com.example.boxpandora.ui.common.TagPopupDialog
 import com.example.boxpandora.ui.common.TagPopupSectionLabel
-import com.example.boxpandora.ui.common.TagPopupSuggestionChip
 import com.example.boxpandora.ui.common.tagPopupChipBackground
 import com.example.boxpandora.ui.common.tagPopupChipBorder
 import com.example.boxpandora.ui.theme.panelEnterTransition
@@ -764,6 +768,7 @@ private fun InfoPanelContent(
 ) {
     val tags by viewModel.tagsForSelectedMedia.collectAsState()
     val suggestions by viewModel.suggestionsForSelectedMedia.collectAsState()
+    val suggestionObjects by viewModel.suggestionObjectsForSelectedMedia.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
     val allAlbums by viewModel.allAlbums.collectAsState()
     var showTagPopup by remember { mutableStateOf(false) }
@@ -1121,7 +1126,8 @@ private fun InfoPanelContent(
             query = tagQuery,
             onQueryChange = { tagQuery = it },
             matches = tagMatches,
-            suggestions = suggestions,
+            suggestionObjects = suggestionObjects,
+            currentTags = tags,
             onDismiss = {
                 showTagPopup = false
                 tagQuery = ""
@@ -1138,7 +1144,18 @@ private fun InfoPanelContent(
                 tagQuery = ""
             },
             onAcceptSuggestion = { tagName -> viewModel.acceptSuggestion(item, tagName) },
-            onRejectSuggestion = { tagName -> viewModel.rejectSuggestion(item, tagName) }
+            onRejectSuggestion = { tagName -> viewModel.rejectSuggestion(item, tagName) },
+            onRemoveTag = { tag -> viewModel.removeTag(item, tag) },
+            onRenameTag = { tagId, newName -> viewModel.renameTag(tagId, newName) },
+            onMergeTag = { sourceId, targetId -> viewModel.mergeTag(sourceId, targetId) },
+            onViewTagGallery = { tagId ->
+                showTagPopup = false
+                tagQuery = ""
+                onNavigateToTag(tagId)
+            },
+            onFindSimilar = onFindSimilar?.let { finder ->
+                { finder(item.uri); showTagPopup = false; tagQuery = "" }
+            }
         )
     }
 }
@@ -1305,21 +1322,37 @@ private fun ManageTagsButton(onClick: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 private fun ManageTagsPopup(
     query: String,
     onQueryChange: (String) -> Unit,
     matches: List<Tag>,
-    suggestions: List<String>,
+    suggestionObjects: List<TagSuggestion>,
+    currentTags: List<Tag>,
     onDismiss: () -> Unit,
     onAddTypedTag: () -> Unit,
     onSelectTag: (String) -> Unit,
     onAcceptSuggestion: (String) -> Unit,
-    onRejectSuggestion: (String) -> Unit
+    onRejectSuggestion: (String) -> Unit,
+    onRemoveTag: (Tag) -> Unit,
+    onRenameTag: (Long, String) -> Unit,
+    onMergeTag: (Long, Long) -> Unit,
+    onViewTagGallery: (Long) -> Unit,
+    onFindSimilar: (() -> Unit)? = null
 ) {
     val trimmedQuery = query.trim()
     val tokens = boxPandoraModalTokens()
+
+    var tagActionMenuTarget by remember { mutableStateOf<Tag?>(null) }
+    var renameTarget by remember { mutableStateOf<Tag?>(null) }
+    var renameText by remember { mutableStateOf("") }
+
+    val filteredSuggestions = remember(trimmedQuery, suggestionObjects) {
+        val visible = suggestionObjects.filter { shouldShowSuggestion(it) }
+        if (trimmedQuery.isBlank()) visible
+        else visible.filter { it.tagKey.contains(trimmedQuery, ignoreCase = true) }
+    }
 
     TagPopupDialog(
         title = "Manage Tags",
@@ -1332,61 +1365,240 @@ private fun ManageTagsPopup(
         onQueryChange = onQueryChange,
         onDismiss = onDismiss,
         onAddClick = onAddTypedTag,
-        addEnabled = trimmedQuery.isNotBlank()
-    ) {
-        if (matches.isNotEmpty() || query.isNotBlank()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TagPopupSectionLabel(
-                    title = if (query.isBlank()) "Top Suggestions" else "Matches",
-                    meta = "${matches.size} shown"
-                )
-                if (matches.isEmpty()) {
-                    Text(
-                        text = "No match. Tap + to create \"$trimmedQuery\".",
-                        color = tokens.secondaryText.copy(alpha = 0.85f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                } else {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+        addEnabled = trimmedQuery.isNotBlank(),
+        footer = {
+            if (onFindSimilar != null) {
+                ModalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TextButton(
+                        onClick = onFindSimilar,
+                        colors = ButtonDefaults.textButtonColors(contentColor = tokens.selectedAccent)
                     ) {
-                        matches.forEach { tag ->
-                            TagPopupChip(
-                                label = tag.name.uppercase(),
-                                count = tag.usageCount,
-                                backgroundColor = tagPopupChipBackground(tag.color, tokens),
-                                borderColor = tagPopupChipBorder(tag.color, tokens),
-                                textColor = tokens.bodyText,
-                                onClick = { onSelectTag(tag.name) }
-                            )
-                        }
+                        Icon(
+                            Icons.Default.Collections,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            "Find Similar Images",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+                        )
                     }
                 }
             }
         }
-
-        if (suggestions.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                TagPopupSectionLabel(
-                    title = "Suggestions",
-                    meta = "${suggestions.size} available"
+    ) {
+        // ── Top suggestions (blank query) or search matches (non-empty query) ─
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            TagPopupSectionLabel(
+                title = if (query.isBlank()) "Top Suggestions" else "Matching Tags",
+                meta = "${matches.size} shown"
+            )
+            if (matches.isEmpty() && query.isNotBlank()) {
+                Text(
+                    text = "No match. Tap + to create \"$trimmedQuery\".",
+                    color = tokens.secondaryText.copy(alpha = 0.85f),
+                    style = MaterialTheme.typography.bodySmall
                 )
+            } else {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    suggestions.forEach { suggestion ->
-                        TagPopupSuggestionChip(
-                            text = suggestion,
-                            onAccept = { onAcceptSuggestion(suggestion) },
-                            onReject = { onRejectSuggestion(suggestion) }
+                    matches.forEach { tag ->
+                        TagPopupChip(
+                            label = tag.name.uppercase(),
+                            count = tag.usageCount,
+                            backgroundColor = tagPopupChipBackground(tag.color, tokens),
+                            borderColor = tagPopupChipBorder(tag.color, tokens),
+                            textColor = tokens.bodyText,
+                            onClick = { onSelectTag(tag.name) }
                         )
                     }
                 }
             }
+        }
+
+        // ── Suggestions section ─────────────────────────────────────────────
+        if (filteredSuggestions.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Suggestions",
+                        color = tokens.bodyText,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = "• ${filteredSuggestions.size}",
+                        color = tokens.secondaryText.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    filteredSuggestions.forEach { suggestion ->
+                        TagSuggestionRow(
+                            suggestion = suggestion,
+                            onAdd = { onAcceptSuggestion(suggestion.tagKey) },
+                            onDismiss = { onRejectSuggestion(suggestion.tagKey) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Current Tags section ────────────────────────────────────────────
+        if (currentTags.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Current Tags",
+                        color = tokens.bodyText,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = "• ${currentTags.size}",
+                        color = tokens.secondaryText.copy(alpha = 0.78f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    currentTags.forEach { tag ->
+                        Box {
+                            CurrentTagChip(
+                                tag = tag,
+                                tokens = tokens,
+                                onTap = { onViewTagGallery(tag.id) },
+                                onLongPress = { tagActionMenuTarget = tag }
+                            )
+                            DropdownMenu(
+                                expanded = tagActionMenuTarget?.id == tag.id,
+                                onDismissRequest = { tagActionMenuTarget = null }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Remove tag") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                                    },
+                                    onClick = {
+                                        onRemoveTag(tag)
+                                        tagActionMenuTarget = null
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rename tag") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                                    },
+                                    onClick = {
+                                        renameTarget = tag
+                                        renameText = tag.name
+                                        tagActionMenuTarget = null
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("View tag gallery") },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.GridView, null, modifier = Modifier.size(16.dp))
+                                    },
+                                    onClick = {
+                                        tagActionMenuTarget = null
+                                        onViewTagGallery(tag.id)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Rename dialog ────────────────────────────────────────────────────────
+    renameTarget?.let { tag ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename Tag") },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("New name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val n = renameText.trim()
+                    if (n.isNotEmpty()) onRenameTag(tag.id, n)
+                    renameTarget = null
+                }) { Text("Rename") }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+/** Tag chip that supports long-press for the tag actions menu. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CurrentTagChip(
+    tag: Tag,
+    tokens: ModalTokens,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit
+) {
+    val bg = tagPopupChipBackground(tag.color, tokens)
+    val border = tagPopupChipBorder(tag.color, tokens)
+    Surface(
+        modifier = Modifier.combinedClickable(onClick = onTap, onLongClick = onLongPress),
+        shape = RoundedCornerShape(999.dp),
+        color = bg,
+        border = BorderStroke(1.dp, border),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 10.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(tokens.bodyText.copy(alpha = 0.5f))
+            )
+            Text(
+                text = tag.name.uppercase(),
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = tokens.bodyText
+            )
+            Text(
+                text = tag.usageCount.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = tokens.bodyText.copy(alpha = 0.7f)
+            )
         }
     }
 }

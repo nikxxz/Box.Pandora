@@ -287,6 +287,28 @@ class TagRepository(
     }
 
     /**
+     * Fetches full suggestion objects (with score + source) for a given media item,
+     * filtered by rejections and current tags. Combines tag_suggestions and heuristic_tags.
+     * Returns at most 8 results sorted by descending score.
+     */
+    suspend fun getSuggestionObjectsForMedia(mediaUri: String): List<TagSuggestion> = withContext(Dispatchers.IO) {
+        val suggestions = tagSuggestionDao.getForAsset(mediaUri)
+        val heuristics = heuristicTagDao.getForAsset(mediaUri).map { h ->
+            TagSuggestion(assetId = h.assetId, tagKey = h.tagKey, score = h.score, source = "heuristic")
+        }
+        val rejections = tagRejectionDao.getForAsset(mediaUri).map { it.tagKey }.toSet()
+        val tagIds = mediaTagDao.getMediaTagsForUri(mediaUri).map { it.tagId }
+        val currentTags = if (tagIds.isEmpty()) emptySet()
+            else tagDao.getByIds(tagIds).map { it.normalizedName }.toSet()
+
+        (suggestions + heuristics)
+            .filter { it.tagKey !in rejections && it.tagKey !in currentTags }
+            .distinctBy { it.tagKey }
+            .sortedByDescending { it.score }
+            .take(8)
+    }
+
+    /**
      * Accepts a suggestion and turns it into a canonical tag attachment.
      */
     suspend fun acceptSuggestion(mediaUri: String, tagKey: String) = withContext(Dispatchers.IO) {

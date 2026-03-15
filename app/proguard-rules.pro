@@ -19,3 +19,16 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ONNX Runtime — all classes are called from native JNI code and must be kept intact
+-keep class ai.onnxruntime.** { *; }
+-keepclassmembers class ai.onnxruntime.** { *; }
+
+# TensorFlow Lite — keep interpreter and support library classes used at runtime
+-keep class org.tensorflow.lite.** { *; }
+-keep class org.tensorflow.lite.support.** { *; }
+
+# TFLite Support library references com.google.auto.value.AutoValue (annotation
+# processor compile-time only) in TensorAudio — suppress the missing-class error.
+-dontwarn com.google.auto.value.AutoValue
+-dontwarn com.google.auto.value.AutoValue$Builder

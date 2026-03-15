@@ -4,11 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.util.Log
 import com.example.boxpandora.ml.engine.EmbeddingUtils
-import com.example.boxpandora.ml.manager.ModelInstallResult
 import com.example.boxpandora.ml.manager.ModelManager
 import com.example.boxpandora.ml.model.ModelCategory
-import com.example.boxpandora.ml.model.ModelManifest
-import com.example.boxpandora.ml.model.ModelManifest.Companion.defaultForCategory
 import com.example.boxpandora.ml.runtime.ModelRuntime
 import com.example.boxpandora.ml.runtime.ModelRuntimeFactory
 import org.tensorflow.lite.support.common.ops.NormalizeOp
@@ -57,33 +54,11 @@ class SceneEmbeddingService(
     init {
         val active = modelManager.getActiveModel(ModelCategory.SCENE_EMBEDDING)
 
-        val installed = if (active != null) {
-            active
-        } else {
-            val meta = ModelManifest.load(context).defaultForCategory(ModelCategory.SCENE_EMBEDDING)
-                ?: throw SceneEmbeddingException("No scene_embedding model in manifest")
-
-            Log.i(TAG, "Active model not found — attempting install for ${meta.id}")
-            val result = kotlinx.coroutines.runBlocking { modelManager.installFromAsset(meta) }
-            when (result) {
-                is ModelInstallResult.Success    -> result.installed
-                ModelInstallResult.AlreadyInstalled ->
-                    modelManager.getActiveModel(ModelCategory.SCENE_EMBEDDING)
-                        ?: throw SceneEmbeddingException("AlreadyInstalled but active model is null")
-                ModelInstallResult.SourceNotFound ->
-                    throw SceneEmbeddingException(
-                        "Model binary not found. Place the file at the path in ModelManifest."
-                    )
-                ModelInstallResult.ChecksumMismatch ->
-                    throw SceneEmbeddingException("Model binary failed integrity check")
-                is ModelInstallResult.InvalidModel ->
-                    throw SceneEmbeddingException("Model failed compatibility check: ${result.reason}")
-                is ModelInstallResult.Error ->
-                    throw SceneEmbeddingException("Model install error", result.cause)
-                is ModelInstallResult.ManifestIncomplete ->
-                    throw SceneEmbeddingException("Scene embedding model manifest incomplete: ${result.reason}")
-            }
-        }
+        val installed = active
+            ?: throw SceneEmbeddingException(
+                "No scene embedding model is installed. " +
+                "Download one via Settings → AI Models before indexing can begin."
+            )
 
         inputWidth      = installed.metadata.inputWidth
         inputHeight     = installed.metadata.inputHeight
