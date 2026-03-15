@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.example.boxpandora.data.local.AppDatabase
 import com.example.boxpandora.data.local.dao.*
 import com.example.boxpandora.data.local.entity.*
+import com.example.boxpandora.ml.ensemble.ReliabilityUpdateService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -21,6 +22,12 @@ class TagRepository(
     private val tagChangeHistoryDao: TagChangeHistoryDao,
     private val tagCooccurrenceDao: TagCooccurrenceDao
 ) {
+
+    /**
+     * Lazily created — only instantiated if ensemble suggestions exist to update.
+     * Shares [database] to avoid a second DB handle.
+     */
+    private val reliabilityService by lazy { ReliabilityUpdateService(database) }
 
     fun getAllTagsFlow(): Flow<List<Tag>> = tagDao.getAllTagsFlow()
 
@@ -287,41 +294,169 @@ class TagRepository(
     }
 
     /**
-     * Fetches full suggestion objects (with score + source) for a given media item,
-     * filtered by rejections and current tags. Combines tag_suggestions and heuristic_tags.
+     * Fetches per-asset suggestion candidates as [RichSuggestion], filtered by rejections
+     * and already-applied tags.
+     *
+     * Merges three source pipelines (highest-score wins for duplicate tag keys):
+     *  - [tagSuggestionDao]        — single-model scene suggestions
+     *  - [heuristicTagDao]         — rule-based heuristic suggestions
+     *  - [fusedSceneSuggestionDao] — ensemble-fused scene suggestions (status=pending only)
+     *
+     * Fused rows carry structured provenance ([RichSuggestion.contributingModelCount],
+     * [RichSuggestion.agreementLevel], [RichSuggestion.isAmbiguous]) so the UI can display
+     * an explainability badge without parsing source strings.
+     *
      * Returns at most 8 results sorted by descending score.
      */
-    suspend fun getSuggestionObjectsForMedia(mediaUri: String): List<TagSuggestion> = withContext(Dispatchers.IO) {
-        val suggestions = tagSuggestionDao.getForAsset(mediaUri)
-        val heuristics = heuristicTagDao.getForAsset(mediaUri).map { h ->
-            TagSuggestion(assetId = h.assetId, tagKey = h.tagKey, score = h.score, source = "heuristic")
+    suspend fun getSuggestionObjectsForMedia(mediaUri: String): List<RichSuggestion> = withContext(Dispatchers.IO) {
+        val richSingle = tagSuggestionDao.getForAsset(mediaUri).map { s ->
+            RichSuggestion(
+                id           = s.id,
+                assetId      = s.assetId,
+                tagKey       = s.tagKey,
+                score        = s.score,
+                source       = s.source,
+                modelVersion = s.modelVersion,
+            )
+        }
+        val richHeuristics = heuristicTagDao.getForAsset(mediaUri).map { h ->
+            RichSuggestion(
+                id      = 0L,
+                assetId = h.assetId,
+                tagKey  = h.tagKey,
+                score   = h.score,
+                source  = "heuristic",
+            )
+        }
+        val richFused = database.fusedSceneSuggestionDao().getPendingForAsset(mediaUri).map { f ->
+            RichSuggestion(
+                id                     = f.id,
+                assetId                = f.assetId,
+                tagKey                 = f.canonicalTagKey,
+                score                  = f.fusedScore.toDouble(),
+                source                 = "fused_scene",
+                modelVersion           = f.pipelineRunId,
+                contributingModelCount = f.contributingModelCount,
+                agreementLevel         = f.agreementLevel,
+                isAmbiguous            = f.isAmbiguous,
+                tagCategory            = f.tagCategory,
+                isFused                = true,
+            )
         }
         val rejections = tagRejectionDao.getForAsset(mediaUri).map { it.tagKey }.toSet()
         val tagIds = mediaTagDao.getMediaTagsForUri(mediaUri).map { it.tagId }
         val currentTags = if (tagIds.isEmpty()) emptySet()
             else tagDao.getByIds(tagIds).map { it.normalizedName }.toSet()
 
-        (suggestions + heuristics)
+        (richSingle + richHeuristics + richFused)
             .filter { it.tagKey !in rejections && it.tagKey !in currentTags }
-            .distinctBy { it.tagKey }
+            .groupBy { it.tagKey }
+            .map { (_, dupes) -> dupes.maxByOrNull { it.score }!! }
             .sortedByDescending { it.score }
             .take(8)
     }
 
     /**
+     * Returns a merged list of pending suggestions from all active pipelines, suitable
+     * for populating the global suggestions review screen.
+     *
+     * Combines single-model [TagSuggestion] rows filtered to [modelVersion] with
+     * ensemble-fused [FusedSceneSuggestion] rows. Rejection and already-applied-tag
+     * filtering is handled at the DAO layer for each source. When the same (asset, tagKey)
+     * pair appears in both pipelines the entry with the higher score is kept.
+     *
+     * Returns at most [limit] results sorted by descending score.
+     */
+    suspend fun getGlobalPendingRichSuggestions(
+        minScore: Double,
+        modelVersion: String,
+        limit: Int = 300,
+    ): List<RichSuggestion> = withContext(Dispatchers.IO) {
+        val single = tagSuggestionDao.getPendingSuggestions(minScore, modelVersion, limit)
+            .map { s ->
+                RichSuggestion(
+                    id           = s.id,
+                    assetId      = s.assetId,
+                    tagKey       = s.tagKey,
+                    score        = s.score,
+                    source       = s.source,
+                    modelVersion = s.modelVersion,
+                )
+            }
+        val fused = database.fusedSceneSuggestionDao().getPendingSuggestions(minScore, limit)
+            .map { f ->
+                RichSuggestion(
+                    id                     = f.id,
+                    assetId                = f.assetId,
+                    tagKey                 = f.canonicalTagKey,
+                    score                  = f.fusedScore.toDouble(),
+                    source                 = "fused_scene",
+                    modelVersion           = f.pipelineRunId,
+                    contributingModelCount = f.contributingModelCount,
+                    agreementLevel         = f.agreementLevel,
+                    isAmbiguous            = f.isAmbiguous,
+                    tagCategory            = f.tagCategory,
+                    isFused                = true,
+                )
+            }
+        (single + fused)
+            .groupBy { "${it.assetId}:${it.tagKey}" }
+            .map { (_, dupes) -> dupes.maxByOrNull { it.score }!! }
+            .sortedByDescending { it.score }
+            .take(limit)
+    }
+
+    /**
      * Accepts a suggestion and turns it into a canonical tag attachment.
+     *
+     * If a fused scene or identity suggestion exists for this (assetId, tagKey) pair, its
+     * status is updated and [ReliabilityUpdateService] is notified so contributing models
+     * receive credit for the correct prediction.
      */
     suspend fun acceptSuggestion(mediaUri: String, tagKey: String) = withContext(Dispatchers.IO) {
         database.withTransaction {
             attachTagToMedia(mediaUri, tagKey)
         }
+
+        // ── Fused scene suggestion feedback ──────────────────────────────────
+        database.fusedSceneSuggestionDao().getByAssetAndTagKey(mediaUri, tagKey)?.let { suggestion ->
+            database.fusedSceneSuggestionDao().updateStatus(suggestion.id, "accepted")
+            reliabilityService.onSceneSuggestionAccepted(suggestion)
+        }
+
+        // ── Fused identity suggestion feedback ───────────────────────────────
+        // A tagKey may match multiple faces on the same asset — update all.
+        database.fusedIdentitySuggestionDao().getByAssetAndTagKey(mediaUri, tagKey)
+            .forEach { suggestion ->
+                database.fusedIdentitySuggestionDao()
+                    .updateStatus(suggestion.id, FusedIdentitySuggestion.STATUS_ACCEPTED)
+                reliabilityService.onIdentitySuggestionAccepted(suggestion)
+            }
     }
 
     /**
      * Rejects a suggestion and stores it in the rejection table to prevent it from reappearing.
+     *
+     * If a fused scene or identity suggestion exists for this (assetId, tagKey) pair, its
+     * status is updated and [ReliabilityUpdateService] is notified so contributing models
+     * receive a penalty signal.
      */
     suspend fun rejectSuggestion(mediaUri: String, tagKey: String) = withContext(Dispatchers.IO) {
         tagRejectionDao.insertAll(listOf(TagRejection(tagKey = tagKey, assetId = mediaUri)))
+
+        // ── Fused scene suggestion feedback ──────────────────────────────────
+        database.fusedSceneSuggestionDao().getByAssetAndTagKey(mediaUri, tagKey)?.let { suggestion ->
+            database.fusedSceneSuggestionDao().updateStatus(suggestion.id, "rejected")
+            reliabilityService.onSceneSuggestionRejected(suggestion)
+        }
+
+        // ── Fused identity suggestion feedback ───────────────────────────────
+        database.fusedIdentitySuggestionDao().getByAssetAndTagKey(mediaUri, tagKey)
+            .forEach { suggestion ->
+                database.fusedIdentitySuggestionDao()
+                    .updateStatus(suggestion.id, FusedIdentitySuggestion.STATUS_REJECTED)
+                reliabilityService.onIdentitySuggestionRejected(suggestion)
+            }
     }
 
     /**

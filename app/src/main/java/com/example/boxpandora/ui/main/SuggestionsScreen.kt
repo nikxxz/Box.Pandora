@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.boxpandora.PandoraApp
-import com.example.boxpandora.data.local.entity.TagSuggestion
+import com.example.boxpandora.data.repository.RichSuggestion
 import com.example.boxpandora.ui.main.viewmodel.SuggestionsViewModel
 import com.example.boxpandora.ui.main.viewmodel.SuggestionsViewModelFactory
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
@@ -40,10 +40,9 @@ fun SuggestionsScreen(onBackClick: () -> Unit) {
     val app = context.applicationContext as PandoraApp
     val vm: SuggestionsViewModel = viewModel(
         factory = SuggestionsViewModelFactory(
-            tagSuggestionDao = app.database.tagSuggestionDao(),
-            tagRepository = app.repository.tagRepository,
+            tagRepository        = app.repository.tagRepository,
             aiSettingsRepository = app.aiSettingsRepository,
-            modelManager = app.modelManager
+            modelManager         = app.modelManager
         )
     )
     val state by vm.state.collectAsState()
@@ -117,7 +116,7 @@ fun SuggestionsScreen(onBackClick: () -> Unit) {
 
 @Composable
 private fun SuggestionCard(
-    suggestion: TagSuggestion,
+    suggestion: RichSuggestion,
     onAccept: () -> Unit,
     onReject: () -> Unit
 ) {

@@ -3,10 +3,12 @@ package com.example.boxpandora.worker
 import android.content.Context
 import android.util.Log
 import androidx.work.Constraints
+import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.example.boxpandora.ml.config.AiSettings
 
 /**
@@ -22,6 +24,16 @@ import com.example.boxpandora.ml.config.AiSettings
 
 private const val TAG = "AiIndexScheduler"
 
+/**
+ * WorkManager input data key that tells ensemble workers whether this run was started by the
+ * user directly (foreground) or by background scheduling.
+ *
+ * Workers read this via `inputData.getBoolean(KEY_IS_FOREGROUND, false)` and pass the value
+ * to [com.example.boxpandora.ml.policy.EnsembleRuntimePolicy.evaluate] so the policy can
+ * apply the correct concurrency and thermal-response rules.
+ */
+const val KEY_IS_FOREGROUND = "is_foreground"
+
 const val SCENE_INDEX_WORK_NAME    = "pandora_scene_index"
 const val PROTOTYPE_BUILD_WORK_NAME = "pandora_prototype_build"
 const val TAG_SUGGESTION_WORK_NAME  = "pandora_tag_suggestion"
@@ -29,6 +41,8 @@ const val FACE_INDEX_WORK_NAME        = "pandora_face_index"
 const val FACE_CLUSTER_WORK_NAME      = "pandora_face_cluster"
 const val PERSON_PROFILE_WORK_NAME    = "pandora_person_profile"
 const val PERSON_SUGGESTION_WORK_NAME = "pandora_person_suggestion"
+const val FUSED_IDENTITY_REBUILD_WORK_NAME  = "pandora_fused_identity_rebuild"
+const val RELIABILITY_RECALCULATE_WORK_NAME = "pandora_reliability_recalculate"
 
 /**
  * Orchestration layer between the media sync pipeline and AI indexing workers.
@@ -63,6 +77,29 @@ object AiIndexScheduler {
             .setRequiresBatteryNotLow(true)
             .setRequiresStorageNotLow(true)
             .apply { if (!forceRun) setRequiresCharging(true) }
+            .build()
+
+    /**
+     * Constraints for ensemble background jobs.
+     *
+     * Applies charging requirement from [AiSettings.ensembleOnlyWhileCharging] when
+     * [forceRun] is false (background scheduling). Phase 1 does not implement a full
+     * thermal monitor — this is the lightweight guard hook described in the spec.
+     *
+     * Note: [AiSettings.pauseEnsembleOnBatterySaver] is enforced at scheduling call-sites
+     * by the caller checking the system battery saver state before invoking the scheduler.
+     * Battery saver detection is a runtime system check, not a WorkManager constraint.
+     */
+    private fun buildEnsembleJobConstraints(
+        forceRun: Boolean = false,
+        ensembleOnlyWhileCharging: Boolean = true,
+    ): Constraints =
+        Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
+            .apply {
+                if (!forceRun && ensembleOnlyWhileCharging) setRequiresCharging(true)
+            }
             .build()
 
     /**
@@ -108,6 +145,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<SceneIndexWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -133,6 +171,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<PrototypeBuildWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -156,14 +195,23 @@ object AiIndexScheduler {
         if (!settings.sceneTaggingEnabled) return
         if (!forceRun && !settings.backgroundIndexingEnabled) return
 
+        // Use ensemble constraints when ensemble mode is active so the charging guard is applied
+        val constraints = if (settings.pipelineMode == com.example.boxpandora.ml.config.AiPipelineMode.ENSEMBLE_ALL_ENABLED) {
+            buildEnsembleJobConstraints(forceRun, settings.ensembleOnlyWhileCharging)
+        } else {
+            buildHeavyJobConstraints(forceRun)
+        }
+
         val request = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
-            .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setConstraints(constraints)
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
             .enqueueUniqueWork(TAG_SUGGESTION_WORK_NAME, workPolicy, request)
 
-        Log.i(TAG, "TagSuggestionWorker enqueued (forceRun=$forceRun, policy=$workPolicy)")
+        Log.i(TAG, "TagSuggestionWorker enqueued (forceRun=$forceRun, policy=$workPolicy, " +
+            "mode=${settings.pipelineMode})")
     }
 
     /**
@@ -211,6 +259,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<FaceIndexWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -241,6 +290,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<FaceClusterWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -274,6 +324,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<PersonProfileWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -303,6 +354,7 @@ object AiIndexScheduler {
 
         val request = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
             .setConstraints(buildHeavyJobConstraints(forceRun))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to forceRun))
             .build()
 
         WorkManager.getInstance(context)
@@ -345,6 +397,56 @@ object AiIndexScheduler {
     fun cancelSceneIndex(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(SCENE_INDEX_WORK_NAME)
         Log.i(TAG, "SceneIndexWorker cancelled")
+    }
+
+    /**
+     * Enqueues [RebuildFusedIdentityWorker] to re-fuse identity suggestions from stored evidence.
+     *
+     * Always uses [ExistingWorkPolicy.REPLACE] so that a stale run is cancelled and a fresh one
+     * starts immediately. Does not check `backgroundIndexingEnabled` — the user explicitly
+     * triggered this action.
+     *
+     * Requires face processing to be enabled in [settings]; no-ops otherwise.
+     */
+    fun scheduleRebuildFusedIdentity(
+        context: Context,
+        settings: AiSettings,
+    ) {
+        if (!settings.faceProcessingEnabled) {
+            Log.d(TAG, "Face processing disabled — skipping fused identity rebuild")
+            return
+        }
+
+        val request = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(buildHeavyJobConstraints(forceRun = true))
+            .setInputData(workDataOf(KEY_IS_FOREGROUND to true))
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(FUSED_IDENTITY_REBUILD_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+
+        Log.i(TAG, "RebuildFusedIdentityWorker enqueued")
+    }
+
+    /**
+     * Enqueues [RecalculateReliabilityWorker] to recompute all derived reliability weights.
+     *
+     * Always uses [ExistingWorkPolicy.REPLACE]. Lightweight enough to run without charging
+     * constraints — it reads and writes the [model_reliability_stats] table only.
+     */
+    fun scheduleReliabilityRecalculation(context: Context) {
+        val request = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiresBatteryNotLow(true)
+                    .build()
+            )
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(RELIABILITY_RECALCULATE_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+
+        Log.i(TAG, "RecalculateReliabilityWorker enqueued")
     }
 
     fun cancelAll(context: Context) {

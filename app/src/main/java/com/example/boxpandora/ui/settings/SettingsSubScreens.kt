@@ -40,6 +40,8 @@ import com.example.boxpandora.ui.common.AppLockTimeoutSheet
 import com.example.boxpandora.ui.common.AppPasscodeSetupDialog
 import com.example.boxpandora.ui.common.AppPasscodeVerificationDialog
 import com.example.boxpandora.ui.common.createDeviceCredentialIntent
+import com.example.boxpandora.ml.config.AiPipelineMode
+import com.example.boxpandora.ui.settings.viewmodel.MaintenanceProgressState
 import com.example.boxpandora.ui.main.Screen
 import com.example.boxpandora.ui.main.viewmodel.AccentColor
 import com.example.boxpandora.ui.main.viewmodel.AppLockMode
@@ -600,6 +602,7 @@ fun TaggingAISettingsScreen(navController: NavController) {
     val settings       by aiViewModel.settings.collectAsState()
     val indexingStats  by aiViewModel.indexingStats.collectAsState()
     val suspendedModels by aiViewModel.suspendedModels.collectAsState()
+    val maintenanceProgress by aiViewModel.maintenanceProgress.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -650,12 +653,20 @@ fun TaggingAISettingsScreen(navController: NavController) {
                 TextButton(onClick = {
                     showFullRescanConfirm = false
                     aiViewModel.fullAiRescan()
-                    scope.launch { snackbarHostState.showSnackbar("Full AI rescan queued") }
                 }) { Text("Rescan", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { showFullRescanConfirm = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    // Maintenance progress dialog — shown whenever a worker pipeline is active
+    if (maintenanceProgress is MaintenanceProgressState.Active) {
+        MaintenanceProgressDialog(
+            state     = maintenanceProgress as MaintenanceProgressState.Active,
+            onDismiss = { aiViewModel.dismissMaintenanceProgress() },
+            onCancel  = { aiViewModel.cancelMaintenanceWork() }
         )
     }
 
@@ -779,6 +790,32 @@ fun TaggingAISettingsScreen(navController: NavController) {
                 )
             }
 
+            // ── Ensemble safety guards (only visible when ensemble mode is on) ──
+            if (settings.pipelineMode == AiPipelineMode.ENSEMBLE_ALL_ENABLED) {
+                item {
+                    SettingSectionHeader(
+                        "Ensemble Power Guards",
+                        "Protect battery when running multiple scene models simultaneously"
+                    )
+                }
+                item {
+                    ToggleRow(
+                        title = "Ensemble only while charging",
+                        subtitle = "Background ensemble scans require the device to be charging",
+                        checked = settings.ensembleOnlyWhileCharging,
+                        onCheckedChange = { aiViewModel.setEnsembleOnlyWhileCharging(it) }
+                    )
+                }
+                item {
+                    ToggleRow(
+                        title = "Pause ensemble in battery saver",
+                        subtitle = "Background ensemble scans are skipped when battery saver is active",
+                        checked = settings.pauseEnsembleOnBatterySaver,
+                        onCheckedChange = { aiViewModel.setPauseEnsembleOnBatterySaver(it) }
+                    )
+                }
+            }
+
             // ── AI Maintenance ────────────────────────────────────────────
             item {
                 SettingSectionHeader(
@@ -795,7 +832,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.Refresh
                 ) {
                     aiViewModel.scanNewMedia()
-                    scope.launch { snackbarHostState.showSnackbar("Media scan queued") }
                 }
             }
 
@@ -806,7 +842,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.Build
                 ) {
                     aiViewModel.repairStaleAiData()
-                    scope.launch { snackbarHostState.showSnackbar("Repair queued") }
                 }
             }
 
@@ -817,7 +852,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.ImageSearch
                 ) {
                     aiViewModel.rebuildSceneEmbeddings()
-                    scope.launch { snackbarHostState.showSnackbar("Scene embeddings rebuild queued") }
                 }
             }
 
@@ -828,7 +862,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.Category
                 ) {
                     aiViewModel.rebuildTagPrototypes()
-                    scope.launch { snackbarHostState.showSnackbar("Tag prototypes rebuild queued") }
                 }
             }
 
@@ -839,7 +872,54 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.AutoAwesome
                 ) {
                     aiViewModel.rebuildTagSuggestions()
-                    scope.launch { snackbarHostState.showSnackbar("Tag suggestions rebuild queued") }
+                }
+            }
+
+            item {
+                SettingSectionHeader(
+                    "Ensemble Maintenance",
+                    "Targeted repairs for multi-model fused state — " +
+                    "preserves embeddings, clusters, and user feedback"
+                )
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild Fused Tag Suggestions",
+                    subtitle = "Re-fuse scene tag suggestions with current thresholds and reliability weights",
+                    icon = Icons.Default.AutoAwesome
+                ) {
+                    aiViewModel.rebuildFusedTagSuggestions()
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Rebuild Fused Identity Suggestions",
+                    subtitle = "Re-fuse person identity from stored evidence — no re-detection needed",
+                    icon = Icons.Default.People
+                ) {
+                    aiViewModel.rebuildFusedIdentitySuggestions()
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Recalculate Model Reliability",
+                    subtitle = "Recompute reliability weights from stored feedback history without wiping decisions",
+                    icon = Icons.Default.TrendingUp
+                ) {
+                    aiViewModel.recalculateModelReliability()
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Clear Evidence Cache",
+                    subtitle = "Delete raw model evidence rows — regenerated automatically on next run",
+                    icon = Icons.Default.DeleteSweep
+                ) {
+                    aiViewModel.clearEnsembleEvidenceCache()
                 }
             }
 
@@ -850,7 +930,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.Face
                 ) {
                     aiViewModel.rebuildFaceIndex()
-                    scope.launch { snackbarHostState.showSnackbar("Face re-scan queued") }
                 }
             }
 
@@ -861,7 +940,6 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     icon = Icons.Default.People
                 ) {
                     aiViewModel.rebuildPeopleMatching()
-                    scope.launch { snackbarHostState.showSnackbar("People matching rebuild queued") }
                 }
             }
 

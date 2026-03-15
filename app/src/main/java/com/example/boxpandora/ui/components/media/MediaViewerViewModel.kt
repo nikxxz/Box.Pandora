@@ -18,7 +18,7 @@ import com.example.boxpandora.data.repository.MediaRepository
 import com.example.boxpandora.data.repository.TagRepository
 import com.example.boxpandora.data.local.dao.TagChangeHistoryDao
 import com.example.boxpandora.data.local.dao.TagCooccurrenceDao
-import com.example.boxpandora.data.local.entity.TagSuggestion
+import com.example.boxpandora.data.repository.RichSuggestion
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -55,19 +55,8 @@ class MediaViewerViewModel(
         .onEach { Log.d("MediaViewerVM", "Tags updated for current URI, count: ${it.size}") }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val suggestionsForSelectedMedia: StateFlow<List<String>> = combine(
-        _selectedMediaUri.filterNotNull(),
-        _suggestionVersion
-    ) { uri, _ -> uri }
-        .flatMapLatest { uri ->
-            Log.d("MediaViewerVM", "Fetching suggestions for URI: $uri")
-            flow { emit(tagRepository.getSuggestionsForMedia(uri)) }
-        }
-        .onEach { Log.d("MediaViewerVM", "Suggestions updated for current URI, count: ${it.size}") }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
-
-    /** Full suggestion objects (with score + source) for the 3-layer tag popup. */
-    val suggestionObjectsForSelectedMedia: StateFlow<List<TagSuggestion>> = combine(
+    /** Full suggestion objects (with score + source) for both the popup and the info-panel inline row. */
+    val suggestionObjectsForSelectedMedia: StateFlow<List<RichSuggestion>> = combine(
         _selectedMediaUri.filterNotNull(),
         _suggestionVersion
     ) { uri, _ -> uri }

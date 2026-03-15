@@ -26,7 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.boxpandora.data.local.entity.TagSuggestion
+import com.example.boxpandora.data.repository.RichSuggestion
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 
 // ── Confidence band ───────────────────────────────────────────────────────────
@@ -66,7 +66,7 @@ private fun sourceLabel(source: String): String = when {
  */
 @Composable
 fun TagSuggestionRow(
-    suggestion: TagSuggestion,
+    suggestion: RichSuggestion,
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -149,5 +149,5 @@ fun TagSuggestionRow(
     }
 }
 
-/** Returns true if this suggestion should be displayed (score >= 0.40). */
-fun shouldShowSuggestion(suggestion: TagSuggestion): Boolean = suggestion.score >= 0.40
+/** Returns true if this suggestion should be displayed (score ≥ 0.40). */
+fun shouldShowSuggestion(suggestion: RichSuggestion): Boolean = suggestion.score >= 0.40

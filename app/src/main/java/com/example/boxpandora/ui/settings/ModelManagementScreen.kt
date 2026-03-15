@@ -24,12 +24,18 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.ml.config.AiFeatureFlags
+import com.example.boxpandora.ml.config.AiPipelineMode
 import com.example.boxpandora.ml.config.AiSettings
 import com.example.boxpandora.ml.detection.MediaType
 import com.example.boxpandora.ml.model.ModelCategory
 import com.example.boxpandora.ml.model.ModelMetadata
+import com.example.boxpandora.ui.settings.viewmodel.EnsembleCostHint
+import com.example.boxpandora.ui.settings.viewmodel.EnsembleModelState
+import com.example.boxpandora.ui.settings.viewmodel.EnsemblePolicyState
+import com.example.boxpandora.ui.settings.viewmodel.EnsembleStatusSummary
 import com.example.boxpandora.ui.settings.viewmodel.ModelManagerViewModel
 import com.example.boxpandora.ui.settings.viewmodel.ModelManagerViewModelFactory
+import com.example.boxpandora.ui.settings.viewmodel.ModelReliabilitySummary
 import com.example.boxpandora.ui.settings.viewmodel.ModelStatus
 import com.example.boxpandora.ui.settings.viewmodel.ModelUiState
 
@@ -99,11 +105,49 @@ fun ModelManagementScreen(navController: NavController) {
     val app = activity.application as PandoraApp
     val viewModel: ModelManagerViewModel = viewModel(
         viewModelStoreOwner = activity,
-        factory = ModelManagerViewModelFactory(app.modelManager, app, app.aiSettingsRepository)
+        factory = ModelManagerViewModelFactory(
+            modelManager         = app.modelManager,
+            appContext           = app,
+            aiSettingsRepository = app.aiSettingsRepository,
+            database             = app.database,
+            thermalMonitor       = app.thermalMonitor,
+            ensembleBlockedStore = app.ensembleBlockedStore,
+        )
     )
     val models by viewModel.models.collectAsState()
     val settings by viewModel.settings.collectAsState()
+    val ensembleStatus by viewModel.ensembleStatus.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Ensemble confirmation dialog state
+    var showEnsembleConfirm by remember { mutableStateOf(false) }
+
+    if (showEnsembleConfirm) {
+        AlertDialog(
+            onDismissRequest = { showEnsembleConfirm = false },
+            title = { Text("Enable All Compatible Models?") },
+            text = {
+                Text(
+                    "Running multiple scene models simultaneously uses significantly more " +
+                    "CPU, GPU, and NPU resources.\n\n" +
+                    "• Higher battery drain — not recommended for unplugged use\n" +
+                    "• Device may become warm during indexing\n" +
+                    "• Scene indexing and rescans will take longer\n\n" +
+                    "Background ensemble scans will only run while charging by default. " +
+                    "Proceeding will immediately update the pipeline mode setting."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showEnsembleConfirm = false
+                    viewModel.setPipelineMode(AiPipelineMode.ENSEMBLE_ALL_ENABLED)
+                }) { Text("Enable Ensemble") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEnsembleConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     // Refresh on entry so install state is up-to-date
     LaunchedEffect(Unit) { viewModel.refresh() }
@@ -123,10 +167,29 @@ fun ModelManagementScreen(navController: NavController) {
             return@SettingsSubScreen
         }
 
-        val byCategory = models.groupBy { it.meta.category }
+        val byCategory    = models.groupBy { it.meta.category }
+        val pipelineMode  = settings.pipelineMode
+        val isEnsemble    = pipelineMode == AiPipelineMode.ENSEMBLE_ALL_ENABLED
 
         LazyColumn(contentPadding = PaddingValues(bottom = 28.dp, top = 4.dp)) {
-            // Scene Embedding
+
+            // ── Execution Mode ────────────────────────────────────────────────
+            item {
+                SettingSectionHeader(
+                    title    = "Execution Mode",
+                    subtitle = "Controls which scene models run during indexing"
+                )
+            }
+            item {
+                ExecutionModeSection(
+                    isEnsemble    = isEnsemble,
+                    status        = if (isEnsemble) ensembleStatus else null,
+                    onEnable      = { showEnsembleConfirm = true },
+                    onDisable     = { viewModel.setPipelineMode(AiPipelineMode.SINGLE_ACTIVE) },
+                )
+            }
+
+            // ── Scene Embedding
             byCategory[ModelCategory.SCENE_EMBEDDING]?.let { entries ->
                 item {
                     SettingSectionHeader(
@@ -136,11 +199,15 @@ fun ModelManagementScreen(navController: NavController) {
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state       = entry,
-                        description = MODEL_DESCRIPTIONS[entry.meta.id],
-                        onDownload  = { viewModel.download(it) },
-                        onActivate  = { viewModel.activate(it) },
-                        onDelete    = { viewModel.delete(it) },
+                        state             = entry,
+                        description       = MODEL_DESCRIPTIONS[entry.meta.id],
+                        onDownload        = { viewModel.download(it) },
+                        onActivate        = { viewModel.activate(it) },
+                        onDelete          = { viewModel.delete(it) },
+                        isEnsembleMode    = isEnsemble,
+                        onToggleEnsemble  = { modelId, enabled ->
+                            viewModel.setModelEnabledForEnsemble(modelId, entry.meta.category, enabled)
+                        },
                     )
                 }
             }
@@ -155,11 +222,15 @@ fun ModelManagementScreen(navController: NavController) {
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state       = entry,
-                        description = MODEL_DESCRIPTIONS[entry.meta.id],
-                        onDownload  = { viewModel.download(it) },
-                        onActivate  = { viewModel.activate(it) },
-                        onDelete    = { viewModel.delete(it) },
+                        state            = entry,
+                        description      = MODEL_DESCRIPTIONS[entry.meta.id],
+                        onDownload       = { viewModel.download(it) },
+                        onActivate       = { viewModel.activate(it) },
+                        onDelete         = { viewModel.delete(it) },
+                        isEnsembleMode   = isEnsemble,
+                        onToggleEnsemble = { modelId, enabled ->
+                            viewModel.setModelEnabledForEnsemble(modelId, entry.meta.category, enabled)
+                        },
                     )
                 }
             }
@@ -174,11 +245,15 @@ fun ModelManagementScreen(navController: NavController) {
                 }
                 items(entries, key = { "${it.meta.id}-${it.meta.version}" }) { entry ->
                     ModelCard(
-                        state       = entry,
-                        description = MODEL_DESCRIPTIONS[entry.meta.id],
-                        onDownload  = { viewModel.download(it) },
-                        onActivate  = { viewModel.activate(it) },
-                        onDelete    = { viewModel.delete(it) },
+                        state            = entry,
+                        description      = MODEL_DESCRIPTIONS[entry.meta.id],
+                        onDownload       = { viewModel.download(it) },
+                        onActivate       = { viewModel.activate(it) },
+                        onDelete         = { viewModel.delete(it) },
+                        isEnsembleMode   = isEnsemble,
+                        onToggleEnsemble = { modelId, enabled ->
+                            viewModel.setModelEnabledForEnsemble(modelId, entry.meta.category, enabled)
+                        },
                     )
                 }
             }
@@ -204,6 +279,8 @@ private fun ModelCard(
     onDownload: (ModelMetadata) -> Unit,
     onActivate: (ModelMetadata) -> Unit,
     onDelete: (ModelMetadata) -> Unit,
+    isEnsembleMode: Boolean = false,
+    onToggleEnsemble: (modelId: String, enabled: Boolean) -> Unit = { _, _ -> },
 ) {
     val meta = state.meta
     var infoExpanded by remember { mutableStateOf(false) }
@@ -353,6 +430,45 @@ private fun ModelCard(
                         )
                     }
                 }
+            }
+
+            // ── Ensemble participation toggle ──────────────────────────────────
+            if (state.ensembleState != EnsembleModelState.NOT_APPLICABLE &&
+                state.ensembleState != EnsembleModelState.BYPASSED &&
+                state.status != ModelStatus.NOT_INSTALLED
+            ) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isEnabled = state.ensembleState == EnsembleModelState.ENABLED
+                    Switch(
+                        checked   = isEnabled,
+                        onCheckedChange = { onToggleEnsemble(state.meta.id, it) },
+                        modifier  = Modifier.height(24.dp)
+                    )
+                    Text(
+                        text = if (isEnabled) "Enabled in ensemble" else "Disabled in ensemble",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isEnabled)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // ── Ensemble bypass note ────────────────────────────────────────────
+            if (state.ensembleState == EnsembleModelState.ENABLED &&
+                state.status == ModelStatus.ACTIVE
+            ) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Active model — single-active selection is bypassed in ensemble mode",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             // ── Action buttons ────────────────────────────────────────────────
@@ -505,6 +621,75 @@ private fun ModelDiagnosticsChecklist(state: ModelUiState) {
                 label = "Inference failures: ${state.failureCount}/3 — ${if (state.failureCount >= 3) "suspended" else "approaching limit"}"
             )
         }
+
+        // ── Ensemble participation ────────────────────────────────────────────────────
+        val ensembleLabel = when (state.ensembleState) {
+            EnsembleModelState.ENABLED  -> "Ensemble: participating"
+            EnsembleModelState.DISABLED -> "Ensemble: opted out"
+            EnsembleModelState.BYPASSED -> "Ensemble: bypassed (single-active mode on)"
+            EnsembleModelState.NOT_APPLICABLE -> null
+        }
+        if (ensembleLabel != null) {
+            InfoRow(ensembleLabel)
+        }
+
+        // ── Reliability summary ─────────────────────────────────────────────────────────
+        val rel = state.reliabilitySummary
+        when {
+            rel != null && rel.records.isNotEmpty() -> {
+                val weightStr = "×%.2f".format(rel.meanWeight)
+                val pctStr    = rel.acceptancePct?.let { "$it% acc" } ?: "no feedback yet"
+                InfoRow(
+                    "Reliability $weightStr  ·  ${rel.totalAccepted} accepted, " +
+                    "${rel.totalRejected} rejected  ·  $pctStr"
+                )
+                // Per-category breakdown for scene models with multiple active categories
+                if (rel.records.size > 1) {
+                    val rows = rel.records
+                        .sortedByDescending { it.acceptedCount + it.rejectedCount }
+                        .take(3)
+                    rows.forEach { r ->
+                        val events = r.acceptedCount + r.rejectedCount
+                        val catPct = if (events > 0) "${r.acceptedCount * 100 / events}% acc" else "no data"
+                        InfoRow(
+                            modifier = Modifier.padding(start = 20.dp),
+                            label    = "${r.tagCategory}: ×${"×%.2f".format(r.derivedWeight).removePrefix("×")}  ·  ${r.acceptedCount} acc, ${r.rejectedCount} rej  ·  $catPct"
+                        )
+                    }
+                }
+            }
+            state.status == ModelStatus.ACTIVE || state.status == ModelStatus.INSTALLED -> {
+                InfoRow("Reliability: no feedback yet — neutral weight ×1.00")
+            }
+        }
+    }
+}
+
+/**
+ * Informational row for diagnostics that are non-binary (stats, config state).
+ * Uses a neutral info tint instead of check/warning to distinguish from system health rows.
+ */
+@Composable
+private fun InfoRow(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier              = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment     = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector        = Icons.Default.Info,
+            contentDescription = null,
+            modifier           = Modifier.size(14.dp),
+            tint               = MaterialTheme.colorScheme.secondary.copy(alpha = 0.65f)
+        )
+        Text(
+            text  = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -655,6 +840,228 @@ private data class FiveTuple(
     val badgeBg: androidx.compose.ui.graphics.Color,
     val badgeFg: androidx.compose.ui.graphics.Color
 )
+
+// ── Execution Mode section ────────────────────────────────────────────────────
+
+/**
+ * Top-level execution mode card shown above model category sections.
+ *
+ * Ensemble mode is surfaced as an advanced override, not the default front door.
+ * The confirmation dialog is owned by the parent screen; this composable just
+ * exposes the toggle and calls [onEnable] / [onDisable].
+ */
+@Composable
+private fun ExecutionModeSection(
+    isEnsemble: Boolean,
+    status: EnsembleStatusSummary?,
+    onEnable: () -> Unit,
+    onDisable: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = if (isEnsemble) 3.dp else 1.dp,
+        color = if (isEnsemble)
+            MaterialTheme.colorScheme.secondaryContainer
+        else
+            MaterialTheme.colorScheme.surface,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = if (isEnsemble) Icons.Default.AutoAwesome else Icons.Default.Memory,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = if (isEnsemble)
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (isEnsemble) "All compatible models" else "Single active model",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = if (isEnsemble)
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (isEnsemble)
+                            "Ensemble mode — all enabled scene models run together"
+                        else
+                            "Default — only the active scene model runs",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isEnsemble)
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked         = isEnsemble,
+                    onCheckedChange = { if (it) onEnable() else onDisable() }
+                )
+            }
+            if (isEnsemble) {
+                Spacer(Modifier.height(8.dp))
+                // ── General cost warning ──────────────────────────────────────
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "Higher battery use · Device may warm up · Slower indexing",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+
+                // ── Status details (participation, cost, policy) ──────────────
+                if (status != null) {
+                    Spacer(Modifier.height(10.dp))
+                    EnsembleStatusSection(status = status)
+                }
+            }
+        }
+    }
+}
+
+// ── Ensemble status section ───────────────────────────────────────────────────
+
+/**
+ * Compact status block rendered inside [ExecutionModeSection] when ensemble mode is active.
+ *
+ * Shows:
+ *  - Participation count chips (scene / detectors / recognizers)
+ *  - Expected cost hint (Low / Medium / High)
+ *  - Runtime policy state when not NORMAL (throttled, paused, or stopped)
+ *  - A subtle fallback hint when background scans have been blocked repeatedly
+ */
+@Composable
+private fun EnsembleStatusSection(status: EnsembleStatusSummary) {
+    val onContainer = MaterialTheme.colorScheme.onSecondaryContainer
+
+    // ── Participation chips ───────────────────────────────────────────────────
+    val parts = buildList {
+        if (status.enabledSceneCount > 0)
+            add("${status.enabledSceneCount} scene")
+        if (status.enabledDetectorCount > 0)
+            add("${status.enabledDetectorCount} detector")
+        if (status.enabledRecognizerCount > 0)
+            add("${status.enabledRecognizerCount} recognizer")
+    }
+    val participationText = if (parts.isEmpty()) "No models enabled" else parts.joinToString(" · ")
+
+    val costLabel = when (status.costHint) {
+        EnsembleCostHint.LOW    -> "Low load"
+        EnsembleCostHint.MEDIUM -> "Medium load"
+        EnsembleCostHint.HIGH   -> "High load"
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Participation
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+            tonalElevation = 0.dp,
+        ) {
+            Text(
+                text = participationText,
+                style = MaterialTheme.typography.labelSmall,
+                color = onContainer,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+        // Cost hint chip
+        val costColor = when (status.costHint) {
+            EnsembleCostHint.LOW    -> MaterialTheme.colorScheme.tertiaryContainer
+            EnsembleCostHint.MEDIUM -> MaterialTheme.colorScheme.secondaryContainer
+            EnsembleCostHint.HIGH   -> MaterialTheme.colorScheme.errorContainer
+        }
+        val costTextColor = when (status.costHint) {
+            EnsembleCostHint.LOW    -> MaterialTheme.colorScheme.onTertiaryContainer
+            EnsembleCostHint.MEDIUM -> onContainer
+            EnsembleCostHint.HIGH   -> MaterialTheme.colorScheme.onErrorContainer
+        }
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = costColor,
+            tonalElevation = 0.dp,
+        ) {
+            Text(
+                text = costLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = costTextColor,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
+        }
+    }
+
+    // ── Policy state (only shown when not NORMAL) ─────────────────────────────
+    if (status.policyState != EnsemblePolicyState.NORMAL) {
+        Spacer(Modifier.height(6.dp))
+        val (policyIcon, policyText) = when (status.policyState) {
+            EnsemblePolicyState.THROTTLED ->
+                Icons.Default.Speed to "Background scans are currently throttled (device is warm)"
+            EnsemblePolicyState.PAUSED    ->
+                Icons.Default.Pause to "Background scans are currently paused"
+            EnsemblePolicyState.STOPPED   ->
+                Icons.Default.Stop to "All scans are hard-stopped (critical thermal)"
+            EnsemblePolicyState.NORMAL    -> null to null
+        }
+        if (policyIcon != null && policyText != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = policyIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(13.dp),
+                    tint = if (status.policyState == EnsemblePolicyState.STOPPED)
+                        MaterialTheme.colorScheme.error
+                    else
+                        onContainer,
+                )
+                Text(
+                    text = policyText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (status.policyState == EnsemblePolicyState.STOPPED)
+                        MaterialTheme.colorScheme.error
+                    else
+                        onContainer,
+                )
+            }
+        }
+    }
+
+    // ── Fallback hint (non-intrusive; only when repeatedly blocked) ───────────
+    if (status.isSuggestingFallback) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Background scans have been blocked ${status.consecutiveBlockCount} times in a row. " +
+                "Single-active mode may be more reliable in current conditions.",
+            style = MaterialTheme.typography.labelSmall,
+            color = onContainer.copy(alpha = 0.75f),
+        )
+    }
+}
 
 // ── Status badge ─────────────────────────────────────────────────────────────
 

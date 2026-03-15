@@ -25,7 +25,13 @@ import com.example.boxpandora.data.repository.MediaStoreRepository
 import com.example.boxpandora.data.repository.TagRepository
 import com.example.boxpandora.ml.config.AiSettingsRepository
 import com.example.boxpandora.ml.manager.ModelManager
+import com.example.boxpandora.ml.config.FusionCalibrationStore
+import com.example.boxpandora.ml.policy.EnsembleBlockedStore
+import com.example.boxpandora.ml.policy.EnsembleModelCooldownStore
+import com.example.boxpandora.ml.policy.ThermalMonitor
 import com.example.boxpandora.worker.AiIndexScheduler
+import com.example.boxpandora.ml.ensemble.EnsembleRunManifestStore
+import com.example.boxpandora.worker.EnsembleCheckpointStore
 import com.example.boxpandora.worker.IndexingStatsStore
 
 private const val TAG = "PandoraApp"
@@ -37,6 +43,12 @@ class PandoraApp : Application(), ImageLoaderFactory {
     lateinit var modelManager: ModelManager
     lateinit var aiSettingsRepository: AiSettingsRepository
     lateinit var indexingStatsStore: IndexingStatsStore
+    lateinit var thermalMonitor: ThermalMonitor
+    lateinit var ensembleCheckpointStore: EnsembleCheckpointStore
+    lateinit var ensembleModelCooldownStore: EnsembleModelCooldownStore
+    lateinit var fusionCalibrationStore: FusionCalibrationStore
+    lateinit var ensembleRunManifestStore: EnsembleRunManifestStore
+    lateinit var ensembleBlockedStore: EnsembleBlockedStore
     private lateinit var contentObserver: MediaContentObserver
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -56,7 +68,11 @@ class PandoraApp : Application(), ImageLoaderFactory {
             AppDatabase.MIGRATION_8_9,
             AppDatabase.MIGRATION_9_10,
             AppDatabase.MIGRATION_10_11,
-            AppDatabase.MIGRATION_11_12
+            AppDatabase.MIGRATION_11_12,
+            AppDatabase.MIGRATION_12_13,
+            AppDatabase.MIGRATION_13_14,
+            AppDatabase.MIGRATION_14_15,
+            AppDatabase.MIGRATION_15_16,
         )
         .fallbackToDestructiveMigration()
         .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
@@ -93,6 +109,12 @@ class PandoraApp : Application(), ImageLoaderFactory {
         modelManager = ModelManager(this)
         aiSettingsRepository = AiSettingsRepository(this)
         indexingStatsStore = IndexingStatsStore(this)
+        thermalMonitor = ThermalMonitor(this)
+        ensembleCheckpointStore = EnsembleCheckpointStore(this)
+        ensembleModelCooldownStore = EnsembleModelCooldownStore(this)
+        fusionCalibrationStore = FusionCalibrationStore(this)
+        ensembleRunManifestStore = EnsembleRunManifestStore(this)
+        ensembleBlockedStore = EnsembleBlockedStore(this)
 
         contentObserver = MediaContentObserver(this)
         contentObserver.register()
@@ -115,6 +137,7 @@ class PandoraApp : Application(), ImageLoaderFactory {
     override fun onTerminate() {
         super.onTerminate()
         contentObserver.unregister()
+        thermalMonitor.close()
     }
 
     override fun newImageLoader(): ImageLoader {

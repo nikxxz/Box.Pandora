@@ -12,13 +12,18 @@ import com.example.boxpandora.data.local.entity.DetectedFace
 import com.example.boxpandora.data.local.entity.FaceEmbedding
 import com.example.boxpandora.data.local.entity.FaceScanLog
 import com.example.boxpandora.ml.config.AiFeatureFlags
+import com.example.boxpandora.ml.config.AiPipelineConfig
+import com.example.boxpandora.ml.config.AiPipelineMode
+import com.example.boxpandora.ml.config.AiSettings
 import com.example.boxpandora.ml.detection.MediaType
 import com.example.boxpandora.ml.engine.EmbeddingUtils
+import com.example.boxpandora.ml.ensemble.FaceEnsembleOrchestrator
 import com.example.boxpandora.ml.inference.FaceDetectionService
 import com.example.boxpandora.ml.inference.FaceDetectorState
 import com.example.boxpandora.ml.inference.FaceEmbeddingException
 import com.example.boxpandora.ml.inference.FaceEmbeddingService
 import com.example.boxpandora.ml.model.ModelCategory
+import com.example.boxpandora.worker.IndexingStatsStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -67,6 +72,11 @@ class FaceIndexWorker(
         }
 
         val faceDao = app.database.faceDao()
+
+        // ── Pipeline mode branch ──────────────────────────────────────────────
+        if (settings.pipelineMode == AiPipelineMode.ENSEMBLE_ALL_ENABLED) {
+            return@withContext runEnsemblePath(app, settings, statsStore)
+        }
 
         // ── Face detection model availability guard ───────────────────────────
         // FaceIndexWorker is skeleton-only until a face detection model is installed.
@@ -274,6 +284,141 @@ class FaceIndexWorker(
             embedder.close()
             detector.close()
         }
+    }
+
+    // ── Ensemble path ─────────────────────────────────────────────────────────
+
+    /**
+     * Runs the ensemble face pipeline: multi-detector detection → IoU fusion → multi-recognizer
+     * embedding → identity fusion → persists [FusedFace], [IdentityInferenceEvidence], and
+     * [FusedIdentitySuggestion] rows.
+     *
+     * Uses a composite detector-version key for face_scan_log so assets are re-detected
+     * whenever the set of enabled detectors changes.
+     *
+     * Guard: if no face detectors are enabled in the ensemble config, returns [Result.failure].
+     */
+    private suspend fun runEnsemblePath(
+        app: PandoraApp,
+        settings: AiSettings,
+        statsStore: IndexingStatsStore,
+    ): Result = withContext(Dispatchers.IO) {
+        val installedDetectorIds = app.modelManager
+            .getInstalledModels()
+            .filter { it.metadata.category == ModelCategory.FACE_DETECTION }
+            .map { it.metadata.id }
+            .toSet()
+        val installedRecognizerIds = app.modelManager
+            .getInstalledModels()
+            .filter { it.metadata.category == ModelCategory.FACE_EMBEDDING }
+            .map { it.metadata.id }
+            .toSet()
+
+        val pipelineConfig = AiPipelineConfig.from(
+            settings               = settings,
+            installedSceneModelIds = emptySet(),
+            activeSceneModelId     = null,
+            installedDetectorIds   = installedDetectorIds,
+            installedRecognizerIds = installedRecognizerIds,
+        )
+
+        val orchestrator = FaceEnsembleOrchestrator(
+            config       = pipelineConfig,
+            modelManager = app.modelManager,
+            db           = app.database,
+            context      = applicationContext,
+        )
+
+        if (!orchestrator.hasEnabledDetectors()) {
+            orchestrator.close()
+            Log.e(TAG, "Ensemble face mode active but zero face detectors are enabled. " +
+                "Enable at least one face detector in Model Management.")
+            return@withContext Result.failure(
+                workDataOf("error" to "No face detectors enabled for ensemble mode")
+            )
+        }
+
+        val compositeVersion = orchestrator.compositeDetectorVersion
+        val faceDao          = app.database.faceDao()
+        val scanLogDao       = app.database.faceClusterDao()
+
+        val total = faceDao.countUnprocessed(compositeVersion)
+        Log.i(TAG, "Ensemble face index — $total images to process " +
+            "(composite version: $compositeVersion)")
+
+        var imagesProcessed    = 0
+        var fusedFacesDetected = 0
+        var identitySuggestions = 0
+        var failures            = 0
+        var offset              = 0
+        var totalProcessingMs   = 0L
+
+        try {
+            while (isActive) {
+                val uris = faceDao.getUnprocessedImageUris(compositeVersion, BATCH_SIZE, offset)
+                if (uris.isEmpty()) break
+
+                for (uri in uris) {
+                    if (!isActive) break
+                    val itemStartMs = System.currentTimeMillis()
+
+                    runCatching {
+                        val bitmap = applicationContext.contentResolver
+                            .openInputStream(android.net.Uri.parse(uri))?.use { stream ->
+                                android.graphics.BitmapFactory.decodeStream(stream)
+                            } ?: throw IllegalStateException("Could not open bitmap for $uri")
+
+                        try {
+                            orchestrator.processAsset(uri, bitmap)
+                        } finally {
+                            bitmap.recycle()
+                        }
+                    }.onSuccess { (faces, suggestions) ->
+                        imagesProcessed++
+                        fusedFacesDetected += faces
+                        identitySuggestions += suggestions
+                        totalProcessingMs += System.currentTimeMillis() - itemStartMs
+                        val status = if (faces > 0) FaceScanLog.RESULT_FACES_FOUND
+                                     else           FaceScanLog.RESULT_NO_FACES_FOUND
+                        scanLogDao.insertScanLog(FaceScanLog(uri, compositeVersion, resultStatus = status))
+                    }.onFailure { e ->
+                        Log.w(TAG, "Ensemble: processing failed for $uri: ${e.message}")
+                        failures++
+                        scanLogDao.insertScanLog(FaceScanLog(uri, compositeVersion, resultStatus = FaceScanLog.RESULT_FAILED))
+                    }
+                }
+
+                setProgress(workDataOf(
+                    "imagesProcessed" to imagesProcessed,
+                    "total"           to total,
+                    "fusedFaces"      to fusedFacesDetected,
+                ))
+                offset += BATCH_SIZE
+            }
+        } finally {
+            orchestrator.close()
+        }
+
+        val cancelled = !isActive
+        val avgMs = if (imagesProcessed > 0) totalProcessingMs / imagesProcessed else 0L
+        statsStore.recordRun(
+            pipeline            = IndexingStatsStore.PIPELINE_FACE,
+            indexedCount        = imagesProcessed,
+            skippedCount        = 0,
+            inferenceFailures   = failures,
+            avgProcessingTimeMs = avgMs,
+            wasCancelled        = cancelled
+        )
+
+        Log.i(TAG, "Ensemble face index complete — $imagesProcessed images, " +
+            "$fusedFacesDetected fused faces, $identitySuggestions identity suggestions, " +
+            "$failures failures")
+        Result.success(workDataOf(
+            "imagesProcessed"    to imagesProcessed,
+            "fusedFacesDetected" to fusedFacesDetected,
+            "identitySuggestions" to identitySuggestions,
+            "failures"           to failures,
+        ))
     }
 
     /**
