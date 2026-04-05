@@ -79,13 +79,19 @@ class TagSuggestionWorker(
             activeSceneModelId   = activeSceneId,
         )
 
-        return@withContext when (pipelineConfig.pipelineMode) {
+        val albumId: Long? = inputData.getLong(KEY_ALBUM_ID, -1L).takeIf { it != -1L }
+
+        // Folder scans are always single-active: the ensemble path ignores albumId and would
+        // fail if no ensemble models are configured, making folder scans unreliable.
+        return@withContext if (albumId != null) {
+            runSingleActivePath(app, db, pipelineConfig, albumId)
+        } else when (pipelineConfig.pipelineMode) {
             AiPipelineMode.ENSEMBLE_ALL_ENABLED -> {
                 val isForeground = inputData.getBoolean(KEY_IS_FOREGROUND, false)
                 runEnsemblePath(app, db, pipelineConfig, isForeground)
             }
             AiPipelineMode.SINGLE_ACTIVE ->
-                runSingleActivePath(app, db, pipelineConfig)
+                runSingleActivePath(app, db, pipelineConfig, null)
         }
     }
 
@@ -95,6 +101,7 @@ class TagSuggestionWorker(
         app: PandoraApp,
         db: com.example.boxpandora.data.local.AppDatabase,
         config: AiPipelineConfig,
+        albumId: Long? = null,
     ): Result {
         val activeModel = app.modelManager.getActiveModel(ModelCategory.SCENE_EMBEDDING)
         if (activeModel == null) {
@@ -117,15 +124,24 @@ class TagSuggestionWorker(
             return Result.success(workDataOf("skipped" to true))
         }
 
-        val totalAssets = db.imageEmbeddingDao().countIndexed(modelVersion)
-        Log.i(TAG, "Single-active: scoring $totalAssets assets (model=$modelVersion, threshold=$threshold)")
+        // When albumId is set (folder scan): only process assets in that album that have no
+        // existing suggestion rows, so already-scored assets are not re-processed.
+        val totalAssets = if (albumId != null)
+            db.imageEmbeddingDao().countIndexedWithoutSuggestionsByAlbum(albumId, modelVersion)
+        else
+            db.imageEmbeddingDao().countIndexed(modelVersion)
+        val scope = if (albumId != null) "album=$albumId" else "full library"
+        Log.i(TAG, "Single-active [$scope]: scoring $totalAssets assets (model=$modelVersion, threshold=$threshold)")
 
         var processed = 0
         var suggestionsWritten = 0
         var offset = 0
 
         while (coroutineContext.isActive) {
-            val uris = db.imageEmbeddingDao().getIndexedAssetUris(modelVersion, SINGLE_ACTIVE_BATCH_SIZE, offset)
+            val uris = if (albumId != null)
+                db.imageEmbeddingDao().getIndexedAssetUrisWithoutSuggestionsByAlbum(albumId, modelVersion, SINGLE_ACTIVE_BATCH_SIZE, offset)
+            else
+                db.imageEmbeddingDao().getIndexedAssetUris(modelVersion, SINGLE_ACTIVE_BATCH_SIZE, offset)
             if (uris.isEmpty()) break
 
             for (uri in uris) {

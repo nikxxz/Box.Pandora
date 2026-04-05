@@ -43,14 +43,17 @@ class MediaViewerViewModel(
 
     private val _selectedMediaUri = MutableStateFlow<String?>(null)
 
-    /** Bumped on every accept/reject so suggestion flows re-fetch from DB. */
+    /** Bumped on every accept/reject/refresh so suggestion flows re-fetch from DB. */
     private val _suggestionVersion = MutableStateFlow(0)
+
+    private val _suggestionsLoading = MutableStateFlow(false)
+    val suggestionsLoading: StateFlow<Boolean> = _suggestionsLoading.asStateFlow()
 
     val tagsForSelectedMedia: StateFlow<List<Tag>> = _selectedMediaUri
         .filterNotNull()
-        .flatMapLatest { uri -> 
+        .flatMapLatest { uri ->
             Log.d("MediaViewerVM", "Fetching tags for URI: $uri")
-            tagRepository.getTagsForMedia(uri) 
+            tagRepository.getTagsForMedia(uri)
         }
         .onEach { Log.d("MediaViewerVM", "Tags updated for current URI, count: ${it.size}") }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -61,9 +64,21 @@ class MediaViewerViewModel(
         _suggestionVersion
     ) { uri, _ -> uri }
         .flatMapLatest { uri ->
-            flow { emit(tagRepository.getSuggestionObjectsForMedia(uri)) }
+            flow {
+                _suggestionsLoading.value = true
+                try {
+                    emit(tagRepository.getSuggestionObjectsForMedia(uri))
+                } finally {
+                    _suggestionsLoading.value = false
+                }
+            }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Manually re-fetches AI suggestions from the database. */
+    fun refreshSuggestions() {
+        _suggestionVersion.value++
+    }
 
     private var albumsJob: Job? = null
 

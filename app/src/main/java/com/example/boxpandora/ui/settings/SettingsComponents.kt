@@ -33,6 +33,7 @@ fun SettingsNavigationRow(screen: Screen, navController: NavController) {
 }
 
 fun getScreenSubtitle(screen: Screen): String? = when(screen) {
+    Screen.LibraryHealth -> "Scan and repair tag data integrity"
     Screen.LibrarySettings -> "8 folders scanned • Hidden folders off"
     Screen.TaggingAISettings -> "Auto-tag on • Merge similar tags on"
     Screen.DisplaySettings -> "Dark mode • Medium grid"
@@ -45,6 +46,7 @@ fun getScreenSubtitle(screen: Screen): String? = when(screen) {
 }
 
 fun getScreenKeywords(screen: Screen): List<String> = when(screen) {
+    Screen.LibraryHealth -> listOf("health", "tags", "repair", "fix", "orphan", "duplicate", "count", "stale")
     Screen.LibrarySettings -> listOf("folders", "scan", "paths", "hidden", "nomedia", "exclude")
     Screen.TaggingAISettings -> listOf("ai", "tags", "auto", "confidence", "synonyms", "categories")
     Screen.DisplaySettings -> listOf("theme", "dark", "light", "grid", "columns", "sort", "accent", "animations")

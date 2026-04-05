@@ -15,8 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +38,9 @@ import com.example.boxpandora.PandoraApp
 import com.example.boxpandora.data.local.entity.MediaItem
 import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.manager.FileConflictResolution
+import com.example.boxpandora.data.repository.RichSuggestion
 import com.example.boxpandora.ui.common.*
+import com.example.boxpandora.ui.common.components.shouldShowSuggestion
 import com.example.boxpandora.ui.components.grid.DynamicMediaGrid
 import com.example.boxpandora.ui.components.grid.MediaThumbnail
 import com.example.boxpandora.ui.main.viewmodel.FolderDetailViewModel
@@ -70,6 +71,8 @@ fun FolderDetailScreen(
     val selectedUris by viewModel.selectedUris.collectAsState()
     val isSelectionMode by viewModel.isSelectionMode.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
+    val bulkSuggestions by viewModel.suggestionObjectsForSelected.collectAsState()
+    val bulkSuggestionsLoading by viewModel.bulkSuggestionsLoading.collectAsState()
 
     val isSearchOpen by viewModel.isSearchOpen.collectAsState()
     val searchParams by viewModel.searchParams.collectAsState()
@@ -83,6 +86,7 @@ fun FolderDetailScreen(
     var showMoveDialog by remember { mutableStateOf(false) }
     var showBulkTagDialog by remember { mutableStateOf(false) }
     var showPropertiesSheet by remember { mutableStateOf(false) }
+    var showFilenames by remember { mutableStateOf(false) }
 
     LaunchedEffect(showHidden) {
         viewModel.setShowHidden(showHidden)
@@ -136,11 +140,6 @@ fun FolderDetailScreen(
     Scaffold(
         topBar = {
             Column(modifier = Modifier.offset { IntOffset(0, scrollOffset.roundToInt()) }) {
-                val showHideLabel = remember(selectedUris, pagingItems.itemCount) {
-                    val selectedItemsInSnapshot = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
-                    if (selectedItemsInSnapshot.isNotEmpty() && selectedItemsInSnapshot.all { it.isHidden == 1 }) "Show" else "Hide"
-                }
-
                 val subtitle = "%,d items".format(pagingItems.itemCount)
 
                 AppHeader(
@@ -159,7 +158,8 @@ fun FolderDetailScreen(
                         val visibleItems = if (isSearchOpen) searchResults else mediaItems
                         viewModel.selectItems(visibleItems.map { it.uri })
                     },
-                    showHideOption = showHideLabel,
+                    showFilenamesButton = true,
+                    showFilenames = showFilenames,
                     onActionClick = { action ->
                         when (action) {
                             "delete" -> showDeleteDialog = true
@@ -171,7 +171,7 @@ fun FolderDetailScreen(
                                 viewModel.loadAlbums(); showMoveDialog = true
                             }
                             "properties" -> showPropertiesSheet = true
-                            "hide_show" -> viewModel.toggleHiddenForSelected()
+                            "toggle_filenames" -> showFilenames = !showFilenames
                             "tag" -> showBulkTagDialog = true
                             "share" -> {
                                 val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
@@ -216,6 +216,7 @@ fun FolderDetailScreen(
                     results = searchResults,
                     selectedUris = selectedUris,
                     isLoading = isSearching,
+                    showFilenames = showFilenames,
                     onPress = { item ->
                         if (isSelectionMode) {
                             viewModel.toggleSelection(item.uri)
@@ -225,16 +226,44 @@ fun FolderDetailScreen(
                     },
                     onLongPress = { viewModel.toggleSelection(it.uri) }
                 )
+            } else if (mediaItems.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                    ) {
+                        androidx.compose.material3.Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(52.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
+                        )
+                        Text(
+                            text = "This folder is empty",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Text(
+                            text = "Add photos or videos to see them here",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        )
+                    }
+                }
             } else {
                 DynamicMediaGrid(
-                    items        = mediaItems,
-                    selectedUris = selectedUris,
-                    modifier     = Modifier.fillMaxSize(),
-                    onPress      = { item, index ->
+                    items         = mediaItems,
+                    selectedUris  = selectedUris,
+                    modifier      = Modifier.fillMaxSize(),
+                    showFilenames = showFilenames,
+                    onPress       = { item, index ->
                         if (isSelectionMode) viewModel.toggleSelection(item.uri)
                         else onMediaClick(mediaItems, index)
                     },
-                    onLongPress  = { item -> viewModel.toggleSelection(item.uri) }
+                    onLongPress   = { item -> viewModel.toggleSelection(item.uri) }
                 )
             }
         }
@@ -293,6 +322,9 @@ fun FolderDetailScreen(
     if (showBulkTagDialog) {
         BulkTagDialog(
             allTags = allTags,
+            suggestionObjects = bulkSuggestions,
+            suggestionsLoading = bulkSuggestionsLoading,
+            onRefreshSuggestions = { viewModel.refreshBulkSuggestions() },
             onDismiss = { showBulkTagDialog = false },
             onConfirm = { tags ->
                 viewModel.bulkAttachTags(tags)
@@ -328,6 +360,9 @@ fun FolderDetailScreen(
 @Composable
 fun BulkTagDialog(
     allTags: List<Tag>,
+    suggestionObjects: List<RichSuggestion> = emptyList(),
+    suggestionsLoading: Boolean = false,
+    onRefreshSuggestions: () -> Unit = {},
     onDismiss: () -> Unit,
     onConfirm: (List<String>) -> Unit
 ) {
@@ -438,6 +473,83 @@ fun BulkTagDialog(
                             trailingTint = tokens.secondaryText,
                             onClick = { selectedTagNames.remove(tagName) }
                         )
+                    }
+                }
+            }
+        }
+
+        // ── AI Suggestions (model output, shown when query is blank) ─────────
+        val visibleAiSuggestions = remember(normalizedInput, suggestionObjects, selectedSnapshot, suggestions) {
+            if (normalizedInput.isNotBlank()) emptyList()
+            else suggestionObjects
+                .filter { shouldShowSuggestion(it) }
+                .filter { s -> selectedTagNames.none { it.equals(s.tagKey, ignoreCase = true) } }
+                .filter { s -> suggestions.none { it.name.equals(s.tagKey, ignoreCase = true) } }
+        }
+        if (normalizedInput.isBlank()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "AI Suggestions",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = tokens.bodyText
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (suggestionsLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(13.dp),
+                                strokeWidth = 1.5.dp,
+                                color = tokens.secondaryText.copy(alpha = 0.6f)
+                            )
+                        } else if (visibleAiSuggestions.isNotEmpty()) {
+                            Text(
+                                text = "• ${visibleAiSuggestions.size}",
+                                color = tokens.secondaryText.copy(alpha = 0.78f),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        IconButton(
+                            onClick = onRefreshSuggestions,
+                            modifier = Modifier.size(28.dp),
+                            enabled = !suggestionsLoading
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh AI suggestions",
+                                modifier = Modifier.size(15.dp),
+                                tint = tokens.secondaryText.copy(alpha = if (suggestionsLoading) 0.3f else 0.7f)
+                            )
+                        }
+                    }
+                }
+                if (!suggestionsLoading && visibleAiSuggestions.isEmpty()) {
+                    Text(
+                        text = "No AI suggestions for the selection. Tap ↻ to retry.",
+                        color = tokens.secondaryText.copy(alpha = 0.6f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                } else if (visibleAiSuggestions.isNotEmpty()) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        visibleAiSuggestions.forEach { suggestion ->
+                            TagPopupChip(
+                                label = suggestion.tagKey.uppercase(),
+                                backgroundColor = tokens.selectedAccent.copy(alpha = 0.08f),
+                                borderColor = tokens.selectedAccent.copy(alpha = 0.22f),
+                                textColor = tokens.bodyText,
+                                onClick = { addTag(suggestion.tagKey) }
+                            )
+                        }
                     }
                 }
             }

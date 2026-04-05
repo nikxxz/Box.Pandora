@@ -74,6 +74,32 @@ interface MediaTagDao {
         )
     """)
     suspend fun getTaggedUrisWithEmbedding(tagId: Long, modelVersion: String): List<String>
+
+    // ── Library health queries ────────────────────────────────────────────────
+
+    @Query("SELECT COUNT(*) FROM media_tags")
+    suspend fun countAll(): Int
+
+    /**
+     * Counts associations whose media URI no longer exists in media_index.
+     * These are stale rows that the CASCADE FK should have removed but didn't
+     * (e.g. if FK enforcement was temporarily disabled, or via a non-Room path).
+     */
+    @Query("""
+        SELECT COUNT(*) FROM media_tags mt
+        WHERE NOT EXISTS (SELECT 1 FROM media_index m WHERE m.uri = mt.media_uri)
+    """)
+    suspend fun countOrphanedAssociations(): Int
+
+    /**
+     * Deletes all associations whose media URI is missing from media_index.
+     * Safe to call at any time; idempotent.
+     */
+    @Query("""
+        DELETE FROM media_tags
+        WHERE NOT EXISTS (SELECT 1 FROM media_index m WHERE m.uri = media_uri)
+    """)
+    suspend fun deleteOrphanedAssociations()
 }
 
 data class MediaUriTagName(

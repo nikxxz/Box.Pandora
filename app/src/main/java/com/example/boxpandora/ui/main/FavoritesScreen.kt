@@ -132,7 +132,6 @@ fun FavoritesScreen(
                 val visibleItems = if (isSearchOpen) searchResults else favorites
                 viewModel.selectItems(visibleItems.map { it.uri })
             },
-            showHideOption = "Hide",
             allowOpenWith = false,
             onActionClick = { action ->
                 when (action) {

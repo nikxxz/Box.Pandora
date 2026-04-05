@@ -17,7 +17,9 @@
       "Bash(grep -r \"FusedScene\\\\|FusedIdentity\" c:DevAppsappsrcmainjavacomexampleboxpandoraui --include=*.kt)",
       "Bash(grep -r \"\\\\.updateStatus\\\\|STATUS_ACCEPTED\\\\|STATUS_REJECTED\\\\|STATUS_PENDING\" c:DevAppsappsrcmainjava --include=*.kt)",
       "Bash(grep -r \"material-icons\\\\|material.icons\" c:DevAppsappbuild.gradle*)",
-      "Bash(find c:/Dev/Apps -type d -path *ml*)"
+      "Bash(find c:/Dev/Apps -type d -path *ml*)",
+      "Bash(./gradlew assembleRelease)",
+      "Bash(find /c/Dev/Apps -type f -name *.ts -o -name *.tsx -o -name *.js -o -name *.jsx -o -name *.vue)"
     ]
   }
 }

@@ -217,12 +217,10 @@ fun FoldersScreen(
         .fillMaxSize()
         .nestedScroll(nestedScrollConnection)
     ) {
-        val showHideLabel = remember(selectedIds, albums) {
-            val selectedAlbums = albums.filter { it.id in selectedIds }
-            if (selectedAlbums.isNotEmpty() && selectedAlbums.all { it.isHidden }) "Show" else "Hide"
-        }
-
         val subtitle = "Library • %,d items".format(totalCount)
+        val showHideLabel = if (albums.filter { it.id in selectedIds }.let { sel ->
+            sel.isNotEmpty() && sel.all { it.isHidden }
+        }) "Show" else "Hide"
 
         AppHeader(
             title = "pandora",
@@ -233,8 +231,8 @@ fun FoldersScreen(
             onClearSelection = { viewModel.clearSelection() },
             canSelectAll = albums.isNotEmpty() && selectedIds.size < albums.size,
             onSelectAll = { viewModel.selectAlbums(albums.map { it.id }) },
-            showHideOption = showHideLabel,
             isPinned = albums.find { it.id in selectedIds }?.isPinned == true,
+            showHideOption = showHideLabel,
             allowOpenWith = false,
             onActionClick = { action ->
                 when (action) {

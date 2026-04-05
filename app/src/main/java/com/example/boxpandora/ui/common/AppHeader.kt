@@ -29,7 +29,9 @@ fun AppHeader(
     onClearSelection: () -> Unit = {},
     canSelectAll: Boolean = false,
     onSelectAll: () -> Unit = {},
-    showHideOption: String = "Hide", // "Hide" or "Show"
+    showFilenamesButton: Boolean = false,
+    showFilenames: Boolean = false,
+    showHideOption: String? = null, // "Hide" or "Show"; null = hide the icon entirely
     isPinned: Boolean = false,
     allowOpenWith: Boolean = true,
     onActionClick: (String) -> Unit = {},
@@ -160,6 +162,22 @@ fun AppHeader(
                     }
                 ) {
                     if (!isSelectionMode) {
+                        if (showFilenamesButton) {
+                            IconButton(
+                                onClick = { onActionClick("toggle_filenames") },
+                                modifier = Modifier.size(if (scrollProgress < 0.5f) 32.dp else 48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Subtitles,
+                                    contentDescription = if (showFilenames) "Hide filenames" else "Show filenames",
+                                    modifier = Modifier.size(22.dp),
+                                    tint = if (showFilenames)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = onSearchClick,
                             modifier = Modifier.size(if (scrollProgress < 0.5f) 32.dp else 48.dp)
@@ -201,12 +219,14 @@ fun AppHeader(
                             )
                         }
 
-                        IconButton(onClick = { onActionClick("hide_show") }) {
-                            AppAssetIcon(
-                                assetIcon = if (showHideOption == "Show") "eye.svg" else "eye-crossed.svg",
-                                tint = MaterialTheme.colorScheme.onBackground,
-                                modifier = Modifier.size(21.dp)
-                            )
+                        if (showHideOption != null) {
+                            IconButton(onClick = { onActionClick("hide_show") }) {
+                                AppAssetIcon(
+                                    assetIcon = if (showHideOption == "Show") "eye.svg" else "eye-crossed.svg",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(21.dp)
+                                )
+                            }
                         }
 
                         IconButton(onClick = { onActionClick("tag") }) {

@@ -144,4 +144,131 @@ interface ImageEmbeddingDao {
     /** Delete all scene embeddings. Used by the "Rebuild Scene Embeddings" action to force a full re-index. */
     @Query("DELETE FROM image_embeddings")
     suspend fun deleteAll()
+
+    // ── Album-scoped queries (for folder scan) ────────────────────────────────
+
+    /** Count of plain (non-GIF) image assets in [albumId] not yet indexed for [modelVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) != 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+    """)
+    suspend fun countUnindexedByAlbum(albumId: Long, modelVersion: String): Int
+
+    /** Unindexed plain image URIs in [albumId] for [modelVersion], paginated. */
+    @Query("""
+        SELECT m.uri FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) != 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+        ORDER BY m.device_created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getUnindexedImageUrisByAlbum(
+        albumId: Long, modelVersion: String, limit: Int, offset: Int
+    ): List<String>
+
+    /** Count of GIF assets in [albumId] not yet indexed for [modelVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) = 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+    """)
+    suspend fun countUnindexedGifsByAlbum(albumId: Long, modelVersion: String): Int
+
+    /** Unindexed GIF URIs in [albumId] for [modelVersion], paginated. */
+    @Query("""
+        SELECT m.uri FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) = 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+        ORDER BY m.device_created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getUnindexedGifUrisByAlbum(
+        albumId: Long, modelVersion: String, limit: Int, offset: Int
+    ): List<String>
+
+    /** Count of video assets in [albumId] not yet indexed for [modelVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'video'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+    """)
+    suspend fun countUnindexedVideosByAlbum(albumId: Long, modelVersion: String): Int
+
+    /** Unindexed video URIs in [albumId] for [modelVersion], paginated. */
+    @Query("""
+        SELECT m.uri FROM media_index m
+        WHERE m.media_type = 'video'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM image_embeddings ie
+            WHERE ie.asset_id = m.uri AND ie.model_version = :modelVersion
+        )
+        ORDER BY m.device_created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getUnindexedVideoUrisByAlbum(
+        albumId: Long, modelVersion: String, limit: Int, offset: Int
+    ): List<String>
+
+    /**
+     * Count of assets in [albumId] that have embeddings for [modelVersion] but no
+     * [tag_suggestions] row yet — used by the folder scan path of [TagSuggestionWorker]
+     * to skip assets already scored in a previous run.
+     */
+    @Query("""
+        SELECT COUNT(DISTINCT ie.asset_id) FROM image_embeddings ie
+        JOIN media_index m ON m.uri = ie.asset_id
+        WHERE ie.model_version = :modelVersion
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM tag_suggestions ts
+            WHERE ts.asset_id = ie.asset_id AND ts.model_version = :modelVersion
+        )
+    """)
+    suspend fun countIndexedWithoutSuggestionsByAlbum(albumId: Long, modelVersion: String): Int
+
+    /**
+     * Indexed asset URIs in [albumId] that have no [tag_suggestions] row for [modelVersion],
+     * paginated. Used by the folder scan path of [TagSuggestionWorker].
+     */
+    @Query("""
+        SELECT DISTINCT ie.asset_id FROM image_embeddings ie
+        JOIN media_index m ON m.uri = ie.asset_id
+        WHERE ie.model_version = :modelVersion
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM tag_suggestions ts
+            WHERE ts.asset_id = ie.asset_id AND ts.model_version = :modelVersion
+        )
+        ORDER BY ie.created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getIndexedAssetUrisWithoutSuggestionsByAlbum(
+        albumId: Long, modelVersion: String, limit: Int, offset: Int
+    ): List<String>
 }

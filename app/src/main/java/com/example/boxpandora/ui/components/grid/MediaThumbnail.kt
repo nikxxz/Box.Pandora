@@ -49,7 +49,9 @@ fun MediaThumbnail(
     onPress: () -> Unit,
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
-    blurRadius: Dp = 0.dp
+    blurRadius: Dp = 0.dp,
+    showFilename: Boolean = false,
+    filename: String? = null
 ) {
     val context = LocalContext.current
     val cacheKey = remember(thumbUri, filePath, uri) { 
@@ -184,6 +186,26 @@ fun MediaThumbnail(
                     .padding(5.dp)
                     .size(18.dp)
             )
+        }
+
+        // Filename overlay
+        if (showFilename && filename != null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.52f))
+                    .padding(horizontal = 4.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = filename,
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

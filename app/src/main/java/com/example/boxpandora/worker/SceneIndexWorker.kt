@@ -72,15 +72,22 @@ class SceneIndexWorker(
 
         app.modelManager.clearModelFailures(category)
 
+        // Optional album filter — set when launched from "Scan by Folder"
+        val albumId: Long? = inputData.getLong(KEY_ALBUM_ID, -1L).takeIf { it != -1L }
+
         service.use {
             val modelVersion = service.modelVersionKey
 
-            val imageCount = embeddingDao.countUnindexed(modelVersion)
-            val gifCount   = embeddingDao.countUnindexedGifs(modelVersion)
-            val videoCount = embeddingDao.countUnindexedVideos(modelVersion)
+            val imageCount = if (albumId != null) embeddingDao.countUnindexedByAlbum(albumId, modelVersion)
+                             else embeddingDao.countUnindexed(modelVersion)
+            val gifCount   = if (albumId != null) embeddingDao.countUnindexedGifsByAlbum(albumId, modelVersion)
+                             else embeddingDao.countUnindexedGifs(modelVersion)
+            val videoCount = if (albumId != null) embeddingDao.countUnindexedVideosByAlbum(albumId, modelVersion)
+                             else embeddingDao.countUnindexedVideos(modelVersion)
             val total      = imageCount + gifCount + videoCount
 
-            Log.i(TAG, "Scene index run — images:$imageCount gifs:$gifCount videos:$videoCount (model: $modelVersion)")
+            val scope = if (albumId != null) "album=$albumId" else "full library"
+            Log.i(TAG, "Scene index run [$scope] — images:$imageCount gifs:$gifCount videos:$videoCount (model: $modelVersion)")
 
             if (total == 0) {
                 Log.i(TAG, "Nothing to index — all assets up to date")
@@ -99,7 +106,10 @@ class SceneIndexWorker(
             // ── Pass 1: plain images ──────────────────────────────────────────
             var offset = 0
             while (isActive) {
-                val uris = embeddingDao.getUnindexedImageUris(modelVersion, BATCH_SIZE, offset)
+                val uris = if (albumId != null)
+                    embeddingDao.getUnindexedImageUrisByAlbum(albumId, modelVersion, BATCH_SIZE, offset)
+                else
+                    embeddingDao.getUnindexedImageUris(modelVersion, BATCH_SIZE, offset)
                 if (uris.isEmpty()) break
                 val batch = mutableListOf<ImageEmbedding>()
                 for (uri in uris) {
@@ -119,7 +129,10 @@ class SceneIndexWorker(
             // ── Pass 2: GIFs ──────────────────────────────────────────────────
             offset = 0
             while (isActive) {
-                val uris = embeddingDao.getUnindexedGifUris(modelVersion, BATCH_SIZE, offset)
+                val uris = if (albumId != null)
+                    embeddingDao.getUnindexedGifUrisByAlbum(albumId, modelVersion, BATCH_SIZE, offset)
+                else
+                    embeddingDao.getUnindexedGifUris(modelVersion, BATCH_SIZE, offset)
                 if (uris.isEmpty()) break
                 val batch = mutableListOf<ImageEmbedding>()
                 for (uri in uris) {
@@ -140,7 +153,10 @@ class SceneIndexWorker(
             // ── Pass 3: videos ────────────────────────────────────────────────
             offset = 0
             while (isActive) {
-                val uris = embeddingDao.getUnindexedVideoUris(modelVersion, BATCH_SIZE, offset)
+                val uris = if (albumId != null)
+                    embeddingDao.getUnindexedVideoUrisByAlbum(albumId, modelVersion, BATCH_SIZE, offset)
+                else
+                    embeddingDao.getUnindexedVideoUris(modelVersion, BATCH_SIZE, offset)
                 if (uris.isEmpty()) break
                 val batch = mutableListOf<ImageEmbedding>()
                 for (uri in uris) {

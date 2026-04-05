@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.boxpandora.data.local.AppDatabase
+import com.example.boxpandora.data.local.entity.Album
 import com.example.boxpandora.ml.config.AiSettings
 import com.example.boxpandora.ml.config.AiSettingsRepository
 import com.example.boxpandora.ml.manager.ModelManager
@@ -23,8 +24,28 @@ import com.example.boxpandora.worker.PERSON_SUGGESTION_WORK_NAME
 import com.example.boxpandora.worker.PROTOTYPE_BUILD_WORK_NAME
 import com.example.boxpandora.worker.SCENE_INDEX_WORK_NAME
 import com.example.boxpandora.worker.TAG_SUGGESTION_WORK_NAME
+import com.example.boxpandora.worker.FOLDER_SCAN_WORK_NAME
+import com.example.boxpandora.worker.FOLDER_SCAN_SCENE_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_FACE_INDEX_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_FACE_CLUSTER_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_PROTOTYPE_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_SUGGESTION_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_PERSON_PROFILE_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_PERSON_SUGGEST_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_RELIABILITY_TAG
+import com.example.boxpandora.worker.FOLDER_SCAN_FUSED_IDENTITY_TAG
 import com.example.boxpandora.worker.FUSED_IDENTITY_REBUILD_WORK_NAME
 import com.example.boxpandora.worker.RELIABILITY_RECALCULATE_WORK_NAME
+import com.example.boxpandora.worker.MAINTENANCE_CHAIN_WORK_NAME
+import com.example.boxpandora.worker.MAINT_SCENE_TAG
+import com.example.boxpandora.worker.MAINT_FACE_INDEX_TAG
+import com.example.boxpandora.worker.MAINT_FACE_CLUSTER_TAG
+import com.example.boxpandora.worker.MAINT_PROTOTYPE_TAG
+import com.example.boxpandora.worker.MAINT_SUGGESTION_TAG
+import com.example.boxpandora.worker.MAINT_PERSON_PROFILE_TAG
+import com.example.boxpandora.worker.MAINT_PERSON_SUGGEST_TAG
+import com.example.boxpandora.worker.MAINT_RELIABILITY_TAG
+import com.example.boxpandora.worker.MAINT_FUSED_IDENTITY_TAG
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +71,10 @@ class AiSettingsViewModel(
         initialValue = AiSettings.DEFAULT
     )
 
+    /** All albums available for folder-scoped AI scan selection. */
+    val allAlbums: StateFlow<List<Album>> = database.albumDao().getAllAlbumsFlow()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // ── Worker display names ─────────────────────────────────────────────────────
 
     private val WORKER_DISPLAY_NAMES = mapOf(
@@ -61,7 +86,28 @@ class AiSettingsViewModel(
         PERSON_PROFILE_WORK_NAME           to "Person profiles",
         PERSON_SUGGESTION_WORK_NAME        to "People matching",
         FUSED_IDENTITY_REBUILD_WORK_NAME   to "Identity re-fusion",
-        RELIABILITY_RECALCULATE_WORK_NAME  to "Reliability weights"
+        RELIABILITY_RECALCULATE_WORK_NAME  to "Reliability weights",
+        FOLDER_SCAN_WORK_NAME              to "Folder scan",
+        // Maintenance chain step display names (shared across all maintenance chains)
+        MAINT_SCENE_TAG           to "Scene embeddings",
+        MAINT_FACE_INDEX_TAG      to "Face detection",
+        MAINT_FACE_CLUSTER_TAG    to "Face clustering",
+        MAINT_PROTOTYPE_TAG       to "Tag prototypes",
+        MAINT_SUGGESTION_TAG      to "Tag suggestions",
+        MAINT_PERSON_PROFILE_TAG  to "Person profiles",
+        MAINT_PERSON_SUGGEST_TAG  to "People matching",
+        MAINT_RELIABILITY_TAG     to "Reliability weights",
+        MAINT_FUSED_IDENTITY_TAG  to "Identity re-fusion",
+        // Per-step display names for the folder scan chain (tracked by tag)
+        FOLDER_SCAN_SCENE_TAG          to "1/9 · Scene embeddings",
+        FOLDER_SCAN_FACE_INDEX_TAG     to "2/9 · Face detection",
+        FOLDER_SCAN_FACE_CLUSTER_TAG   to "3/9 · Face clustering",
+        FOLDER_SCAN_PROTOTYPE_TAG      to "4/9 · Tag prototypes",
+        FOLDER_SCAN_SUGGESTION_TAG     to "5/9 · Tag suggestions",
+        FOLDER_SCAN_PERSON_PROFILE_TAG to "6/9 · Person profiles",
+        FOLDER_SCAN_PERSON_SUGGEST_TAG to "7/9 · People matching",
+        FOLDER_SCAN_RELIABILITY_TAG    to "8/9 · Reliability weights",
+        FOLDER_SCAN_FUSED_IDENTITY_TAG to "9/9 · Identity re-fusion",
     )
 
     // ── Settings toggles ──────────────────────────────────────────────────────
@@ -109,35 +155,54 @@ class AiSettingsViewModel(
 
     // ── Maintenance progress tracking ─────────────────────────────────────────
 
-    private data class TrackedAction(val label: String, val workNames: List<String>)
+    /**
+     * @param workNames     Unique work names observed via [WorkManager.getWorkInfosForUniqueWorkLiveData].
+     * @param taggedNames   WorkManager tags observed via [WorkManager.getWorkInfosByTagLiveData];
+     *                      used for chained workers where each step needs individual tracking.
+     */
+    private data class TrackedAction(
+        val label: String,
+        val workNames: List<String> = emptyList(),
+        val taggedNames: List<String> = emptyList()
+    )
     private val _trackedAction = MutableStateFlow<TrackedAction?>(null)
 
     val maintenanceProgress: StateFlow<MaintenanceProgressState> = _trackedAction
         .flatMapLatest { action ->
             if (action == null) return@flatMapLatest flowOf(MaintenanceProgressState.Idle)
-            val workerFlows = action.workNames.map { name ->
+
+            fun progressFor(info: WorkInfo?, name: String): WorkerProgress {
+                val prog = info?.progress
+                val processed = if (prog != null) when {
+                    prog.getInt("indexed", -1) != -1         -> prog.getInt("indexed", 0)
+                    prog.getInt("processed", -1) != -1       -> prog.getInt("processed", 0)
+                    prog.getInt("imagesProcessed", -1) != -1 -> prog.getInt("imagesProcessed", 0)
+                    else -> 0
+                } else 0
+                return WorkerProgress(
+                    workName    = name,
+                    displayName = WORKER_DISPLAY_NAMES[name] ?: name,
+                    state       = info?.state ?: WorkInfo.State.ENQUEUED,
+                    processed   = processed,
+                    total       = prog?.getInt("total", 0) ?: 0
+                )
+            }
+
+            val uniqueFlows = action.workNames.map { name ->
                 WorkManager.getInstance(appContext)
                     .getWorkInfosForUniqueWorkLiveData(name)
                     .asFlow()
-                    .map { infos ->
-                        val info = infos.firstOrNull()
-                        val prog = info?.progress
-                        val processed = if (prog != null) when {
-                            prog.getInt("indexed", -1) != -1         -> prog.getInt("indexed", 0)
-                            prog.getInt("processed", -1) != -1       -> prog.getInt("processed", 0)
-                            prog.getInt("imagesProcessed", -1) != -1 -> prog.getInt("imagesProcessed", 0)
-                            else -> 0
-                        } else 0
-                        WorkerProgress(
-                            workName    = name,
-                            displayName = WORKER_DISPLAY_NAMES[name] ?: name,
-                            state       = info?.state ?: WorkInfo.State.ENQUEUED,
-                            processed   = processed,
-                            total       = prog?.getInt("total", 0) ?: 0
-                        )
-                    }
+                    .map { infos -> progressFor(infos.firstOrNull(), name) }
             }
-            combine(workerFlows) { array ->
+            val tagFlows = action.taggedNames.map { tag ->
+                WorkManager.getInstance(appContext)
+                    .getWorkInfosByTagLiveData(tag)
+                    .asFlow()
+                    .map { infos -> progressFor(infos.firstOrNull(), tag) }
+            }
+            val allFlows = uniqueFlows + tagFlows
+            if (allFlows.isEmpty()) return@flatMapLatest flowOf(MaintenanceProgressState.Idle)
+            combine(allFlows) { array ->
                 MaintenanceProgressState.Active(action.label, array.toList())
             }
         }
@@ -146,14 +211,15 @@ class AiSettingsViewModel(
     fun dismissMaintenanceProgress() { _trackedAction.value = null }
 
     fun cancelMaintenanceWork() {
-        val names = _trackedAction.value?.workNames ?: return
+        val action = _trackedAction.value ?: return
         val wm = WorkManager.getInstance(appContext)
-        names.forEach { wm.cancelUniqueWork(it) }
+        action.workNames.forEach { wm.cancelUniqueWork(it) }
+        action.taggedNames.forEach { wm.cancelAllWorkByTag(it) }
         _trackedAction.value = null
     }
 
     private fun startTracking(label: String, vararg workNames: String) {
-        _trackedAction.value = TrackedAction(label, workNames.toList())
+        _trackedAction.value = TrackedAction(label = label, workNames = workNames.toList())
     }
 
     // ── Indexing stats ────────────────────────────────────────────────────────
@@ -190,14 +256,17 @@ class AiSettingsViewModel(
      * Use this to index new media added since the last run.
      */
     fun scanNewMedia() {
-        startTracking("Scan New Media", SCENE_INDEX_WORK_NAME, FACE_INDEX_WORK_NAME,
-            FACE_CLUSTER_WORK_NAME, PERSON_PROFILE_WORK_NAME, PERSON_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Scan New Media",
+            taggedNames = listOf(
+                MAINT_SCENE_TAG, MAINT_FACE_INDEX_TAG, MAINT_FACE_CLUSTER_TAG,
+                MAINT_PROTOTYPE_TAG, MAINT_SUGGESTION_TAG, MAINT_PERSON_PROFILE_TAG,
+                MAINT_PERSON_SUGGEST_TAG, MAINT_RELIABILITY_TAG, MAINT_FUSED_IDENTITY_TAG
+            )
+        )
         viewModelScope.launch {
-            val s = settings.value
-            // KEEP: no-op if workers are already running — new media will be picked up naturally.
-            AiIndexScheduler.scheduleFullPipelineIfEnabled(appContext, s, forceRun = false,
-                workPolicy = ExistingWorkPolicy.KEEP)
-            AiIndexScheduler.scheduleFacePipelineIfEnabled(appContext, s, forceRun = false,
+            // KEEP: no-op if a maintenance chain is already running.
+            AiIndexScheduler.scheduleMaintenanceChain(appContext, settings.value,
                 workPolicy = ExistingWorkPolicy.KEEP)
         }
     }
@@ -213,18 +282,19 @@ class AiSettingsViewModel(
      *    for the active model version automatically.
      */
     fun repairStaleAiData() {
-        startTracking("Repair Stale AI Data", SCENE_INDEX_WORK_NAME, FACE_INDEX_WORK_NAME,
-            FACE_CLUSTER_WORK_NAME, PERSON_PROFILE_WORK_NAME, PERSON_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Repair Stale AI Data",
+            taggedNames = listOf(
+                MAINT_SCENE_TAG, MAINT_FACE_INDEX_TAG, MAINT_FACE_CLUSTER_TAG,
+                MAINT_PROTOTYPE_TAG, MAINT_SUGGESTION_TAG, MAINT_PERSON_PROFILE_TAG,
+                MAINT_PERSON_SUGGEST_TAG, MAINT_RELIABILITY_TAG, MAINT_FUSED_IDENTITY_TAG
+            )
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("repair")
             // Remove failed scan-log rows so FaceIndexWorker retries those assets.
-            // Successful rows (no_faces_found, faces_found) are left intact.
             database.faceClusterDao().deleteFailedScanLogs()
-            val s = settings.value
-            // REPLACE: cancel any stalled job and enqueue a fresh one immediately.
-            AiIndexScheduler.scheduleFullPipelineIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
-            AiIndexScheduler.scheduleFacePipelineIfEnabled(appContext, s, forceRun = true,
+            AiIndexScheduler.scheduleMaintenanceChain(appContext, settings.value,
                 workPolicy = ExistingWorkPolicy.REPLACE)
             _rebuildState.value = RebuildState.Idle
         }
@@ -238,13 +308,14 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any existing run is cancelled and restarted immediately.
      */
     fun rebuildSceneEmbeddings() {
-        startTracking("Rebuild Scene Embeddings", SCENE_INDEX_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild Scene Embeddings",
+            taggedNames = listOf(MAINT_SCENE_TAG, MAINT_PROTOTYPE_TAG, MAINT_SUGGESTION_TAG, MAINT_RELIABILITY_TAG)
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("scene_embeddings")
             database.imageEmbeddingDao().deleteAll()
-            val s = settings.value
-            AiIndexScheduler.scheduleSceneIndexIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.scheduleSceneRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -255,13 +326,14 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any existing run is cancelled and restarted immediately.
      */
     fun rebuildTagPrototypes() {
-        startTracking("Rebuild Tag Prototypes", PROTOTYPE_BUILD_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild Tag Prototypes",
+            taggedNames = listOf(MAINT_PROTOTYPE_TAG, MAINT_SUGGESTION_TAG, MAINT_RELIABILITY_TAG)
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("tag_prototypes")
             database.tagPrototypeDao().clearAll()
-            val s = settings.value
-            AiIndexScheduler.schedulePrototypeBuildIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.schedulePrototypeRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -272,15 +344,16 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any existing run is cancelled and restarted immediately.
      */
     fun rebuildTagSuggestions() {
-        startTracking("Rebuild Tag Suggestions", TAG_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild Tag Suggestions",
+            taggedNames = listOf(MAINT_SUGGESTION_TAG, MAINT_RELIABILITY_TAG)
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("tag_suggestions")
             database.tagSuggestionDao().deleteAll()
             database.fusedSceneSuggestionDao().deleteAll()
             database.modelInferenceEvidenceDao().deleteAll()
-            val s = settings.value
-            AiIndexScheduler.scheduleTagSuggestionsIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.scheduleSuggestionRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -299,7 +372,13 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any currently-running face worker is cancelled immediately.
      */
     fun rebuildFaceIndex() {
-        startTracking("Re-scan Faces", FACE_INDEX_WORK_NAME, FACE_CLUSTER_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Re-scan Faces",
+            taggedNames = listOf(
+                MAINT_FACE_INDEX_TAG, MAINT_FACE_CLUSTER_TAG,
+                MAINT_PERSON_PROFILE_TAG, MAINT_PERSON_SUGGEST_TAG, MAINT_FUSED_IDENTITY_TAG
+            )
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("face_index")
             with(database) {
@@ -311,12 +390,7 @@ class AiSettingsViewModel(
                 identityInferenceEvidenceDao().deleteAll()
                 fusedIdentitySuggestionDao().deleteAll()
             }
-            val s = settings.value
-            AiIndexScheduler.scheduleFaceIndexIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
-            // Re-cluster from scratch after new embeddings are ready.
-            AiIndexScheduler.scheduleFaceClusterIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.scheduleFaceRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -333,8 +407,13 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any existing run is cancelled and restarted immediately.
      */
     fun rebuildFaceClusters() {
-        startTracking("Rebuild Face Clusters", FACE_CLUSTER_WORK_NAME,
-            PERSON_PROFILE_WORK_NAME, PERSON_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild Face Clusters",
+            taggedNames = listOf(
+                MAINT_FACE_CLUSTER_TAG, MAINT_PERSON_PROFILE_TAG,
+                MAINT_PERSON_SUGGEST_TAG, MAINT_FUSED_IDENTITY_TAG
+            )
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("face_clusters")
             with(database.faceClusterDao()) {
@@ -342,13 +421,7 @@ class AiSettingsViewModel(
                 deleteAllPersonSuggestions() // reference cluster IDs being dropped
                 deleteAllClusters()
             }
-            val s = settings.value
-            AiIndexScheduler.scheduleFaceClusterIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
-            AiIndexScheduler.schedulePersonProfileIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
-            AiIndexScheduler.schedulePersonSuggestionsIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.scheduleFaceClusterChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -360,16 +433,14 @@ class AiSettingsViewModel(
      * Uses REPLACE policy so any stalled run is cancelled and restarted immediately.
      */
     fun rebuildPeopleMatching() {
-        startTracking("Rebuild People Matching", PERSON_PROFILE_WORK_NAME, PERSON_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild People Matching",
+            taggedNames = listOf(MAINT_PERSON_PROFILE_TAG, MAINT_PERSON_SUGGEST_TAG, MAINT_FUSED_IDENTITY_TAG)
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("people_matching")
-            // Clear stale suggestions so PersonSuggestionWorker starts fresh.
             database.faceClusterDao().deleteAllPersonSuggestions()
-            val s = settings.value
-            AiIndexScheduler.schedulePersonProfileIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
-            AiIndexScheduler.schedulePersonSuggestionsIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.schedulePeopleRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -383,9 +454,14 @@ class AiSettingsViewModel(
      * are NOT deleted.
      */
     fun fullAiRescan() {
-        startTracking("Full AI Rescan", SCENE_INDEX_WORK_NAME, PROTOTYPE_BUILD_WORK_NAME,
-            TAG_SUGGESTION_WORK_NAME, FACE_INDEX_WORK_NAME, FACE_CLUSTER_WORK_NAME,
-            PERSON_PROFILE_WORK_NAME, PERSON_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Full AI Rescan",
+            taggedNames = listOf(
+                MAINT_SCENE_TAG, MAINT_FACE_INDEX_TAG, MAINT_FACE_CLUSTER_TAG,
+                MAINT_PROTOTYPE_TAG, MAINT_SUGGESTION_TAG, MAINT_PERSON_PROFILE_TAG,
+                MAINT_PERSON_SUGGEST_TAG, MAINT_RELIABILITY_TAG, MAINT_FUSED_IDENTITY_TAG
+            )
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("full_rescan")
             with(database) {
@@ -405,14 +481,39 @@ class AiSettingsViewModel(
                 fusedFaceDao().deleteAll()
                 identityInferenceEvidenceDao().deleteAll()
                 fusedIdentitySuggestionDao().deleteAll()
-                // Phase 3: reliability stats are AI-derived — clear on full rescan
                 modelReliabilityStatsDao().deleteAll()
             }
-            val s = settings.value
-            AiIndexScheduler.scheduleFullPipelineIfEnabled(appContext, s, forceRun = true,
+            AiIndexScheduler.scheduleMaintenanceChain(appContext, settings.value,
                 workPolicy = ExistingWorkPolicy.REPLACE)
-            AiIndexScheduler.scheduleFacePipelineIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            _rebuildState.value = RebuildState.Idle
+        }
+    }
+
+    /**
+     * Enqueues a sequential folder-scoped scan for [albumId]:
+     * scene embeddings → prototypes → tag suggestions, each step starting only after the
+     * previous one succeeds.  Already-processed assets are skipped at every step so this
+     * is safe to run on a folder that was partially or fully scanned before.
+     */
+    fun folderAiScan(albumId: Long) {
+        // Track each chained step individually so the progress dialog shows all 3 workers.
+        _trackedAction.value = TrackedAction(
+            label       = "Folder AI Scan",
+            taggedNames = listOf(
+                FOLDER_SCAN_SCENE_TAG,
+                FOLDER_SCAN_FACE_INDEX_TAG,
+                FOLDER_SCAN_FACE_CLUSTER_TAG,
+                FOLDER_SCAN_PROTOTYPE_TAG,
+                FOLDER_SCAN_SUGGESTION_TAG,
+                FOLDER_SCAN_PERSON_PROFILE_TAG,
+                FOLDER_SCAN_PERSON_SUGGEST_TAG,
+                FOLDER_SCAN_RELIABILITY_TAG,
+                FOLDER_SCAN_FUSED_IDENTITY_TAG
+            )
+        )
+        viewModelScope.launch {
+            _rebuildState.value = RebuildState.Queued("folder_scan")
+            AiIndexScheduler.scheduleFolderScanChained(appContext, settings.value, albumId)
             _rebuildState.value = RebuildState.Idle
         }
     }
@@ -464,16 +565,17 @@ class AiSettingsViewModel(
      * face data, cluster metadata, and all reliability stats.
      */
     fun rebuildFusedTagSuggestions() {
-        startTracking("Rebuild Fused Tag Suggestions", TAG_SUGGESTION_WORK_NAME)
+        _trackedAction.value = TrackedAction(
+            label = "Rebuild Fused Tag Suggestions",
+            taggedNames = listOf(MAINT_SUGGESTION_TAG, MAINT_RELIABILITY_TAG)
+        )
         viewModelScope.launch {
             _rebuildState.value = RebuildState.Queued("fused_tag_suggestions")
             with(database) {
                 fusedSceneSuggestionDao().deleteAll()
                 modelInferenceEvidenceDao().deleteAll()
             }
-            val s = settings.value
-            AiIndexScheduler.scheduleTagSuggestionsIfEnabled(appContext, s, forceRun = true,
-                workPolicy = ExistingWorkPolicy.REPLACE)
+            AiIndexScheduler.scheduleSuggestionRebuildChain(appContext, settings.value)
             _rebuildState.value = RebuildState.Idle
         }
     }

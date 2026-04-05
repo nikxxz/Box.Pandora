@@ -85,6 +85,10 @@ interface MediaItemDao {
     @Query("SELECT * FROM media_index WHERE uri IN (:uris)")
     suspend fun getByUris(uris: List<String>): List<MediaItem>
 
+    /** Returns all items whose file_path sits inside [folderPath] (pass path with trailing slash). */
+    @Query("SELECT * FROM media_index WHERE file_path LIKE :folderPath || '%'")
+    suspend fun getMediaByFolderPath(folderPath: String): List<MediaItem>
+
     /**
      * Structural filter for search.
      * We use flexible string checks for 'all' to ensure the logic isn't broken by case mismatches.

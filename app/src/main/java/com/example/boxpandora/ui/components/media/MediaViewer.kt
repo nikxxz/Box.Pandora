@@ -334,6 +334,7 @@ fun MediaViewer(
             albums = allAlbums,
             onDismiss = { showMoveDialog = false },
             onConfirm = { album ->
+                showMoveDialog = false
                 album.path?.let { path ->
                     viewModel.moveItem(currentItem, path) {
                         if (items.size <= 1) onBackClick()
@@ -768,6 +769,7 @@ private fun InfoPanelContent(
 ) {
     val tags by viewModel.tagsForSelectedMedia.collectAsState()
     val suggestionObjects by viewModel.suggestionObjectsForSelectedMedia.collectAsState()
+    val suggestionsLoading by viewModel.suggestionsLoading.collectAsState()
     val allTags by viewModel.allTags.collectAsState()
     val allAlbums by viewModel.allAlbums.collectAsState()
     var showTagPopup by remember { mutableStateOf(false) }
@@ -1116,10 +1118,9 @@ private fun InfoPanelContent(
             albums = allAlbums,
             onDismiss = { showMoveDialog = false },
             onConfirm = { album ->
+                showMoveDialog = false
                 album.path?.let { path ->
-                    viewModel.moveItem(item, path) {
-                        showMoveDialog = false
-                    }
+                    viewModel.moveItem(item, path) {}
                 }
             }
         )
@@ -1159,7 +1160,9 @@ private fun InfoPanelContent(
             },
             onFindSimilar = onFindSimilar?.let { finder ->
                 { finder(item.uri); showTagPopup = false; tagQuery = "" }
-            }
+            },
+            suggestionsLoading = suggestionsLoading,
+            onRefreshSuggestions = { viewModel.refreshSuggestions() }
         )
     }
 }
@@ -1421,7 +1424,9 @@ private fun ManageTagsPopup(
     onRenameTag: (Long, String) -> Unit,
     onMergeTag: (Long, Long) -> Unit,
     onViewTagGallery: (Long) -> Unit,
-    onFindSimilar: (() -> Unit)? = null
+    onFindSimilar: (() -> Unit)? = null,
+    suggestionsLoading: Boolean = false,
+    onRefreshSuggestions: () -> Unit = {}
 ) {
     val trimmedQuery = query.trim()
     val tokens = boxPandoraModalTokens()
@@ -1552,24 +1557,57 @@ private fun ManageTagsPopup(
         }
 
         // ── Section B: ML / Heuristic Suggestions ───────────────────────────
-        if (filteredSuggestions.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Suggested Tags",
+                    color = tokens.bodyText,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = "Suggested Tags",
-                        color = tokens.bodyText,
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
-                    )
-                    Text(
-                        text = "• ${filteredSuggestions.size}",
-                        color = tokens.secondaryText.copy(alpha = 0.78f),
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    if (suggestionsLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            strokeWidth = 1.5.dp,
+                            color = tokens.secondaryText.copy(alpha = 0.6f)
+                        )
+                    } else if (filteredSuggestions.isNotEmpty()) {
+                        Text(
+                            text = "• ${filteredSuggestions.size}",
+                            color = tokens.secondaryText.copy(alpha = 0.78f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    IconButton(
+                        onClick = onRefreshSuggestions,
+                        modifier = Modifier.size(28.dp),
+                        enabled = !suggestionsLoading
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Refresh suggestions",
+                            modifier = Modifier.size(15.dp),
+                            tint = tokens.secondaryText.copy(alpha = if (suggestionsLoading) 0.3f else 0.7f)
+                        )
+                    }
                 }
+            }
+            if (suggestionsLoading) {
+                // loading spinner is shown in header — no body needed
+            } else if (filteredSuggestions.isEmpty()) {
+                Text(
+                    text = "No AI suggestions for this image. Tap ↻ to retry.",
+                    color = tokens.secondaryText.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            } else {
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

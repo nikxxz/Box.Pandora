@@ -62,6 +62,9 @@ import com.example.boxpandora.ui.main.viewmodel.PerformanceOpState
 import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModel
 import com.example.boxpandora.ui.main.viewmodel.PerformanceViewModelFactory
 import com.example.boxpandora.ui.main.viewmodel.ThemeViewModelFactory
+import com.example.boxpandora.ui.main.viewmodel.HealthScanState
+import com.example.boxpandora.ui.main.viewmodel.LibraryHealthViewModel
+import com.example.boxpandora.ui.main.viewmodel.LibraryHealthViewModelFactory
 import com.example.boxpandora.ui.theme.boxPandoraModalTokens
 import kotlinx.coroutines.launch
 
@@ -176,6 +179,14 @@ fun LibrarySettingsScreen(navController: NavController) {
                     checked = showHidden,
                     onCheckedChange = { themeViewModel.setShowHidden(it) }
                 )
+            }
+            item { SettingSectionHeader("Maintenance", "Keep your library and tags in good shape") }
+            item {
+                NavigationRow(
+                    "Library Health",
+                    "Scan for stale tag counts, orphaned links, unused tags, and duplicates",
+                    Icons.Default.HealthAndSafety
+                ) { navController.navigate(Screen.LibraryHealth.route) }
             }
             item { SettingSectionHeader("Media types", "Choose what appears in your gallery") }
             item {
@@ -500,6 +511,429 @@ private fun LibraryFolderRow(title: String, subtitle: String, info: String) {
     )
 }
 
+// ─── Library Health screen ───────────────────────────────────────────────────
+
+@Composable
+fun LibraryHealthScreen(navController: NavController) {
+    val activity = LocalContext.current as ComponentActivity
+    val app = activity.application as PandoraApp
+    val viewModel: LibraryHealthViewModel = viewModel(
+        factory = LibraryHealthViewModelFactory(app.repository.tagRepository)
+    )
+
+    val scanState by viewModel.scanState.collectAsState()
+    val isFixing  by viewModel.isFixing.collectAsState()
+    val lastFix   by viewModel.lastFixResult.collectAsState()
+
+    var showDeleteUnusedConfirm  by remember { mutableStateOf(false) }
+    var showFixDuplicatesConfirm by remember { mutableStateOf(false) }
+
+    // Auto-scan on first open
+    LaunchedEffect(Unit) {
+        if (scanState is HealthScanState.Idle) viewModel.scan()
+    }
+
+    // Confirmation dialogs
+    if (showDeleteUnusedConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteUnusedConfirm = false },
+            title = { Text("Delete Unused Tags?") },
+            text  = { Text("Tags with no associated images will be permanently deleted. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteUnusedConfirm = false
+                    viewModel.deleteUnused()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteUnusedConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showFixDuplicatesConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFixDuplicatesConfirm = false },
+            title = { Text("Merge Duplicate Tags?") },
+            text  = {
+                Text(
+                    "Tags with identical normalized names will be merged into the one with " +
+                    "the highest usage count. All associations are preserved. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showFixDuplicatesConfirm = false
+                    viewModel.fixDuplicates()
+                }) { Text("Merge") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFixDuplicatesConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    SettingsSubScreen("Library Health", navController) {
+        LazyColumn(contentPadding = PaddingValues(bottom = 28.dp, top = 4.dp)) {
+
+            // ── Summary / scan trigger ────────────────────────────────────────
+            item {
+                HealthSummaryCard(
+                    scanState = scanState,
+                    isFixing  = isFixing,
+                    lastFix   = lastFix,
+                    onScan    = { viewModel.scan() },
+                    onFixAll  = { viewModel.fixAll() },
+                    onClearFix = { viewModel.clearFixResult() }
+                )
+            }
+
+            // ── Issue details (only when scan is done) ────────────────────────
+            if (scanState is HealthScanState.Done) {
+                val report = (scanState as HealthScanState.Done).report
+
+                item { SettingSectionHeader("Scan Results", "${report.totalTags} tags · ${report.totalAssociations} associations") }
+
+                // Stale counts
+                item {
+                    HealthIssueRow(
+                        title    = "Stale tag counts",
+                        subtitle = if (report.countMismatchedTags.isEmpty())
+                            "All tag counts match — nothing to fix"
+                        else
+                            "${report.countMismatchedTags.size} tag(s) have an incorrect usage count",
+                        count    = report.countMismatchedTags.size,
+                        icon     = Icons.Default.Numbers,
+                        isHealthy = report.countMismatchedTags.isEmpty(),
+                        onFix    = { viewModel.fixUsageCounts() }.takeIf { report.countMismatchedTags.isNotEmpty() }
+                    )
+                }
+
+                // Orphaned associations
+                item {
+                    HealthIssueRow(
+                        title    = "Orphaned tag associations",
+                        subtitle = if (report.orphanedAssociations == 0)
+                            "No orphaned associations found"
+                        else
+                            "${report.orphanedAssociations} association(s) point to deleted media",
+                        count    = report.orphanedAssociations,
+                        icon     = Icons.Default.LinkOff,
+                        isHealthy = report.orphanedAssociations == 0,
+                        onFix    = { viewModel.fixOrphans() }.takeIf { report.orphanedAssociations > 0 }
+                    )
+                }
+
+                // Unused tags
+                item {
+                    HealthIssueRow(
+                        title    = "Unused tags",
+                        subtitle = if (report.unusedTags.isEmpty())
+                            "Every tag is linked to at least one image"
+                        else
+                            "${report.unusedTags.size} tag(s) have no associated images",
+                        count    = report.unusedTags.size,
+                        icon     = Icons.AutoMirrored.Filled.Label,
+                        isHealthy = report.unusedTags.isEmpty(),
+                        onFix    = { showDeleteUnusedConfirm = true }.takeIf { report.unusedTags.isNotEmpty() }
+                    )
+                }
+
+                // Duplicate names (rare — schema enforces uniqueness, but catches any bypass)
+                if (report.duplicateGroups.isNotEmpty()) {
+                    item {
+                        HealthIssueRow(
+                            title    = "Duplicate tag names",
+                            subtitle = "${report.duplicateGroups.size} group(s) share the same normalized name " +
+                                "(${report.duplicateTagCount} tags total)",
+                            count    = report.duplicateGroups.size,
+                            icon     = Icons.Default.ContentCopy,
+                            isHealthy = false,
+                            onFix    = { showFixDuplicatesConfirm = true }
+                        )
+                    }
+                }
+
+                // Expanded list of mismatched tags
+                if (report.countMismatchedTags.isNotEmpty()) {
+                    item {
+                        SettingSectionHeader(
+                            "Stale Count Detail",
+                            "Stored count → actual count"
+                        )
+                    }
+                    items(report.countMismatchedTags.take(20)) { tag ->
+                        HealthDetailRow(
+                            label  = tag.name,
+                            detail = "stored count: ${tag.usageCount}"
+                        )
+                    }
+                    if (report.countMismatchedTags.size > 20) {
+                        item {
+                            Text(
+                                "+ ${report.countMismatchedTags.size - 20} more — tap \"Fix Counts\" to repair all",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Expanded list of unused tags
+                if (report.unusedTags.isNotEmpty()) {
+                    item { SettingSectionHeader("Unused Tags", "These tags have no images attached") }
+                    items(report.unusedTags.take(30)) { tag ->
+                        HealthDetailRow(label = tag.name, detail = tag.category)
+                    }
+                    if (report.unusedTags.size > 30) {
+                        item {
+                            Text(
+                                "+ ${report.unusedTags.size - 30} more",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Expanded duplicate groups
+                if (report.duplicateGroups.isNotEmpty()) {
+                    item { SettingSectionHeader("Duplicate Name Groups", "Will be merged on fix") }
+                    items(report.duplicateGroups) { (name, count) ->
+                        HealthDetailRow(label = name, detail = "$count duplicates")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthSummaryCard(
+    scanState:   HealthScanState,
+    isFixing:    Boolean,
+    lastFix:     com.example.boxpandora.ui.main.viewmodel.FixResult?,
+    onScan:      () -> Unit,
+    onFixAll:    () -> Unit,
+    onClearFix:  () -> Unit
+) {
+    val tokens = boxPandoraModalTokens()
+    Surface(
+        modifier       = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        shape          = RoundedCornerShape(22.dp),
+        color          = tokens.cardBackground,
+        tonalElevation = 0.dp,
+        border         = androidx.compose.foundation.BorderStroke(1.dp, tokens.border)
+    ) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+            // Header row
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.HealthAndSafety,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    "Library Health",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Text(
+                "Checks for stale tag counts, orphaned associations, unused tags, and duplicate names. " +
+                "Individual fixes can be applied per issue, or tap Fix All to resolve everything at once.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+            )
+
+            when {
+                isFixing -> {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Applying fixes…", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                lastFix != null -> {
+                    val msg = buildString {
+                        val parts = mutableListOf<String>()
+                        if (lastFix.countMismatchesFixed > 0) parts += "${lastFix.countMismatchesFixed} count(s) corrected"
+                        if (lastFix.orphansRemoved > 0) parts += "${lastFix.orphansRemoved} orphan(s) removed"
+                        if (lastFix.unusedTagsDeleted > 0) parts += "${lastFix.unusedTagsDeleted} unused tag(s) deleted"
+                        if (lastFix.duplicatesRemoved > 0) parts += "${lastFix.duplicatesRemoved} duplicate(s) merged"
+                        if (parts.isEmpty()) append("No issues found — nothing to fix")
+                        else append(parts.joinToString(" · "))
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null,
+                            modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text(msg, style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                        IconButton(onClick = onClearFix, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                scanState is HealthScanState.Scanning -> {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Scanning…", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                scanState is HealthScanState.Done -> {
+                    val report = (scanState as HealthScanState.Done).report
+                    val issueColor = if (report.isHealthy)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.error
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (report.isHealthy) Icons.Default.CheckCircle else Icons.Default.Warning,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = issueColor
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (report.isHealthy) "Everything looks good"
+                            else "${report.issueCount} issue(s) detected",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                            color = issueColor
+                        )
+                    }
+                }
+
+                else -> {
+                    Text("Tap Scan to check your library.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            // Action buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onScan,
+                    enabled = !isFixing && scanState !is HealthScanState.Scanning,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Scan")
+                }
+                val canFixAll = scanState is HealthScanState.Done &&
+                    !(scanState as HealthScanState.Done).report.isHealthy
+                Button(
+                    onClick = onFixAll,
+                    enabled = canFixAll && !isFixing,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Fix All")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthIssueRow(
+    title:     String,
+    subtitle:  String,
+    count:     Int,
+    icon:      androidx.compose.ui.graphics.vector.ImageVector,
+    isHealthy: Boolean,
+    onFix:     (() -> Unit)?
+) {
+    val tokens = boxPandoraModalTokens()
+    Surface(
+        modifier       = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
+        shape          = RoundedCornerShape(18.dp),
+        color          = tokens.cardBackground,
+        tonalElevation = 0.dp,
+        border         = androidx.compose.foundation.BorderStroke(1.dp, tokens.border)
+    ) {
+        Row(
+            modifier            = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment   = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector    = icon,
+                contentDescription = null,
+                modifier       = Modifier.size(20.dp),
+                tint           = if (isHealthy)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                else
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurface)
+                Text(subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+            }
+            if (onFix != null) {
+                FilledTonalButton(
+                    onClick  = onFix,
+                    modifier = Modifier.height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp)
+                ) {
+                    Text("Fix", style = MaterialTheme.typography.labelMedium)
+                }
+            } else if (isHealthy) {
+                Icon(Icons.Default.Check, contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HealthDetailRow(label: String, detail: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style    = MaterialTheme.typography.bodyMedium,
+            color    = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 24.dp),
+        color    = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+    )
+}
+
 // ─── AI Settings helpers ──────────────────────────────────────────────────────
 
 @Composable
@@ -603,6 +1037,7 @@ fun TaggingAISettingsScreen(navController: NavController) {
     val indexingStats  by aiViewModel.indexingStats.collectAsState()
     val suspendedModels by aiViewModel.suspendedModels.collectAsState()
     val maintenanceProgress by aiViewModel.maintenanceProgress.collectAsState()
+    val allAlbums      by aiViewModel.allAlbums.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -612,8 +1047,10 @@ fun TaggingAISettingsScreen(navController: NavController) {
     }
 
     // Confirmation dialogs for destructive actions
-    var showClearConfirm    by remember { mutableStateOf(false) }
+    var showClearConfirm      by remember { mutableStateOf(false) }
     var showFullRescanConfirm by remember { mutableStateOf(false) }
+    var showFolderPickerDialog by remember { mutableStateOf(false) }
+    var pendingFolderScanAlbum by remember { mutableStateOf<com.example.boxpandora.data.local.entity.Album?>(null) }
 
     if (showClearConfirm) {
         AlertDialog(
@@ -657,6 +1094,63 @@ fun TaggingAISettingsScreen(navController: NavController) {
             },
             dismissButton = {
                 TextButton(onClick = { showFullRescanConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Folder picker dialog ──────────────────────────────────────────────────
+    if (showFolderPickerDialog) {
+        AlertDialog(
+            onDismissRequest = { showFolderPickerDialog = false },
+            title = { Text("Select Folder") },
+            text = {
+                if (allAlbums.isEmpty()) {
+                    Text("No folders found.")
+                } else {
+                    LazyColumn {
+                        items(allAlbums) { album ->
+                            ListItem(
+                                headlineContent = { Text(album.name) },
+                                supportingContent = {
+                                    val count = album.mediaCount
+                                    Text("$count item${if (count == 1) "" else "s"}")
+                                },
+                                modifier = Modifier.clickable {
+                                    pendingFolderScanAlbum = album
+                                    showFolderPickerDialog = false
+                                }
+                            )
+                            HorizontalDivider()
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showFolderPickerDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Folder scan confirmation dialog ───────────────────────────────────────
+    pendingFolderScanAlbum?.let { album ->
+        AlertDialog(
+            onDismissRequest = { pendingFolderScanAlbum = null },
+            title = { Text("Scan \"${album.name}\"?") },
+            text = {
+                Text(
+                    "Runs scene embedding → prototype build → tag suggestions for this folder only. " +
+                    "Assets already processed are skipped. Your manually applied tags are not affected."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    aiViewModel.folderAiScan(album.id)
+                    pendingFolderScanAlbum = null
+                }) { Text("Scan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingFolderScanAlbum = null }) { Text("Cancel") }
             }
         )
     }
@@ -736,7 +1230,14 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     value = with(com.example.boxpandora.ml.config.AiSettings.Companion) {
                         settings.confidenceThreshold.toConfidenceLabel()
                     },
-                    subtitle = "Minimum confidence required before a suggestion is shown"
+                    subtitle = when {
+                        settings.confidenceThreshold < 0.35f ->
+                            "Low — more suggestions, broader coverage. Good for discovery when you have few tagged examples."
+                        settings.confidenceThreshold < 0.65f ->
+                            "Medium — balanced precision and recall. Recommended starting point."
+                        else ->
+                            "High — fewer suggestions, higher accuracy. Best after tagging many examples per tag."
+                    }
                 ) {
                     val next = when {
                         settings.confidenceThreshold < 0.35f -> 0.5f
@@ -951,6 +1452,16 @@ fun TaggingAISettingsScreen(navController: NavController) {
                     iconColor = MaterialTheme.colorScheme.error
                 ) {
                     showFullRescanConfirm = true
+                }
+            }
+
+            item {
+                ActionRow(
+                    title = "Scan by Folder",
+                    subtitle = "Run AI pipeline for one folder only · skips already-processed assets",
+                    icon = Icons.Default.FolderOpen,
+                ) {
+                    showFolderPickerDialog = true
                 }
             }
 

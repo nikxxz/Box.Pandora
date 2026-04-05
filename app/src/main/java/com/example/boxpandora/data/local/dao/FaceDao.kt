@@ -119,6 +119,71 @@ interface FaceDao {
     """)
     suspend fun countUnprocessedVideos(detectorVersion: String): Int
 
+    // ── Album-scoped queries (for folder scan) ────────────────────────────────
+
+    /** Count of still (non-GIF) images in [albumId] not yet processed by [detectorVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) != 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+    """)
+    suspend fun countUnprocessedByAlbum(albumId: Long, detectorVersion: String): Int
+
+    /** Unprocessed still image URIs in [albumId] for [detectorVersion], paginated. */
+    @Query("""
+        SELECT m.uri FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) != 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+        ORDER BY m.device_created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getUnprocessedImageUrisByAlbum(
+        albumId: Long, detectorVersion: String, limit: Int, offset: Int
+    ): List<String>
+
+    /** Count of GIFs in [albumId] not yet processed by [detectorVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'image'
+        AND LOWER(m.extension) = 'gif'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+    """)
+    suspend fun countUnprocessedGifsByAlbum(albumId: Long, detectorVersion: String): Int
+
+    /** Count of videos in [albumId] not yet processed by [detectorVersion]. */
+    @Query("""
+        SELECT COUNT(*) FROM media_index m
+        WHERE m.media_type = 'video'
+        AND m.album_id = :albumId
+        AND NOT EXISTS (
+            SELECT 1 FROM face_scan_log sl
+            WHERE sl.asset_id = m.uri
+              AND sl.detector_version = :detectorVersion
+              AND sl.result_status != 'failed'
+        )
+    """)
+    suspend fun countUnprocessedVideosByAlbum(albumId: Long, detectorVersion: String): Int
+
     /** Faces for an asset detected with a specific detector version. */
     @Query("SELECT * FROM detected_faces WHERE asset_id = :assetId AND detector_model_version = :detectorVersion")
     suspend fun getFacesForAssetAndDetector(assetId: String, detectorVersion: String): List<DetectedFace>

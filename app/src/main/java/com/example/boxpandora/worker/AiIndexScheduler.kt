@@ -37,12 +37,51 @@ const val KEY_IS_FOREGROUND = "is_foreground"
 const val SCENE_INDEX_WORK_NAME    = "pandora_scene_index"
 const val PROTOTYPE_BUILD_WORK_NAME = "pandora_prototype_build"
 const val TAG_SUGGESTION_WORK_NAME  = "pandora_tag_suggestion"
+
+/** Unique work name for the sequential folder-scoped scene + suggestion chain. */
+const val FOLDER_SCAN_WORK_NAME    = "pandora_folder_scan"
+
+/**
+ * WorkManager tags added to each step of the folder-scan chain so they can be observed
+ * individually via [WorkManager.getWorkInfosByTagLiveData]. These are separate from the
+ * chain's unique work name, which only exposes the currently-active step.
+ */
+const val FOLDER_SCAN_SCENE_TAG          = "pandora_folder_scan:scene"
+const val FOLDER_SCAN_FACE_INDEX_TAG     = "pandora_folder_scan:face_index"
+const val FOLDER_SCAN_FACE_CLUSTER_TAG   = "pandora_folder_scan:face_cluster"
+const val FOLDER_SCAN_PROTOTYPE_TAG      = "pandora_folder_scan:prototype"
+const val FOLDER_SCAN_SUGGESTION_TAG     = "pandora_folder_scan:suggestion"
+const val FOLDER_SCAN_PERSON_PROFILE_TAG  = "pandora_folder_scan:person_profile"
+const val FOLDER_SCAN_PERSON_SUGGEST_TAG  = "pandora_folder_scan:person_suggest"
+const val FOLDER_SCAN_RELIABILITY_TAG     = "pandora_folder_scan:reliability"
+const val FOLDER_SCAN_FUSED_IDENTITY_TAG  = "pandora_folder_scan:fused_identity"
+
+/** WorkManager input key for restricting a worker to a single album. */
+const val KEY_ALBUM_ID             = "album_id"
 const val FACE_INDEX_WORK_NAME        = "pandora_face_index"
 const val FACE_CLUSTER_WORK_NAME      = "pandora_face_cluster"
 const val PERSON_PROFILE_WORK_NAME    = "pandora_person_profile"
 const val PERSON_SUGGESTION_WORK_NAME = "pandora_person_suggestion"
 const val FUSED_IDENTITY_REBUILD_WORK_NAME  = "pandora_fused_identity_rebuild"
 const val RELIABILITY_RECALCULATE_WORK_NAME = "pandora_reliability_recalculate"
+
+/**
+ * Unique work name for all sequential maintenance chains (repair, rebuild, rescan).
+ * Using a single name means starting any maintenance action cancels a previously-queued one,
+ * which is the correct behaviour — only one maintenance chain should run at a time.
+ */
+const val MAINTENANCE_CHAIN_WORK_NAME = "pandora_maintenance_chain"
+
+/** Tags for individual steps inside a maintenance chain, for per-step progress tracking. */
+const val MAINT_SCENE_TAG           = "pandora_maint:scene"
+const val MAINT_FACE_INDEX_TAG      = "pandora_maint:face_index"
+const val MAINT_FACE_CLUSTER_TAG    = "pandora_maint:face_cluster"
+const val MAINT_PROTOTYPE_TAG       = "pandora_maint:prototype"
+const val MAINT_SUGGESTION_TAG      = "pandora_maint:suggestion"
+const val MAINT_PERSON_PROFILE_TAG  = "pandora_maint:person_profile"
+const val MAINT_PERSON_SUGGEST_TAG  = "pandora_maint:person_suggest"
+const val MAINT_RELIABILITY_TAG     = "pandora_maint:reliability"
+const val MAINT_FUSED_IDENTITY_TAG  = "pandora_maint:fused_identity"
 
 /**
  * Orchestration layer between the media sync pipeline and AI indexing workers.
@@ -449,6 +488,348 @@ object AiIndexScheduler {
         Log.i(TAG, "RecalculateReliabilityWorker enqueued")
     }
 
+    /**
+     * Enqueues a full sequential folder-scoped AI scan for [albumId]:
+     *
+     *   1. [SceneIndexWorker]             — scene embeddings for unindexed folder assets
+     *   2. [FaceIndexWorker]              — face detection for folder assets (no-op if face processing off)
+     *   3. [FaceClusterWorker]            — re-clusters all faces to absorb new detections (global)
+     *   4. [PrototypeBuildWorker]         — rebuilds tag prototypes from all user-tagged images (global)
+     *   5. [TagSuggestionWorker]          — scores folder assets against updated prototypes
+     *   6. [PersonProfileWorker]          — rebuilds person profiles from confirmed cluster data (global)
+     *   7. [PersonSuggestionWorker]       — regenerates person match suggestions (global)
+     *   8. [RecalculateReliabilityWorker] — recomputes reliability weights from feedback history (global)
+     *   9. [RebuildFusedIdentityWorker]   — re-fuses identity suggestions from updated evidence (global)
+     *
+     * Workers run one after another; each step starts only after its predecessor succeeds.
+     * Always uses [ExistingWorkPolicy.REPLACE] so tapping the button again restarts the chain.
+     * Skips already-processed assets at every step — no data is deleted before re-running.
+     * Face workers return [Result.success] early when face processing is disabled, so the
+     * chain continues through tag suggestions regardless.
+     */
+    fun scheduleFolderScanChained(
+        context: Context,
+        settings: AiSettings,
+        albumId: Long,
+    ) {
+        if (!settings.sceneTaggingEnabled) {
+            Log.d(TAG, "Scene tagging disabled — skipping folder scan for albumId=$albumId")
+            return
+        }
+
+        val constraints = buildHeavyJobConstraints(forceRun = true)
+        val folderInput  = workDataOf(KEY_IS_FOREGROUND to true, KEY_ALBUM_ID to albumId)
+        val globalInput  = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val sceneRequest = OneTimeWorkRequestBuilder<SceneIndexWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_SCENE_TAG)
+            .setInputData(folderInput).build()
+
+        val faceIndexRequest = OneTimeWorkRequestBuilder<FaceIndexWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_FACE_INDEX_TAG)
+            .setInputData(folderInput).build()
+
+        val faceClusterRequest = OneTimeWorkRequestBuilder<FaceClusterWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_FACE_CLUSTER_TAG)
+            .setInputData(globalInput).build()
+
+        val prototypeRequest = OneTimeWorkRequestBuilder<PrototypeBuildWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_PROTOTYPE_TAG)
+            .setInputData(globalInput).build()
+
+        val suggestionRequest = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_SUGGESTION_TAG)
+            .setInputData(folderInput).build()
+
+        val personProfileRequest = OneTimeWorkRequestBuilder<PersonProfileWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_PERSON_PROFILE_TAG)
+            .setInputData(globalInput).build()
+
+        val personSuggestRequest = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_PERSON_SUGGEST_TAG)
+            .setInputData(globalInput).build()
+
+        val reliabilityRequest = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(FOLDER_SCAN_RELIABILITY_TAG).build()
+
+        val fusedIdentityRequest = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(constraints).addTag(FOLDER_SCAN_FUSED_IDENTITY_TAG)
+            .setInputData(globalInput).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(FOLDER_SCAN_WORK_NAME, ExistingWorkPolicy.REPLACE, sceneRequest)
+            .then(faceIndexRequest)
+            .then(faceClusterRequest)
+            .then(prototypeRequest)
+            .then(suggestionRequest)
+            .then(personProfileRequest)
+            .then(personSuggestRequest)
+            .then(reliabilityRequest)
+            .then(fusedIdentityRequest)
+            .enqueue()
+
+        Log.i(TAG, "Full folder scan chain enqueued for albumId=$albumId (9 steps)")
+    }
+
+    // ── Sequential maintenance chains ─────────────────────────────────────────
+
+    /**
+     * Full 9-step sequential maintenance chain:
+     *   scene → face_index → face_cluster → prototype → suggestion →
+     *   person_profile → person_suggest → reliability → fused_identity
+     *
+     * Each step starts only after its predecessor succeeds. Workers return [Result.success]
+     * early when their feature is disabled so the chain always runs to completion.
+     *
+     * Uses [MAINTENANCE_CHAIN_WORK_NAME] as the unique work name, so starting any maintenance
+     * action cancels a previously-queued chain automatically.
+     *
+     * @param workPolicy  [ExistingWorkPolicy.REPLACE] for user-triggered maintenance (default).
+     *                    [ExistingWorkPolicy.KEEP] for passive background scheduling.
+     */
+    fun scheduleMaintenanceChain(
+        context: Context,
+        settings: AiSettings,
+        workPolicy: ExistingWorkPolicy = ExistingWorkPolicy.REPLACE,
+    ) {
+        if (!settings.sceneTaggingEnabled) {
+            Log.d(TAG, "Scene tagging disabled — skipping maintenance chain")
+            return
+        }
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val sceneReq = OneTimeWorkRequestBuilder<SceneIndexWorker>()
+            .setConstraints(constraints).addTag(MAINT_SCENE_TAG)
+            .setInputData(foregroundData).build()
+        val faceIndexReq = OneTimeWorkRequestBuilder<FaceIndexWorker>()
+            .setConstraints(constraints).addTag(MAINT_FACE_INDEX_TAG)
+            .setInputData(foregroundData).build()
+        val faceClusterReq = OneTimeWorkRequestBuilder<FaceClusterWorker>()
+            .setConstraints(constraints).addTag(MAINT_FACE_CLUSTER_TAG)
+            .setInputData(foregroundData).build()
+        val prototypeReq = OneTimeWorkRequestBuilder<PrototypeBuildWorker>()
+            .setConstraints(constraints).addTag(MAINT_PROTOTYPE_TAG)
+            .setInputData(foregroundData).build()
+        val suggestionReq = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_SUGGESTION_TAG)
+            .setInputData(foregroundData).build()
+        val personProfileReq = OneTimeWorkRequestBuilder<PersonProfileWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_PROFILE_TAG)
+            .setInputData(foregroundData).build()
+        val personSuggestReq = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_SUGGEST_TAG)
+            .setInputData(foregroundData).build()
+        val reliabilityReq = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(MAINT_RELIABILITY_TAG).build()
+        val fusedIdentityReq = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(constraints).addTag(MAINT_FUSED_IDENTITY_TAG)
+            .setInputData(foregroundData).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, workPolicy, sceneReq)
+            .then(faceIndexReq)
+            .then(faceClusterReq)
+            .then(prototypeReq)
+            .then(suggestionReq)
+            .then(personProfileReq)
+            .then(personSuggestReq)
+            .then(reliabilityReq)
+            .then(fusedIdentityReq)
+            .enqueue()
+
+        Log.i(TAG, "Maintenance chain enqueued (9 steps, policy=$workPolicy)")
+    }
+
+    /**
+     * Scene rebuild chain: scene → prototype → suggestion → reliability
+     * Used when scene embeddings are cleared and rebuilt from scratch.
+     */
+    fun scheduleSceneRebuildChain(context: Context, settings: AiSettings) {
+        if (!settings.sceneTaggingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val sceneReq = OneTimeWorkRequestBuilder<SceneIndexWorker>()
+            .setConstraints(constraints).addTag(MAINT_SCENE_TAG)
+            .setInputData(foregroundData).build()
+        val prototypeReq = OneTimeWorkRequestBuilder<PrototypeBuildWorker>()
+            .setConstraints(constraints).addTag(MAINT_PROTOTYPE_TAG)
+            .setInputData(foregroundData).build()
+        val suggestionReq = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_SUGGESTION_TAG)
+            .setInputData(foregroundData).build()
+        val reliabilityReq = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(MAINT_RELIABILITY_TAG).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, sceneReq)
+            .then(prototypeReq)
+            .then(suggestionReq)
+            .then(reliabilityReq)
+            .enqueue()
+
+        Log.i(TAG, "Scene rebuild chain enqueued (4 steps)")
+    }
+
+    /**
+     * Prototype rebuild chain: prototype → suggestion → reliability
+     * Used when tag prototypes are cleared and rebuilt from confirmed tags.
+     */
+    fun schedulePrototypeRebuildChain(context: Context, settings: AiSettings) {
+        if (!settings.sceneTaggingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val prototypeReq = OneTimeWorkRequestBuilder<PrototypeBuildWorker>()
+            .setConstraints(constraints).addTag(MAINT_PROTOTYPE_TAG)
+            .setInputData(foregroundData).build()
+        val suggestionReq = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_SUGGESTION_TAG)
+            .setInputData(foregroundData).build()
+        val reliabilityReq = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(MAINT_RELIABILITY_TAG).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, prototypeReq)
+            .then(suggestionReq)
+            .then(reliabilityReq)
+            .enqueue()
+
+        Log.i(TAG, "Prototype rebuild chain enqueued (3 steps)")
+    }
+
+    /**
+     * Suggestion rebuild chain: suggestion → reliability
+     * Used when tag suggestions are cleared and need to be regenerated against current prototypes.
+     */
+    fun scheduleSuggestionRebuildChain(context: Context, settings: AiSettings) {
+        if (!settings.sceneTaggingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val suggestionReq = OneTimeWorkRequestBuilder<TagSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_SUGGESTION_TAG)
+            .setInputData(foregroundData).build()
+        val reliabilityReq = OneTimeWorkRequestBuilder<RecalculateReliabilityWorker>()
+            .setConstraints(Constraints.Builder().setRequiresBatteryNotLow(true).build())
+            .addTag(MAINT_RELIABILITY_TAG).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, suggestionReq)
+            .then(reliabilityReq)
+            .enqueue()
+
+        Log.i(TAG, "Suggestion rebuild chain enqueued (2 steps)")
+    }
+
+    /**
+     * Face rebuild chain: face_index → face_cluster → person_profile → person_suggest → fused_identity
+     * Used when face data is fully cleared and rebuilt from scratch.
+     */
+    fun scheduleFaceRebuildChain(context: Context, settings: AiSettings) {
+        if (!settings.faceProcessingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val faceIndexReq = OneTimeWorkRequestBuilder<FaceIndexWorker>()
+            .setConstraints(constraints).addTag(MAINT_FACE_INDEX_TAG)
+            .setInputData(foregroundData).build()
+        val faceClusterReq = OneTimeWorkRequestBuilder<FaceClusterWorker>()
+            .setConstraints(constraints).addTag(MAINT_FACE_CLUSTER_TAG)
+            .setInputData(foregroundData).build()
+        val personProfileReq = OneTimeWorkRequestBuilder<PersonProfileWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_PROFILE_TAG)
+            .setInputData(foregroundData).build()
+        val personSuggestReq = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_SUGGEST_TAG)
+            .setInputData(foregroundData).build()
+        val fusedIdentityReq = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(constraints).addTag(MAINT_FUSED_IDENTITY_TAG)
+            .setInputData(foregroundData).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, faceIndexReq)
+            .then(faceClusterReq)
+            .then(personProfileReq)
+            .then(personSuggestReq)
+            .then(fusedIdentityReq)
+            .enqueue()
+
+        Log.i(TAG, "Face rebuild chain enqueued (5 steps)")
+    }
+
+    /**
+     * Face cluster chain: face_cluster → person_profile → person_suggest → fused_identity
+     * Used when clusters are cleared but existing face embeddings are preserved.
+     */
+    fun scheduleFaceClusterChain(context: Context, settings: AiSettings) {
+        if (!settings.faceProcessingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val faceClusterReq = OneTimeWorkRequestBuilder<FaceClusterWorker>()
+            .setConstraints(constraints).addTag(MAINT_FACE_CLUSTER_TAG)
+            .setInputData(foregroundData).build()
+        val personProfileReq = OneTimeWorkRequestBuilder<PersonProfileWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_PROFILE_TAG)
+            .setInputData(foregroundData).build()
+        val personSuggestReq = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_SUGGEST_TAG)
+            .setInputData(foregroundData).build()
+        val fusedIdentityReq = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(constraints).addTag(MAINT_FUSED_IDENTITY_TAG)
+            .setInputData(foregroundData).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, faceClusterReq)
+            .then(personProfileReq)
+            .then(personSuggestReq)
+            .then(fusedIdentityReq)
+            .enqueue()
+
+        Log.i(TAG, "Face cluster chain enqueued (4 steps)")
+    }
+
+    /**
+     * People rebuild chain: person_profile → person_suggest → fused_identity
+     * Used when person profiles and suggestions need to be regenerated from existing clusters.
+     */
+    fun schedulePeopleRebuildChain(context: Context, settings: AiSettings) {
+        if (!settings.faceProcessingEnabled) return
+
+        val constraints    = buildHeavyJobConstraints(forceRun = true)
+        val foregroundData = workDataOf(KEY_IS_FOREGROUND to true)
+
+        val personProfileReq = OneTimeWorkRequestBuilder<PersonProfileWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_PROFILE_TAG)
+            .setInputData(foregroundData).build()
+        val personSuggestReq = OneTimeWorkRequestBuilder<PersonSuggestionWorker>()
+            .setConstraints(constraints).addTag(MAINT_PERSON_SUGGEST_TAG)
+            .setInputData(foregroundData).build()
+        val fusedIdentityReq = OneTimeWorkRequestBuilder<RebuildFusedIdentityWorker>()
+            .setConstraints(constraints).addTag(MAINT_FUSED_IDENTITY_TAG)
+            .setInputData(foregroundData).build()
+
+        WorkManager.getInstance(context)
+            .beginUniqueWork(MAINTENANCE_CHAIN_WORK_NAME, ExistingWorkPolicy.REPLACE, personProfileReq)
+            .then(personSuggestReq)
+            .then(fusedIdentityReq)
+            .enqueue()
+
+        Log.i(TAG, "People rebuild chain enqueued (3 steps)")
+    }
+
     fun cancelAll(context: Context) {
         WorkManager.getInstance(context).cancelUniqueWork(SCENE_INDEX_WORK_NAME)
         WorkManager.getInstance(context).cancelUniqueWork(PROTOTYPE_BUILD_WORK_NAME)
@@ -457,6 +838,8 @@ object AiIndexScheduler {
         WorkManager.getInstance(context).cancelUniqueWork(FACE_CLUSTER_WORK_NAME)
         WorkManager.getInstance(context).cancelUniqueWork(PERSON_PROFILE_WORK_NAME)
         WorkManager.getInstance(context).cancelUniqueWork(PERSON_SUGGESTION_WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork(FOLDER_SCAN_WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork(MAINTENANCE_CHAIN_WORK_NAME)
         Log.i(TAG, "All AI workers cancelled")
     }
 }

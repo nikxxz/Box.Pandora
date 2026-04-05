@@ -93,6 +93,7 @@ private fun RowGroupItem(
     bigItemUris: Set<String>,
     cellSize: Dp,
     gap: Dp,
+    showFilenames: Boolean,
     onPress: (MediaItem, Int) -> Unit,
     onLongPress: (MediaItem) -> Unit
 ) {
@@ -106,15 +107,17 @@ private fun RowGroupItem(
             val y  = (cellSize + gap) * (cell.row - group.startRow)
             Box(modifier = Modifier.offset(x = x, y = y).size(sz)) {
                 MediaThumbnail(
-                    uri         = item.uri,
-                    filePath    = item.filePath,
-                    mediaType   = item.mediaType,
-                    duration    = item.duration,
-                    isFavorite  = if (isFav) 1 else 0,
-                    isSelected  = item.uri in selectedUris,
-                    onPress     = { onPress(item, idx) },
-                    onLongPress = { onLongPress(item) },
-                    modifier    = Modifier.fillMaxSize()
+                    uri           = item.uri,
+                    filePath      = item.filePath,
+                    mediaType     = item.mediaType,
+                    duration      = item.duration,
+                    isFavorite    = if (isFav) 1 else 0,
+                    isSelected    = item.uri in selectedUris,
+                    onPress       = { onPress(item, idx) },
+                    onLongPress   = { onLongPress(item) },
+                    modifier      = Modifier.fillMaxSize(),
+                    showFilename  = showFilenames,
+                    filename      = item.filename
                 )
             }
         }
@@ -142,6 +145,7 @@ fun DynamicMediaGrid(
     selectedUris: Set<String> = emptySet(),
     bigItemUris: Set<String> = emptySet(),
     hint: String? = null,
+    showFilenames: Boolean = false,
     onPress: (item: MediaItem, index: Int) -> Unit,
     onLongPress: (item: MediaItem) -> Unit
 ) {
@@ -163,14 +167,15 @@ fun DynamicMediaGrid(
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(rowGroups, key = { it.startRow }) { group ->
                 RowGroupItem(
-                    group        = group,
-                    allItems     = items,
-                    selectedUris = selectedUris,
-                    bigItemUris  = bigItemUris,
-                    cellSize     = cellSize,
-                    gap          = gap,
-                    onPress      = onPress,
-                    onLongPress  = onLongPress
+                    group         = group,
+                    allItems      = items,
+                    selectedUris  = selectedUris,
+                    bigItemUris   = bigItemUris,
+                    cellSize      = cellSize,
+                    gap           = gap,
+                    showFilenames = showFilenames,
+                    onPress       = onPress,
+                    onLongPress   = onLongPress
                 )
             }
             if (hint != null) {

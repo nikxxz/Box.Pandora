@@ -55,6 +55,8 @@ class PrototypeBuildWorker(
 
         Log.i(TAG, "Building prototypes from $indexedCount indexed images (model: $modelVersion)")
 
+        setProgress(workDataOf("indexed" to 0, "total" to 1))
+
         val engine = TagPrototypeEngine(
             tagDao = db.tagDao(),
             mediaTagDao = db.mediaTagDao(),
@@ -64,6 +66,7 @@ class PrototypeBuildWorker(
 
         return@withContext try {
             val written = engine.rebuildAllPrototypes(modelVersion)
+            setProgress(workDataOf("indexed" to 1, "total" to 1))
             Log.i(TAG, "Prototype build complete: $written prototypes written")
             Result.success(workDataOf("prototypesWritten" to written))
         } catch (e: Exception) {

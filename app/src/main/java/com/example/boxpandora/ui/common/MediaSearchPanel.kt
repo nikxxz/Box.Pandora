@@ -227,6 +227,7 @@ fun SearchResultsGrid(
     results:       List<MediaItem>,
     selectedUris:  Set<String> = emptySet(),
     isLoading:     Boolean,
+    showFilenames: Boolean = false,
     onPress:       (MediaItem) -> Unit,
     onLongPress:   (MediaItem) -> Unit,
     modifier:      Modifier = Modifier
@@ -254,15 +255,17 @@ fun SearchResultsGrid(
             ) {
                 items(results, key = { it.uri }) { item ->
                     MediaThumbnail(
-                        uri         = item.uri,
-                        filePath    = item.filePath,
-                        thumbUri    = item.thumbUri,
-                        mediaType   = item.mediaType,
-                        duration    = item.duration,
-                        isFavorite  = item.isFavorite,
-                        isSelected  = item.uri in selectedUris,
-                        onPress     = { onPress(item) },
-                        onLongPress = { onLongPress(item) }
+                        uri          = item.uri,
+                        filePath     = item.filePath,
+                        thumbUri     = item.thumbUri,
+                        mediaType    = item.mediaType,
+                        duration     = item.duration,
+                        isFavorite   = item.isFavorite,
+                        isSelected   = item.uri in selectedUris,
+                        onPress      = { onPress(item) },
+                        onLongPress  = { onLongPress(item) },
+                        showFilename = showFilenames,
+                        filename     = item.filename
                     )
                 }
             }

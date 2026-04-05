@@ -11,6 +11,7 @@ import com.example.boxpandora.data.local.entity.Tag
 import com.example.boxpandora.data.manager.FileConflictResolution
 import com.example.boxpandora.data.manager.PendingFileConflict
 import com.example.boxpandora.data.repository.MediaRepository
+import com.example.boxpandora.data.repository.RichSuggestion
 import com.example.boxpandora.data.repository.TagRepository
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -54,6 +55,46 @@ class FolderDetailViewModel(
     val allTags = tagRepository.getAllTagsFlow().stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList()
     )
+
+    /**
+     * ML tag suggestions for the currently selected items.
+     *
+     * Fetches suggestions for up to 5 selected URIs and merges them (highest score wins
+     * per tag key). Emits an empty list when nothing is selected.
+     * Cancels and re-fetches automatically whenever the selection changes or refresh is triggered.
+     */
+    private val _suggestionRefreshTrigger = MutableStateFlow(0)
+
+    private val _bulkSuggestionsLoading = MutableStateFlow(false)
+    val bulkSuggestionsLoading: StateFlow<Boolean> = _bulkSuggestionsLoading.asStateFlow()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val suggestionObjectsForSelected: StateFlow<List<RichSuggestion>> = combine(
+        _selectedUris, _suggestionRefreshTrigger
+    ) { uris, _ -> uris }
+        .flatMapLatest { uris ->
+            flow {
+                if (uris.isEmpty()) { emit(emptyList<RichSuggestion>()); return@flow }
+                _bulkSuggestionsLoading.value = true
+                try {
+                    val merged = uris.take(5)
+                        .flatMap { uri -> tagRepository.getSuggestionObjectsForMedia(uri) }
+                        .groupBy { it.tagKey }
+                        .map { (_, group) -> group.maxByOrNull { it.score }!! }
+                        .sortedByDescending { it.score }
+                        .take(6)
+                    emit(merged)
+                } finally {
+                    _bulkSuggestionsLoading.value = false
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Manually re-fetches AI suggestions from the database. */
+    fun refreshBulkSuggestions() {
+        _suggestionRefreshTrigger.value++
+    }
 
     // ── Search ────────────────────────────────────────────────────────────────
     private val _searchParams = MutableStateFlow(MediaRepository.MediaSearchParams())

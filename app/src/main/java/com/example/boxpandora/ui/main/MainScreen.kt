@@ -918,6 +918,13 @@ fun NavigationGraph(
             popExitTransition = { detailBackExit(this) }
         ) { FilterMediaTypesScreen(navController) }
         composable(
+            Screen.LibraryHealth.route,
+            enterTransition = { detailForwardEnter(this) },
+            exitTransition = { detailForwardExit() },
+            popEnterTransition = { detailBackEnter() },
+            popExitTransition = { detailBackExit(this) }
+        ) { LibraryHealthScreen(navController) }
+        composable(
             Screen.TaggingAISettings.route,
             enterTransition = { detailForwardEnter(this) },
             exitTransition = { detailForwardExit() },

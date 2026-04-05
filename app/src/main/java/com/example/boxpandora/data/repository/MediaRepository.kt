@@ -339,10 +339,49 @@ class MediaRepository(
 
     suspend fun setAlbumsHidden(albumIds: List<Long>, hidden: Boolean) = withContext(Dispatchers.IO) {
         albumIds.forEach { id ->
-            val album = albumDao.getById(id)
-            if (album != null && fileSystemManager.setAlbumHidden(album, hidden)) {
-                albumDao.setHidden(album.name, hidden)
+            val album = albumDao.getById(id) ?: return@forEach
+            val folderPath = album.path ?: return@forEach
+
+            // Collect all items whose file_path sits inside this folder BEFORE changing the
+            // hidden state.  We query by path prefix rather than albumId because hidden items
+            // are indexed by NomediaScanner with a hash-based albumId that differs from the
+            // MediaStore bucket ID, so a simple albumId lookup would miss them.
+            val existingItems = mediaItemDao.getMediaByFolderPath("$folderPath/")
+
+            if (!fileSystemManager.setAlbumHidden(album, hidden)) return@forEach
+            albumDao.setHidden(album.name, hidden)
+
+            if (!hidden) {
+                // UNHIDING: existing items have file:// URIs (inserted by NomediaScanner while
+                // the folder was hidden).  MediaStore re-indexing is asynchronous — if we let
+                // syncMediaStore() run immediately, MediaStore may not have finished and neither
+                // scanner sees the files, making them look like genuine deletes and CASCADE-wiping
+                // all tag associations.
+                //
+                // Fix: scanFileWait each file so MediaStore assigns a content:// URI synchronously,
+                // then call transferMetadata to move tags/embeddings/faces to the new URI before
+                // any deletion can happen.
+                for (item in existingItems) {
+                    val filePath = item.filePath ?: continue
+                    val file = File(filePath)
+                    if (!file.exists()) continue
+
+                    // Block until MediaStore has assigned a content:// URI to this file.
+                    fileSystemManager.scanFileWait(file)
+                    val newItem = mediaStoreRepository.fetchMediaByPath(filePath)
+                    if (newItem != null && newItem.uri != item.uri) {
+                        Log.d(TAG, "setAlbumsHidden(unhide): transferring tags " +
+                            "${item.uri} → ${newItem.uri}  path=$filePath")
+                        transferMetadata(item, newItem, deleteOld = true)
+                    }
+                    // If fetchMediaByPath returned null (MediaStore still not ready), the
+                    // file-exists guard in syncMediaStore() prevents deletion of the file://
+                    // entry — the URI-transition detection will complete the transfer on the
+                    // next sync once MediaStore finishes re-indexing.
+                }
             }
+            // HIDING case: syncMediaStore() below detects the content:// → file:// transition
+            // via the synchronous NomediaScanner walk and calls transferMetadata automatically.
         }
         syncMediaStore()
     }
@@ -390,10 +429,88 @@ class MediaRepository(
             onProgress?.invoke("Comparing with database...", 0.5f)
             val existingUris = mediaItemDao.getAllUris().toSet()
 
+            // Safety guard: if MediaStore returned nothing but we already have items indexed,
+            // the scan almost certainly failed (transient permission loss, MediaStore not ready,
+            // query returned null, etc.).  Deleting everything here would CASCADE-wipe all
+            // media_tags associations while leaving the tags table intact — exactly the
+            // "tags show correct counts but no images appear" symptom.  Bail out and let the
+            // next sync retry when MediaStore is healthy.
+            if (allScannedItems.isEmpty() && existingUris.isNotEmpty()) {
+                Log.w(TAG, "syncMediaStore: MediaStore scan returned 0 items but DB has " +
+                    "${existingUris.size} existing entries — aborting deletion to prevent data loss")
+                onProgress?.invoke("Sync skipped (empty scan)", -1f)
+                return@withContext
+            }
+
             val urisToDelete = existingUris.filter { !allScannedUris.contains(it) }
             if (urisToDelete.isNotEmpty()) {
-                mediaItemDao.deleteByUris(urisToDelete)
-                urisToDelete.forEach { thumbnailManager.deleteThumbnail(it) }
+                // Detect URI-scheme transitions caused by folder hide/unhide events.
+                //
+                // When a folder is hidden (.nomedia added), MediaStore stops returning its items
+                // (dropping the content:// URIs) and NomediaScanner picks them up as file:// URIs.
+                // The reverse happens on unhide. If we naïvely delete the old content:// URIs,
+                // the CASCADE on media_tags wipes every tag association for those items while
+                // inserting the file:// entries with no tags — identical to the disappearing-tags
+                // bug already seen with empty-scan events.
+                //
+                // Fix: build a filePath→scannedItem map, then for each URI to be deleted that
+                // has the same filePath as a scanned item under a *different* URI, call
+                // transferMetadata instead of deleting, which moves tags/embeddings/faces to
+                // the new URI.
+                val scannedByFilePath = allScannedItems
+                    .filter { it.filePath != null }
+                    .associateBy { it.filePath!! }
+
+                // Fetch DB rows for the candidates (chunked to stay under SQLite variable limit).
+                val dbItemsToDelete = urisToDelete.chunked(500)
+                    .flatMap { batch -> mediaItemDao.getByUris(batch) }
+
+                val transitionOldUris = mutableSetOf<String>()
+
+                for (oldItem in dbItemsToDelete) {
+                    val filePath = oldItem.filePath ?: continue
+                    val scannedCounterpart = scannedByFilePath[filePath] ?: continue
+                    if (scannedCounterpart.uri == oldItem.uri) continue // already in scannedUris, shouldn't happen
+
+                    // Same physical file, different URI scheme — this is a hide/unhide transition.
+                    Log.d(TAG, "syncMediaStore: URI transition detected — " +
+                        "oldUri=${oldItem.uri} → newUri=${scannedCounterpart.uri} path=$filePath")
+                    transferMetadata(oldItem, scannedCounterpart, deleteOld = true)
+                    transitionOldUris += oldItem.uri
+                }
+
+                // Genuine deletes: URIs not explained by a URI-scheme transition AND whose
+                // physical file no longer exists on disk.
+                //
+                // The file-exists guard protects against the hide/unhide timing gap:
+                // setAlbumsHidden creates/deletes the .nomedia file and then immediately calls
+                // syncMediaStore(), but MediaStore re-indexing is asynchronous.  In that window:
+                //   - Hide: MediaStore has dropped the content:// entries; NomediaScanner hasn't
+                //     picked up the file:// entries yet → both gone from scan → looks like a delete
+                //   - Unhide: NomediaScanner no longer finds file:// entries; MediaStore hasn't
+                //     re-added content:// entries yet → same window, same false-delete
+                // If the physical file still exists, the item is just temporarily invisible to
+                // both scanners.  Skip it — the next sync (triggered once MediaStore finishes
+                // re-indexing) will either detect the URI transition and call transferMetadata,
+                // or find the item directly.
+                val genuineDeletes = urisToDelete.filter { uri ->
+                    if (uri in transitionOldUris) return@filter false
+                    val dbItem = dbItemsToDelete.find { it.uri == uri }
+                    val filePath = dbItem?.filePath
+                    if (filePath != null && File(filePath).exists()) {
+                        Log.d(TAG, "syncMediaStore: skipping deletion of $uri — " +
+                            "file still exists at $filePath (re-index pending)")
+                        return@filter false
+                    }
+                    true
+                }
+                if (genuineDeletes.isNotEmpty()) {
+                    // Batch in chunks of 500 to stay under SQLite's 999-variable limit.
+                    genuineDeletes.chunked(500).forEach { batch ->
+                        mediaItemDao.deleteByUris(batch)
+                    }
+                    genuineDeletes.forEach { thumbnailManager.deleteThumbnail(it) }
+                }
             }
 
             // FIX 1: Build and upsert albums BEFORE writing media items.

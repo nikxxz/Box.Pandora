@@ -5,6 +5,7 @@ import com.example.boxpandora.data.local.AppDatabase
 import com.example.boxpandora.data.local.dao.*
 import com.example.boxpandora.data.local.entity.*
 import com.example.boxpandora.ml.ensemble.ReliabilityUpdateService
+import com.example.boxpandora.ml.postprocessing.TagSuggestionPostProcessor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -295,7 +296,7 @@ class TagRepository(
 
     /**
      * Fetches per-asset suggestion candidates as [RichSuggestion], filtered by rejections
-     * and already-applied tags.
+     * and already-applied tags, then post-processed for quality.
      *
      * Merges three source pipelines (highest-score wins for duplicate tag keys):
      *  - [tagSuggestionDao]        — single-model scene suggestions
@@ -306,7 +307,14 @@ class TagRepository(
      * [RichSuggestion.agreementLevel], [RichSuggestion.isAmbiguous]) so the UI can display
      * an explainability badge without parsing source strings.
      *
-     * Returns at most 8 results sorted by descending score.
+     * Raw model outputs pass through [TagSuggestionPostProcessor] which:
+     *  - collapses synonyms/aliases into canonical forms
+     *  - suppresses generic parent tags when a specific child is present
+     *  - removes low-value visual fragments (hands, skin, texture, etc.)
+     *  - synthesises context-aware tags via promotion rules
+     *  - ranks survivors by a quality-aware composite score
+     *
+     * Returns at most 6 post-processed results sorted by descending quality score.
      */
     suspend fun getSuggestionObjectsForMedia(mediaUri: String): List<RichSuggestion> = withContext(Dispatchers.IO) {
         val richSingle = tagSuggestionDao.getForAsset(mediaUri).map { s ->
@@ -348,12 +356,16 @@ class TagRepository(
         val currentTags = if (tagIds.isEmpty()) emptySet()
             else tagDao.getByIds(tagIds).map { it.normalizedName }.toSet()
 
-        (richSingle + richHeuristics + richFused)
+        val rawMerged = (richSingle + richHeuristics + richFused)
             .filter { it.tagKey !in rejections && it.tagKey !in currentTags }
             .groupBy { it.tagKey }
             .map { (_, dupes) -> dupes.maxByOrNull { it.score }!! }
-            .sortedByDescending { it.score }
-            .take(8)
+
+        TagSuggestionPostProcessor
+            .process(rawMerged)
+            .finalSuggestions
+            // Re-filter to exclude promoted tags that happen to already be applied/rejected
+            .filter { it.tagKey !in currentTags && it.tagKey !in rejections }
     }
 
     /**
@@ -493,6 +505,97 @@ class TagRepository(
         }
     }
 
+    // ── Library health ────────────────────────────────────────────────────────
+
+    /**
+     * Runs a full non-destructive health scan and returns a [LibraryHealthReport].
+     * All queries are read-only; nothing is changed until a fix method is called.
+     */
+    suspend fun scanHealth(): LibraryHealthReport = withContext(Dispatchers.IO) {
+        val totalTags         = tagDao.countAll()
+        val totalAssociations = mediaTagDao.countAll()
+        val mismatchedTags    = tagDao.getTagsWithCountMismatch()
+        val unusedTags        = tagDao.getTagsWithNoAssociations()
+        val orphaned          = mediaTagDao.countOrphanedAssociations()
+        val duplicateGroups   = tagDao.getDuplicateNormalizedNameGroups()
+        val duplicateTags     = if (duplicateGroups.isNotEmpty())
+            tagDao.getTagsInDuplicateGroups() else emptyList()
+
+        LibraryHealthReport(
+            totalTags            = totalTags,
+            totalAssociations    = totalAssociations,
+            countMismatchedTags  = mismatchedTags,
+            unusedTags           = unusedTags,
+            orphanedAssociations = orphaned,
+            duplicateGroups      = duplicateGroups.map { it.normalized_name to it.cnt },
+            duplicateTags        = duplicateTags
+        )
+    }
+
+    /**
+     * Recalculates [Tag.usageCount] for every tag from the live media_tags table.
+     * Returns the number of tags that had a wrong count before the fix.
+     */
+    suspend fun fixUsageCounts(): Int = withContext(Dispatchers.IO) {
+        val before = tagDao.getTagsWithCountMismatch().size
+        tagDao.recalculateAllUsageCounts()
+        before
+    }
+
+    /**
+     * Deletes media_tags rows whose media_uri no longer exists in media_index.
+     * Returns the count removed.
+     */
+    suspend fun fixOrphanedAssociations(): Int = withContext(Dispatchers.IO) {
+        val count = mediaTagDao.countOrphanedAssociations()
+        if (count > 0) mediaTagDao.deleteOrphanedAssociations()
+        count
+    }
+
+    /**
+     * Deletes tags that have zero associations in media_tags and recalculates
+     * counts for all remaining tags.  Returns the number of tags deleted.
+     */
+    suspend fun deleteUnusedTags(): Int = withContext(Dispatchers.IO) {
+        val count = tagDao.getTagsWithNoAssociations().size
+        if (count > 0) {
+            tagDao.deleteTagsWithNoAssociations()
+            tagDao.recalculateAllUsageCounts()
+        }
+        count
+    }
+
+    /**
+     * Merges duplicate tags (same normalizedName) into the one with the highest
+     * usage count, preserving all associations.  Returns the number of duplicate
+     * tags removed.
+     */
+    suspend fun fixDuplicateTags(): Int = withContext(Dispatchers.IO) {
+        val allDuplicates = tagDao.getTagsInDuplicateGroups()
+        if (allDuplicates.isEmpty()) return@withContext 0
+
+        var removed = 0
+        allDuplicates
+            .groupBy { it.normalizedName }
+            .forEach { (_, group) ->
+                if (group.size < 2) return@forEach
+                // Keep the tag with the highest usage count; merge the rest into it
+                val sorted = group.sortedByDescending { it.usageCount }
+                val target = sorted.first()
+                sorted.drop(1).forEach { source ->
+                    database.withTransaction {
+                        mediaTagDao.transferTags(source.id, target.id)
+                        mediaTagDao.deleteByTagId(source.id)
+                        tagDao.deleteById(source.id)
+                    }
+                    removed++
+                }
+            }
+        // Recalculate counts after merges
+        tagDao.recalculateAllUsageCounts()
+        removed
+    }
+
     /**
      * Normalizes a tag name for lookup keys.
      * Trims, lowercases, collapses spaces, and strips punctuation.
@@ -506,3 +609,27 @@ class TagRepository(
 }
 
 data class RelatedTag(val tag: Tag, val cooccurrenceCount: Int)
+
+/**
+ * Result of a [TagRepository.scanHealth] pass.  All fields are read-only snapshots;
+ * running a fix may change the underlying data.
+ */
+data class LibraryHealthReport(
+    val totalTags: Int,
+    val totalAssociations: Int,
+    /** Tags whose stored usageCount differs from the actual media_tags row count. */
+    val countMismatchedTags: List<com.example.boxpandora.data.local.entity.Tag>,
+    /** Tags with no associations at all — safe to delete. */
+    val unusedTags: List<com.example.boxpandora.data.local.entity.Tag>,
+    /** Number of media_tags rows whose media URI no longer exists in media_index. */
+    val orphanedAssociations: Int,
+    /** Pairs of (normalizedName → duplicateCount) where count > 1. */
+    val duplicateGroups: List<Pair<String, Int>>,
+    /** All tag rows that belong to a duplicate-name group. */
+    val duplicateTags: List<com.example.boxpandora.data.local.entity.Tag>
+) {
+    val duplicateTagCount: Int get() = duplicateTags.size
+    val issueCount: Int get() =
+        countMismatchedTags.size + unusedTags.size + orphanedAssociations + duplicateGroups.size
+    val isHealthy: Boolean get() = issueCount == 0
+}

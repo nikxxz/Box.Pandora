@@ -58,7 +58,10 @@ fun RenameDialog(
     var text by remember(initialName) { mutableStateOf(initialName) }
 
     AppDialog(onDismiss = onDismiss) {
-        ModalHeader(title = title)
+        ModalHeader(
+            title = title,
+            subtitle = "Enter a new name without the file extension — it will be preserved automatically."
+        )
         ModalTextField(
             value = text,
             onValueChange = { text = it },

@@ -71,10 +71,11 @@ class FaceIndexWorker(
             return@withContext Result.success()
         }
 
+        val albumId: Long? = inputData.getLong(KEY_ALBUM_ID, -1L).takeIf { it != -1L }
         val faceDao = app.database.faceDao()
 
-        // ── Pipeline mode branch ──────────────────────────────────────────────
-        if (settings.pipelineMode == AiPipelineMode.ENSEMBLE_ALL_ENABLED) {
+        // Folder scans always use the single-active path (ensemble path ignores albumId).
+        if (albumId == null && settings.pipelineMode == AiPipelineMode.ENSEMBLE_ALL_ENABLED) {
             return@withContext runEnsemblePath(app, settings, statsStore)
         }
 
@@ -145,8 +146,12 @@ class FaceIndexWorker(
             val embedderVersion = embedder.modelVersionKey
             val scanLogDao = app.database.faceClusterDao()
 
-            val total = faceDao.countUnprocessed(detectorVersion)
-            Log.i(TAG, "Face index run — $total images to process " +
+            val scope = if (albumId != null) "album=$albumId" else "full library"
+            val total = if (albumId != null)
+                faceDao.countUnprocessedByAlbum(albumId, detectorVersion)
+            else
+                faceDao.countUnprocessed(detectorVersion)
+            Log.i(TAG, "Face index run [$scope] — $total images to process " +
                 "(detector: $detectorVersion, embedder: $embedderVersion)")
 
             if (total == 0) {
@@ -167,7 +172,10 @@ class FaceIndexWorker(
             var totalProcessingMs = 0L
 
             while (isActive) {
-                val uris = faceDao.getUnprocessedImageUris(detectorVersion, BATCH_SIZE, offset)
+                val uris = if (albumId != null)
+                    faceDao.getUnprocessedImageUrisByAlbum(albumId, detectorVersion, BATCH_SIZE, offset)
+                else
+                    faceDao.getUnprocessedImageUris(detectorVersion, BATCH_SIZE, offset)
                 if (uris.isEmpty()) break
 
                 for (uri in uris) {
@@ -223,7 +231,10 @@ class FaceIndexWorker(
             // remain eligible so enabling the flag in a future build picks them up automatically.
             // When true: frame-sampling infrastructure is not yet implemented; log and skip.
             val gifAllowed = AiFeatureFlags.isFaceDetectionAllowed(MediaType.GIF)
-            val pendingGifs = faceDao.countUnprocessedGifs(detectorVersion)
+            val pendingGifs = if (albumId != null)
+                faceDao.countUnprocessedGifsByAlbum(albumId, detectorVersion)
+            else
+                faceDao.countUnprocessedGifs(detectorVersion)
             if (pendingGifs > 0) {
                 if (!gifAllowed) {
                     Log.i(TAG, "GIF face detection: $pendingGifs GIF(s) pending — " +
@@ -243,7 +254,10 @@ class FaceIndexWorker(
             // Same no-scan-log policy as GIFs: pending videos stay eligible if the setting is
             // later turned on or frame-sampling is implemented.
             val videoAllowed = AiFeatureFlags.isFaceDetectionAllowed(MediaType.VIDEO, settings)
-            val pendingVideos = faceDao.countUnprocessedVideos(detectorVersion)
+            val pendingVideos = if (albumId != null)
+                faceDao.countUnprocessedVideosByAlbum(albumId, detectorVersion)
+            else
+                faceDao.countUnprocessedVideos(detectorVersion)
             if (pendingVideos > 0) {
                 if (!videoAllowed) {
                     Log.i(TAG, "Video face detection: $pendingVideos video(s) pending — " +

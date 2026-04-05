@@ -1,14 +1,45 @@
-# BoxPandora
+# Box.Pandora
 
-An AI-powered media gallery for Android. BoxPandora organises your photos and videos on-device, using local machine learning models to understand what's in each image, detect and group people by face, and surface intelligent tag suggestions — all without any data leaving your device.
+**Version 1.5** · An AI-powered media gallery for Android. Box.Pandora organises your photos and videos on-device, using local machine learning models to understand what's in each image, detect and group people by face, and surface intelligent tag suggestions — all without any data leaving your device.
 
 ---
 
 ## Table of Contents
 
-1. [App Overview](#1-app-overview)
-2. [Using AI, ML and Tagging Features](#2-using-ai-ml-and-tagging-features)
-3. [Technical Reference](#3-technical-reference)
+1. [What's New in 1.5](#whats-new-in-15)
+2. [App Overview](#1-app-overview)
+3. [Using AI, ML and Tagging Features](#2-using-ai-ml-and-tagging-features)
+4. [Technical Reference](#3-technical-reference)
+
+---
+
+## What's New in 1.5
+
+### Tag Integrity Improvements
+- **Tag associations are now preserved when hiding or unhiding a folder.** Previously, toggling a folder's hidden state caused a URI scheme change (`content://` → `file://`) that silently wiped all tag associations for every item in that folder. Three layers of protection were added:
+  - `setAlbumsHidden` now calls `scanFileWait` per-file and explicitly transfers all metadata before the sync runs
+  - `syncMediaStore` detects URI-scheme transitions and calls `transferMetadata` instead of deleting
+  - A file-exists guard skips deletion of DB entries whose physical file still exists during MediaStore re-indexing
+- **Empty-scan safety guard.** If `syncMediaStore` returns zero items against a non-empty database (transient MediaStore failure), the entire deletion pass is skipped to prevent a cascade-wipe of tag associations.
+- **SQLite variable-limit fix.** Batch deletions are now chunked in groups of 500, preventing `SQLiteException: too many SQL variables` when deleting large sets of URIs.
+
+### Library Health Scanner
+A new **Settings → Library → Library Health** screen scans and fixes common database inconsistencies:
+- **Stale tag counts** — tag `usage_count` values that no longer match the actual `media_tags` row count
+- **Orphaned tag associations** — `media_tags` rows that reference deleted media files
+- **Unused tags** — tags with no associated images (optionally delete them)
+- **Duplicate tag names** — tags sharing the same normalised name (merged on fix, preserving all associations)
+
+All issues show an individual **Fix** button. A **Fix All** button applies every available repair in one pass. The screen auto-scans on open and shows a result summary after each fix.
+
+### Show Filenames in Folder View
+A subtitle icon (caption lines) in the folder-view header toggles filename labels on every thumbnail. The state is local to the folder screen session — no persistence between navigations. The icon is hidden during multi-select to keep the toolbar uncluttered.
+
+### Move/Copy Dialog Fix
+Selecting a destination folder in the copy or move dialog no longer crashes the app. The dialog now dismisses immediately on selection before the async file operation begins.
+
+### New App Icon
+The launcher icon has been updated to the crystal-prism artwork across all density buckets (mdpi → xxxhdpi) and the adaptive icon layers (foreground, background, monochrome for Android 13 themed icons).
 
 ---
 
@@ -16,7 +47,7 @@ An AI-powered media gallery for Android. BoxPandora organises your photos and vi
 
 ## What It Does
 
-BoxPandora is a privacy-first, fully offline media manager. It reads from your device's MediaStore, organises your library into albums and tags, and optionally runs local AI models to analyse your photos, detect faces, and recommend tags — all computed on-device.
+Box.Pandora is a privacy-first, fully offline media manager. It reads from your device's MediaStore, organises your library into albums and tags, and optionally runs local AI models to analyse your photos, detect faces, and recommend tags — all computed on-device.
 
 There is no cloud sync, no account required, and no images are ever transmitted off your device.
 
@@ -25,9 +56,10 @@ There is no cloud sync, no account required, and no images are ever transmitted 
 ### Media Browsing
 - Browse your entire photo and video library grouped by album/folder
 - Grid view with configurable thumbnail density
-- Full-screen media viewer with video playback (ExoPlayer)
+- Full-screen media viewer with pinch-to-zoom and video playback (ExoPlayer)
 - Favourites collection (star any photo or video)
 - Search by filename, tag, or media type
+- **Show Filenames toggle** in folder view — tap the subtitle icon to overlay each thumbnail with its filename
 
 ### Tagging System
 - Apply unlimited tags to any photo or video
@@ -37,6 +69,11 @@ There is no cloud sync, no account required, and no images are ever transmitted 
 - Tag aliases — map alternative names to a canonical tag
 - Tag co-occurrence tracking — related tags are suggested when applying a tag
 - Tag history and audit log of all changes
+
+### Folder Management
+- **Hide / Unhide folders** — adding a `.nomedia` file hides a folder from the system gallery; Box.Pandora preserves all tags and metadata through this transition
+- **Show hidden folders** toggle in Library settings reveals hidden folders within the app
+- Copy, move, rename, and delete folders with conflict resolution
 
 ### AI Tag Suggestions (Scene Tagging)
 - A lightweight on-device model (MobileNet V3, ~8 MB) analyses each image and understands its visual content
@@ -53,13 +90,17 @@ There is no cloud sync, no account required, and no images are ever transmitted 
 - The app then learns Alice's appearance and suggests unidentified faces that likely belong to her
 - All face recognition runs entirely on-device
 
+### Library Health
+- **Settings → Library → Library Health** scans your tag database for inconsistencies and lets you fix them individually or all at once
+- Covers stale counts, orphaned associations, unused tags, and duplicate names
+
 ### Visual Similarity Search *(Phase 3 — planned)*
 - Find photos visually similar to any image in your library
 - Uses the same scene embeddings as tag suggestions
 
 ### Settings and Controls
 - Toggle each AI feature independently
-- Set a confidence threshold to control how aggressively tags are suggested
+- Set a confidence threshold (Low / Medium / High) to control how aggressively tags are suggested
 - Restrict model downloads to Wi-Fi only
 - Enable or disable background indexing (charging-only by default)
 - Maintenance tools: repair stale data, rebuild individual pipeline stages, or wipe and rescan everything
@@ -73,8 +114,8 @@ There is no cloud sync, no account required, and no images are ever transmitted 
 AI features are **disabled by default**. To enable them:
 
 1. Open **Settings → Tagging & AI**
-2. Enable **Scene Tagging** to activate tag suggestions
-3. Enable **People Detection & Clustering** to activate face recognition
+2. Enable **Scene Suggestions** to activate tag suggestions
+3. Enable **People Suggestions** to activate face recognition
 4. Tap **Scan New Media** to start indexing your library in the background
 
 The app will only run background indexing when the device is not in battery-saver mode. User-triggered actions (Scan New Media, Repair, Rebuild) run immediately regardless of battery state.
@@ -105,10 +146,13 @@ To get useful suggestions quickly, start by tagging 5–10 representative photos
 
 ### Confidence Threshold
 
-Found under **Settings → Tagging & AI → Confidence Threshold** (slider, default 0.5).
+Found under **Settings → Tagging & AI → Suggestion Confidence** (cycles between Low / Medium / High).
 
-- **Lower** — more suggestions, lower accuracy. Use when you want broad coverage.
-- **Higher** — fewer suggestions, higher accuracy. Use when you want only high-confidence matches.
+| Level | Threshold | Behaviour |
+|---|---|---|
+| **Low** | 0.20 | Many suggestions, lower precision — good for discovery |
+| **Medium** | 0.50 | Balanced — recommended starting point |
+| **High** | 0.75 | Fewer suggestions, higher precision — best after tagging many examples |
 
 A second-best margin rule is also applied internally: if two tags score similarly close, neither is suggested (to avoid ambiguous classifications).
 
@@ -131,7 +175,7 @@ Face recognition runs a three-stage pipeline: **detect → embed → cluster →
 ### Step 1 — Enable the Feature
 
 In **Settings → Tagging & AI**, enable:
-- **People Detection & Clustering** (master toggle)
+- **People Suggestions** (master toggle)
 - Optionally: **People Detection in Videos (Experimental)** if you want video frames scanned
 
 ### Step 2 — Install the Models
@@ -192,9 +236,26 @@ Go to **Settings → Model Management → Face Pipeline Coverage** to see which 
 
 ---
 
+## Library Health
+
+Found at **Settings → Library → Library Health**.
+
+The scanner checks four categories of issues:
+
+| Issue | What It Means | Fix Action |
+|---|---|---|
+| **Stale tag counts** | A tag's stored `usage_count` doesn't match the actual number of tagged images | Recalculates all counts from `media_tags` |
+| **Orphaned associations** | A `media_tags` row references a media file that no longer exists | Removes the dangling rows |
+| **Unused tags** | A tag exists but has no images attached | Permanently deletes the tag (requires confirmation) |
+| **Duplicate names** | Two or more tags share the same normalised name | Merges all into the one with the highest usage count; all associations are preserved |
+
+> **Tip:** Run a health scan after any large batch operation (bulk tagging, importing, or restoring a backup) to catch any inconsistencies early.
+
+---
+
 ## Maintenance Actions
 
-All found under **Settings → Tagging & AI → Maintenance**:
+All found under **Settings → Tagging & AI → AI Maintenance**:
 
 | Action | What It Does | When To Use |
 |---|---|---|
@@ -202,12 +263,12 @@ All found under **Settings → Tagging & AI → Maintenance**:
 | **Repair Stale AI Data** | Retries previously-failed scan attempts without discarding successful results | After a crash or corrupted run |
 | **Rebuild Scene Embeddings** | Clears all scene embeddings and re-runs from scratch | After switching to a different scene model |
 | **Rebuild Tag Prototypes** | Recomputes mean centroids for all tags | After bulk-tagging a large batch of photos |
-| **Rebuild Tag Suggestions** | Clears and rescores all suggestions against current prototypes | After rebuilding prototypes or changing confidence threshold |
-| **Rebuild Face Index** | Clears all detected faces and re-scans everything | After switching to a different face detector |
-| **Rebuild Face Clusters** | Clears clustering results and re-clusters from existing embeddings | After accepting many corrections |
+| **Rebuild Tag Suggestions** | Clears and rescores all suggestions against current prototypes | After rebuilding prototypes or changing confidence level |
+| **Re-scan Faces** | Clears all detected faces and re-scans everything | After switching to a different face detector |
 | **Rebuild People Matching** | Regenerates person suggestions from current confirmed clusters | After naming several new people |
 | **Full AI Rescan** | Clears all AI data and restarts the entire pipeline | After a major model upgrade or database inconsistency |
 | **Clear All AI Data** | Wipes all AI-generated data without scheduling workers | To start fresh manually |
+| **Scan by Folder** | Runs the AI pipeline for one specific folder only | Targeted indexing without processing the whole library |
 
 > **Note:** User-applied tags, tag rejections, and confirmed person names are never deleted by any maintenance action.
 
@@ -232,7 +293,7 @@ If a model shows **ONNX runtime not available**, the ONNX Runtime library is not
 
 ## Architecture Overview
 
-BoxPandora follows a layered architecture:
+Box.Pandora follows a layered architecture:
 
 ```
 UI (Jetpack Compose)
@@ -287,14 +348,14 @@ app/src/main/java/com/example/boxpandora/
 ├── data/
 │   ├── local/
 │   │   ├── AppDatabase.kt          Room database definition + all migrations (v1→v12)
-│   │   ├── entity/                 23 Room entity classes (one per DB table)
-│   │   └── dao/                    Data access interfaces (20+ DAOs)
+│   │   ├── entity/                 Room entity classes (one per DB table)
+│   │   └── dao/                    Data access interfaces
 │   ├── repository/
-│   │   ├── MediaRepository.kt      Media search, sync, CRUD operations
-│   │   └── TagRepository.kt        Tag lifecycle, bulk tagging, co-occurrence tracking
+│   │   ├── MediaRepository.kt      Media search, sync, CRUD, hide/unhide with tag preservation
+│   │   └── TagRepository.kt        Tag lifecycle, bulk tagging, co-occurrence, health scanning
 │   └── manager/
 │       ├── ThumbnailManager.kt     Coil thumbnail caching + extraction
-│       ├── FileSystemManager.kt    File I/O, rename, delete
+│       ├── FileSystemManager.kt    File I/O, rename, delete, scan file wait
 │       ├── MediaContentObserver.kt MediaStore change watcher
 │       └── MediaStoreRepository.kt MediaStore API abstraction
 │
@@ -335,8 +396,6 @@ app/src/main/java/com/example/boxpandora/
 │   │   ├── FaceClusterEngine.kt      Conservative centroid clustering + user correction handling
 │   │   ├── PersonProfileEngine.kt    Per-person cluster centroid from confirmed training data
 │   │   └── EmbeddingUtils.kt         ByteArray↔FloatArray, L2-norm, cosine similarity
-│   ├── clustering/
-│   │   └── FaceClusterEngine.kt      (see above)
 │   └── sampling/
 │       └── FrameSampler.kt           Uniform frame extraction for GIF/video embedding
 │
@@ -355,42 +414,26 @@ app/src/main/java/com/example/boxpandora/
     ├── main/
     │   ├── MainScreen.kt             NavHost + bottom navigation
     │   ├── Screen.kt                 Screen enum (routes, icons, labels)
-    │   ├── FoldersScreen.kt          Album grid + media grid view
-    │   ├── FolderDetailScreen.kt     Media list for a single album
+    │   ├── FoldersScreen.kt          Album grid with hide/show support and multi-select
+    │   ├── FolderDetailScreen.kt     Media list for a single album with filename toggle
     │   ├── TagsScreen.kt             Tag browser (category tabs, tag cards)
     │   ├── TagGalleryScreen.kt       Media filtered by a single tag
     │   ├── FavoritesScreen.kt        Starred media grid
     │   ├── SuggestionsScreen.kt      Review pending tag suggestions
     │   ├── SimilarImagesScreen.kt    Similarity search results (Phase 3)
-    │   ├── AiDebugScreen.kt          Developer diagnostics for AI pipeline
-    │   └── viewmodel/
-    │       ├── FoldersViewModel.kt
-    │       ├── FavoritesViewModel.kt
-    │       ├── TagsViewModel.kt
-    │       ├── TagGalleryViewModel.kt
-    │       ├── FolderDetailViewModel.kt
-    │       ├── SuggestionsViewModel.kt
-    │       ├── SimilarImagesViewModel.kt
-    │       └── AiDebugViewModel.kt
+    │   └── AiDebugScreen.kt          Developer diagnostics for AI pipeline
     ├── settings/
     │   ├── SettingsScreen.kt          Main settings navigation hub
-    │   ├── SettingsSubScreens.kt      All settings sub-screens (Library, Display, etc.)
+    │   ├── SettingsSubScreens.kt      All settings sub-screens (Library, AI, Display, etc.)
     │   ├── SettingsComponents.kt      Reusable settings row/toggle/slider composables
     │   ├── ModelManagementScreen.kt   Install/activate/delete AI models, diagnostics
-    │   ├── MediaGridTestScreen.kt     Dev tool for grid layout testing
-    │   └── viewmodel/
-    │       ├── AiSettingsViewModel.kt   AI toggles + all maintenance actions
-    │       └── ModelManagerViewModel.kt Model install state + diagnostics
+    │   └── MaintenanceProgressDialog.kt  Worker progress monitor during indexing
     └── components/
         ├── media/
         │   ├── MediaViewer.kt          Full-screen media viewer + video player
-        │   └── MediaThumbnail.kt       Coil-backed thumbnail with state indicators
-        ├── grid/
-        │   └── DynamicMediaGrid.kt     Adaptive grid layout
-        └── shared/
-            ├── AppHeader.kt            Reusable top bar
-            ├── Dialogs.kt              Confirmation, rename, merge dialogs
-            └── ModalPrimitives.kt      Bottom sheet / modal scaffold helpers
+        │   └── MediaThumbnail.kt       Coil-backed thumbnail with filename overlay support
+        └── grid/
+            └── DynamicMediaGrid.kt     Adaptive grid layout with filename toggle pass-through
 ```
 
 ---
@@ -467,22 +510,21 @@ All workers are:
 - **Idempotent** — safe to re-run; rows already processed are skipped via scan logs
 - **Constraint-aware** — battery not low + storage not low; charging required unless `forceRun=true`
 
-### AiIndexScheduler
+---
 
-`worker/AiIndexScheduler.kt` is the sole scheduling entry point. All callers go through it.
+## Tag Metadata Preservation
 
-| Method | Schedules | Default Policy |
-|---|---|---|
-| `scheduleSceneIndexIfEnabled` | SceneIndexWorker | KEEP |
-| `schedulePrototypeBuildIfEnabled` | PrototypeBuildWorker | KEEP |
-| `scheduleTagSuggestionsIfEnabled` | TagSuggestionWorker | KEEP |
-| `scheduleFullPipelineIfEnabled` | All three above | KEEP |
-| `scheduleFaceIndexIfEnabled` | FaceIndexWorker | KEEP |
-| `scheduleFaceClusterIfEnabled` | FaceClusterWorker | KEEP |
-| `schedulePersonProfileIfEnabled` | PersonProfileWorker | KEEP |
-| `schedulePersonSuggestionsIfEnabled` | PersonSuggestionWorker | KEEP |
-| `scheduleFacePipelineIfEnabled` | All four above | KEEP |
-| `cancelAll` | (cancels everything) | — |
+`MediaRepository.transferMetadata(oldItem, newItem, deleteOld)` is the central function for preserving user data across URI changes. It atomically:
+
+1. Copies `rating`, `isFavorite`, `notes`, `isHidden` from the old item to the new
+2. Calls `tagRepository.transferTagMetadata(oldUri, newUri)` to re-point all `media_tags` rows
+3. Copies `image_embeddings` rows to the new URI
+4. Copies `detected_faces` and `face_embeddings` rows to the new URI
+5. Optionally deletes the old item (when `deleteOld = true`)
+
+All steps run inside a single `database.withTransaction` block so no partial state is visible.
+
+`syncMediaStore` uses this when it detects that a URI in `urisToDelete` matches the `filePath` of a freshly scanned item under a different URI scheme (indicating a hide/unhide transition rather than a true deletion).
 
 ---
 
@@ -533,7 +575,7 @@ Crash-loop guard:
 | `sceneTaggingEnabled` | Boolean | true | Gates SceneIndex/Prototype/Suggestion workers |
 | `faceProcessingEnabled` | Boolean | false | Gates all face workers |
 | `backgroundIndexingEnabled` | Boolean | true | Allows passive scheduling |
-| `confidenceThreshold` | Float | 0.5 | Minimum score for a tag suggestion to appear |
+| `confidenceThreshold` | Float | 0.5 | Minimum score for a tag suggestion to appear (Low=0.20, Medium=0.50, High=0.75) |
 | `autoIndexOnSync` | Boolean | true | Triggers indexing after MediaStore sync |
 | `wifiOnlyDownloads` | Boolean | true | Requires UNMETERED network for model downloads |
 | `faceDetectionInVideos` | Boolean | false | Enables video frame sampling in FaceIndexWorker |
@@ -562,6 +604,7 @@ Defined in `ui/main/Screen.kt`:
 | `settings` | SettingsScreen | Accessible from app bar |
 | `settings/model_management` | ModelManagementScreen | Sub-screen |
 | `settings/tagging_ai` | Tagging & AI sub-screen | Sub-screen |
+| `settings/library/health` | LibraryHealthScreen | Sub-screen |
 | `ai_debug` | AiDebugScreen | Dev/debug only |
 | `suggestions` | SuggestionsScreen | Review tag suggestions |
 | `similar_images/{assetId}` | SimilarImagesScreen | Phase 3 |
@@ -579,6 +622,7 @@ The `MediaViewer` is not a navigation route — it is a modal overlay managed by
 | FavoritesViewModel | MediaRepository | MediaItemDao |
 | TagsViewModel | TagRepository | TagDao, MediaTagDao |
 | TagGalleryViewModel | TagRepository, MediaRepository | TagDao, MediaTagDao, MediaItemDao |
+| LibraryHealthViewModel | TagRepository | TagDao, MediaTagDao |
 | AiSettingsViewModel | AiSettingsRepository, AppDatabase, ModelManager | All face/embedding DAOs |
 | ModelManagerViewModel | ModelManager, AiSettingsRepository | (no direct DAO access) |
 | SuggestionsViewModel | TagRepository | TagSuggestionDao, TagDao |
@@ -630,4 +674,4 @@ The app uses `enableOnBackInvokedCallback = true` for predictive back gesture su
 
 ---
 
-*BoxPandora — private AI media intelligence, entirely on-device.*
+*Box.Pandora v1.5 — private AI media intelligence, entirely on-device.*
