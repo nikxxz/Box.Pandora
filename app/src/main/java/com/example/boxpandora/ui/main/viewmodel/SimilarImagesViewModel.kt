@@ -88,8 +88,18 @@ class SimilarImagesViewModel(
                     return@withContext
                 }
 
-                val service = SimilaritySearchService(database.imageEmbeddingDao())
-                val similarResults = service.findSimilar(queryUri, modelVersion)
+                val service = SimilaritySearchService(
+                    database.imageEmbeddingDao(),
+                    database.faceDao(),
+                    tagRepository
+                )
+                val activeFaceModel = modelManager.getActiveModel(ModelCategory.FACE_EMBEDDING)
+                val faceModelVersion = activeFaceModel?.metadata?.roomVersionKey
+                val similarResults = service.findSimilarCombined(
+                    queryUri = queryUri,
+                    sceneModelVersion = modelVersion,
+                    faceEmbedderVersion = faceModelVersion
+                )
 
                 val uris = similarResults.map { it.assetUri }
                 val itemMap = if (uris.isEmpty()) emptyMap()
@@ -131,8 +141,18 @@ class SimilarImagesViewModel(
                 val current = _state.value
                 val activeModel = modelManager.getActiveModel(ModelCategory.SCENE_EMBEDDING)
                 val modelVersion = activeModel?.metadata?.roomVersionKey ?: return@withContext
-                val service = SimilaritySearchService(database.imageEmbeddingDao())
-                val similarResults = service.findSimilar(queryUri, modelVersion)
+                val activeFaceModel = modelManager.getActiveModel(ModelCategory.FACE_EMBEDDING)
+                val faceModelVersion = activeFaceModel?.metadata?.roomVersionKey
+                val service = SimilaritySearchService(
+                    database.imageEmbeddingDao(),
+                    database.faceDao(),
+                    tagRepository
+                )
+                val similarResults = service.findSimilarCombined(
+                    queryUri = queryUri,
+                    sceneModelVersion = modelVersion,
+                    faceEmbedderVersion = faceModelVersion
+                )
                 val uris = similarResults.map { it.assetUri }
                 val itemMap = if (uris.isEmpty()) emptyMap()
                     else mediaRepository.getMediaByUris(uris).associateBy { it.uri }

@@ -1,5 +1,6 @@
 package com.example.boxpandora.data.local.dao
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -26,6 +27,30 @@ interface FaceDao {
 
     @Query("SELECT * FROM face_embeddings WHERE face_id = :faceId")
     suspend fun getEmbeddingForFace(faceId: String): FaceEmbedding?
+
+    @Query("""
+        SELECT df.asset_id, fe.face_id, df.cluster_id, df.quality_score, fe.embedding
+        FROM face_embeddings fe
+        INNER JOIN detected_faces df ON df.face_id = fe.face_id
+        WHERE fe.model_version = :embedderVersion
+          AND df.asset_id = :assetId
+    """)
+    suspend fun getFaceEmbeddingsForAsset(
+        assetId: String,
+        embedderVersion: String
+    ): List<AssetFaceEmbeddingRow>
+
+    @Query("""
+        SELECT df.asset_id, fe.face_id, df.cluster_id, df.quality_score, fe.embedding
+        FROM face_embeddings fe
+        INNER JOIN detected_faces df ON df.face_id = fe.face_id
+        WHERE fe.model_version = :embedderVersion
+          AND df.asset_id IN (:assetIds)
+    """)
+    suspend fun getFaceEmbeddingsForAssets(
+        assetIds: List<String>,
+        embedderVersion: String
+    ): List<AssetFaceEmbeddingRow>
 
     @Query("DELETE FROM detected_faces WHERE asset_id = :assetId")
     suspend fun deleteForAsset(assetId: String)
@@ -219,7 +244,13 @@ interface FaceDao {
         val embedding: ByteArray,
         val quality_score: Double
     )
-
+    data class AssetFaceEmbeddingRow(
+        @ColumnInfo(name = "asset_id") val assetId: String,
+        @ColumnInfo(name = "face_id") val faceId: String,
+        @ColumnInfo(name = "cluster_id") val clusterId: String?,
+        @ColumnInfo(name = "quality_score") val qualityScore: Double,
+        val embedding: ByteArray
+    )
     // ── Person profile training queries ───────────────────────────────────────
 
     /**

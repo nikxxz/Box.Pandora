@@ -35,6 +35,8 @@ fun AppHeader(
     isPinned: Boolean = false,
     allowOpenWith: Boolean = true,
     onActionClick: (String) -> Unit = {},
+    showUntaggedFilterButton: Boolean = false,
+    showUntaggedOnly: Boolean = false,
     scrollProgress: Float = 1f // 1.0 = expanded, 0.0 = shrunk
 ) {
     val isSelectionMode = selectionCount > 0
@@ -172,6 +174,22 @@ fun AppHeader(
                                     contentDescription = if (showFilenames) "Hide filenames" else "Show filenames",
                                     modifier = Modifier.size(22.dp),
                                     tint = if (showFilenames)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
+                        if (showUntaggedFilterButton) {
+                            IconButton(
+                                onClick = { onActionClick("toggle_untagged_filter") },
+                                modifier = Modifier.size(if (scrollProgress < 0.5f) 32.dp else 48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (showUntaggedOnly) Icons.Default.LabelOff else Icons.Default.Label,
+                                    contentDescription = if (showUntaggedOnly) "Show all media" else "Show untagged media",
+                                    modifier = Modifier.size(22.dp),
+                                    tint = if (showUntaggedOnly)
                                         MaterialTheme.colorScheme.primary
                                     else
                                         MaterialTheme.colorScheme.onBackground

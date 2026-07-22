@@ -28,6 +28,8 @@ class FolderDetailViewModel(
 ) : ViewModel() {
 
     private val _showHidden = MutableStateFlow(false)
+    private val _showUntaggedOnly = MutableStateFlow(false)
+    val showUntaggedOnly: StateFlow<Boolean> = _showUntaggedOnly.asStateFlow()
 
     private val _selectedUris = MutableStateFlow<Set<String>>(emptySet())
     val selectedUris: StateFlow<Set<String>> = _selectedUris
@@ -37,15 +39,23 @@ class FolderDetailViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val pagedMediaItems: Flow<PagingData<MediaItem>> = _showHidden
-        .flatMapLatest { showHidden ->
-            repository.getMediaByAlbumPaged(albumId, showHidden)
+    val pagedMediaItems: Flow<PagingData<MediaItem>> = combine(
+        _showHidden,
+        _showUntaggedOnly
+    ) { showHidden, showUntaggedOnly -> showHidden to showUntaggedOnly }
+        .flatMapLatest { (showHidden, showUntaggedOnly) ->
+            repository.getMediaByAlbumPaged(albumId, showHidden, showUntaggedOnly)
         }
         .cachedIn(viewModelScope)
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val mediaItems: StateFlow<List<MediaItem>> = _showHidden
-        .flatMapLatest { showHidden -> repository.getMediaByAlbumIdFlow(albumId, showHidden) }
+    val mediaItems: StateFlow<List<MediaItem>> = combine(
+        _showHidden,
+        _showUntaggedOnly
+    ) { showHidden, showUntaggedOnly -> showHidden to showUntaggedOnly }
+        .flatMapLatest { (showHidden, showUntaggedOnly) ->
+            repository.getMediaByAlbumIdFlow(albumId, showHidden, showUntaggedOnly)
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _allAlbums = MutableStateFlow<List<Album>>(emptyList())
@@ -109,18 +119,31 @@ class FolderDetailViewModel(
     private val _isSearching = MutableStateFlow(false)
     val isSearching: StateFlow<Boolean> = _isSearching
 
+    private data class SearchState(
+        val params: MediaRepository.MediaSearchParams,
+        val showHidden: Boolean,
+        val showUntaggedOnly: Boolean,
+        val isOpen: Boolean
+    )
+
     init {
         viewModelScope.launch {
             combine(
                 _searchParams.debounce(280L),
                 _showHidden,
+                _showUntaggedOnly,
                 _isSearchOpen
-            ) { params, hidden, isOpen ->
-                Triple(params, hidden, isOpen)
-            }.collectLatest { (params, hidden, isOpen) ->
-                if (isOpen) {
+            ) { params, hidden, untaggedOnly, isOpen ->
+                SearchState(params, hidden, untaggedOnly, isOpen)
+            }.collectLatest { state ->
+                if (state.isOpen) {
                     _isSearching.value = true
-                    _searchResults.value = repository.searchMedia(params, albumId = albumId, showHidden = hidden)
+                    _searchResults.value = repository.searchMedia(
+                        state.params,
+                        albumId = albumId,
+                        showHidden = state.showHidden,
+                        untaggedOnly = state.showUntaggedOnly
+                    )
                     _isSearching.value = false
                 } else {
                     _searchResults.value = emptyList()
@@ -148,6 +171,10 @@ class FolderDetailViewModel(
 
     fun setShowHidden(show: Boolean) {
         _showHidden.value = show
+    }
+
+    fun toggleShowUntaggedOnly() {
+        _showUntaggedOnly.value = !_showUntaggedOnly.value
     }
 
     fun toggleSelection(uri: String) {

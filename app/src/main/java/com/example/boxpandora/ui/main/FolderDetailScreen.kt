@@ -75,10 +75,12 @@ fun FolderDetailScreen(
     val bulkSuggestionsLoading by viewModel.bulkSuggestionsLoading.collectAsState()
 
     val isSearchOpen by viewModel.isSearchOpen.collectAsState()
+    val showUntaggedOnly by viewModel.showUntaggedOnly.collectAsState()
     val searchParams by viewModel.searchParams.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
     val pendingConflict by viewModel.pendingConflict.collectAsState()
+    val visibleItems = if (isSearchOpen) searchResults else mediaItems
 
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -140,11 +142,16 @@ fun FolderDetailScreen(
     Scaffold(
         topBar = {
             Column(modifier = Modifier.offset { IntOffset(0, scrollOffset.roundToInt()) }) {
-                val subtitle = "%,d items".format(pagingItems.itemCount)
+                val subtitle = if (showUntaggedOnly)
+                    "%,d untagged".format(mediaItems.size)
+                else
+                    "%,d items".format(mediaItems.size)
 
                 AppHeader(
                     title = albumName,
                     subtitle = if (isSelectionMode) null else subtitle,
+                    showUntaggedFilterButton = true,
+                    showUntaggedOnly = showUntaggedOnly,
                     onBackClick = onBackClick,
                     onSearchClick = { viewModel.openSearch() },
                     selectionCount = selectedUris.size,
@@ -172,14 +179,15 @@ fun FolderDetailScreen(
                             }
                             "properties" -> showPropertiesSheet = true
                             "toggle_filenames" -> showFilenames = !showFilenames
+                            "toggle_untagged_filter" -> viewModel.toggleShowUntaggedOnly()
                             "tag" -> showBulkTagDialog = true
                             "share" -> {
-                                val items = pagingItems.itemSnapshotList.items.filter { it.uri in selectedUris }
+                                val items = visibleItems.filter { it.uri in selectedUris }
                                 shareMediaItems(context, items)
                                 viewModel.clearSelection()
                             }
                             "open_with" -> {
-                                val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
+                                val item = visibleItems.find { it.uri in selectedUris }
                                 item?.let { openMediaItem(context, it) }
                                 viewModel.clearSelection()
                             }
@@ -242,7 +250,7 @@ fun FolderDetailScreen(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f)
                         )
                         Text(
-                            text = "This folder is empty",
+                            text = if (showUntaggedOnly) "No untagged media" else "This folder is empty",
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
@@ -282,7 +290,7 @@ fun FolderDetailScreen(
     }
 
     if (showRenameDialog) {
-        val item = pagingItems.itemSnapshotList.items.find { it.uri in selectedUris }
+        val item = visibleItems.find { it.uri in selectedUris }
         item?.let {
             RenameDialog(
                 initialName = it.filename.substringBeforeLast("."),
@@ -334,7 +342,7 @@ fun FolderDetailScreen(
     }
 
     if (showPropertiesSheet) {
-        val item = (if (isSearchOpen) searchResults else mediaItems).find { it.uri in selectedUris }
+        val item = visibleItems.find { it.uri in selectedUris }
         item?.let {
             MediaPropertiesSheet(
                 item = it,

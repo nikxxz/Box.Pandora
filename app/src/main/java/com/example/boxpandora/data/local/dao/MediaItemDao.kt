@@ -18,12 +18,31 @@ interface MediaItemDao {
     fun getMediaByAlbumPaged(albumId: Long, showHidden: Boolean): PagingSource<Int, MediaItem>
 
     @Query("""
+        SELECT * FROM media_index m
+        WHERE m.album_id = :albumId
+        AND (m.hidden = 0 OR :showHidden = 1)
+        ORDER BY m.device_created_at DESC, m.uri DESC
+    """)
+    fun getUntaggedMediaByAlbumPaged(albumId: Long, showHidden: Boolean): PagingSource<Int, MediaItem>
+
+    @Query("""
         SELECT * FROM media_index
         WHERE album_id = :albumId
         AND (hidden = 0 OR :showHidden = 1)
         ORDER BY device_created_at DESC, uri DESC
     """)
     fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean): Flow<List<MediaItem>>
+
+    @Query("""
+        SELECT * FROM media_index m
+        WHERE m.album_id = :albumId
+        AND (m.hidden = 0 OR :showHidden = 1)
+        AND NOT EXISTS (
+            SELECT 1 FROM media_tags mt WHERE mt.media_uri = m.uri
+        )
+        ORDER BY m.device_created_at DESC, m.uri DESC
+    """)
+    fun getUntaggedMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean): Flow<List<MediaItem>>
 
     @Query("""
         SELECT m.* FROM media_index m
@@ -104,6 +123,9 @@ interface MediaItemDao {
             INNER JOIN tags t ON mt.tag_id = t.id
             WHERE mt.media_uri = m.uri AND LOWER(t.category) = LOWER(:tagCategory)
         ))
+        AND (:untaggedOnly = 0 OR NOT EXISTS (
+            SELECT 1 FROM media_tags mt2 WHERE mt2.media_uri = m.uri
+        ))
         AND (
             :query = '' 
             OR m.filename LIKE '%' || :query || '%' 
@@ -122,7 +144,8 @@ interface MediaItemDao {
         type: String,
         format: String,
         tagCategory: String,
-        query: String
+        query: String,
+        untaggedOnly: Boolean
     ): List<MediaItem>
 
     @Query("SELECT uri, rating, favorite, hidden, notes FROM media_index")

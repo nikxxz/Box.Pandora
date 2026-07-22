@@ -18,6 +18,8 @@ import com.example.boxpandora.data.manager.ThumbnailManager
 import com.example.boxpandora.data.util.NomediaScanner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -35,6 +37,7 @@ class MediaRepository(
     val tagRepository: TagRepository
 ) {
     private val nomediaScanner = NomediaScanner()
+    private val librarySyncMutex = Mutex()
 
     data class MediaSearchParams(
         val query: String = "",
@@ -52,7 +55,8 @@ class MediaRepository(
     suspend fun searchMedia(
         params: MediaSearchParams,
         albumId: Long? = null,
-        showHidden: Boolean = false
+        showHidden: Boolean = false,
+        untaggedOnly: Boolean = false
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val candidates = mediaItemDao.searchFiltered(
             showHidden  = showHidden,
@@ -60,7 +64,8 @@ class MediaRepository(
             type        = params.type,
             format      = params.format.lowercase(),
             tagCategory = params.tagCategory,
-            query       = params.query.trim()
+            query       = params.query.trim(),
+            untaggedOnly = untaggedOnly
         )
 
         if (candidates.isEmpty()) return@withContext emptyList()
@@ -91,10 +96,13 @@ class MediaRepository(
         ).flow
     }
 
-    fun getMediaByAlbumPaged(albumId: Long, showHidden: Boolean): Flow<PagingData<MediaItem>> {
+    fun getMediaByAlbumPaged(albumId: Long, showHidden: Boolean, untaggedOnly: Boolean = false): Flow<PagingData<MediaItem>> {
         return Pager(
             config = PagingConfig(pageSize = 60, enablePlaceholders = true),
-            pagingSourceFactory = { mediaItemDao.getMediaByAlbumPaged(albumId, showHidden) }
+            pagingSourceFactory = {
+                if (untaggedOnly) mediaItemDao.getUntaggedMediaByAlbumPaged(albumId, showHidden)
+                else mediaItemDao.getMediaByAlbumPaged(albumId, showHidden)
+            }
         ).flow
     }
 
@@ -110,8 +118,9 @@ class MediaRepository(
         return albumDao.getByName(albumName)?.id
     }
 
-    fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean = false): Flow<List<MediaItem>> {
-        return mediaItemDao.getMediaByAlbumIdFlow(albumId, showHidden)
+    fun getMediaByAlbumIdFlow(albumId: Long, showHidden: Boolean = false, untaggedOnly: Boolean = false): Flow<List<MediaItem>> {
+        return if (untaggedOnly) mediaItemDao.getUntaggedMediaByAlbumIdFlow(albumId, showHidden)
+        else mediaItemDao.getMediaByAlbumIdFlow(albumId, showHidden)
     }
 
     fun getMediaByTagFlow(tagId: Long, showHidden: Boolean = false): Flow<List<MediaItem>> {
@@ -235,22 +244,31 @@ class MediaRepository(
         oldItem: MediaItem,
         newItemFromStore: MediaItem,
         deleteOld: Boolean
+    ) = librarySyncMutex.withLock {
+        transferMetadataLocked(oldItem, newItemFromStore, deleteOld)
+    }
+
+    private suspend fun transferMetadataLocked(
+        oldItem: MediaItem,
+        newItemFromStore: MediaItem,
+        deleteOld: Boolean
     ) {
         val oldUri = oldItem.uri
         val newUri = newItemFromStore.uri
 
-        val updatedNewItem = newItemFromStore.copy(
-            rating     = oldItem.rating,
-            isFavorite = oldItem.isFavorite,
-            notes      = oldItem.notes,
-            isHidden   = oldItem.isHidden
-        )
-        mediaItemDao.insertAll(listOf(updatedNewItem))
-        mediaItemDao.updateAll(listOf(updatedNewItem))
-
-        if (oldUri == newUri) return
-
         database.withTransaction {
+            val safeNewItem = ensureAlbumExists(newItemFromStore)
+            val updatedNewItem = safeNewItem.copy(
+                rating     = oldItem.rating,
+                isFavorite = oldItem.isFavorite,
+                notes      = oldItem.notes,
+                isHidden   = oldItem.isHidden
+            )
+            mediaItemDao.insertAll(listOf(updatedNewItem))
+            mediaItemDao.updateAll(listOf(updatedNewItem))
+
+            if (oldUri == newUri) return@withTransaction
+
             tagRepository.transferTagMetadata(oldUri, newUri)
             val embeddings = imageEmbeddingDao.getForAsset(oldUri)
             if (embeddings.isNotEmpty()) {
@@ -267,6 +285,40 @@ class MediaRepository(
                 mediaItemDao.deleteByUris(listOf(oldUri))
             }
         }
+    }
+
+    private suspend fun ensureAlbumExists(item: MediaItem): MediaItem {
+        val albumId = item.albumId ?: return item
+        val albumName = item.albumName
+        if (albumName == null) {
+            Log.w(TAG, "Dropping unresolved album reference for uri=${item.uri} albumId=$albumId")
+            return item.copy(albumId = null)
+        }
+        if (albumDao.getById(albumId) == null) {
+            albumDao.upsertAll(listOf(buildAlbum(albumId, albumName, listOf(item))))
+        }
+        return item
+    }
+
+    private fun buildAlbum(albumId: Long, albumName: String, items: List<MediaItem>): Album {
+        val coverItem = items.maxByOrNull { it.deviceCreatedAt ?: 0L } ?: items.first()
+        val photoItems = items.filter { it.mediaType == "image" }
+        val videoItems = items.filter { it.mediaType == "video" }
+
+        return Album(
+            id = albumId,
+            name = albumName,
+            path = items.firstOrNull { it.filePath != null }?.filePath?.let { File(it).parent },
+            mediaCount = items.size,
+            photoCount = photoItems.size,
+            videoCount = videoItems.size,
+            coverUri = coverItem.uri,
+            coverFilePath = coverItem.filePath,
+            photoCoverUri = photoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
+            videoCoverUri = videoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
+            lastModifiedAt = items.maxOfOrNull { it.deviceModifiedAt ?: it.deviceCreatedAt ?: 0L },
+            isHidden = items.any { it.isHidden == 1 }
+        )
     }
 
     suspend fun deleteAlbums(albumIds: List<Long>): Boolean = withContext(Dispatchers.IO) {
@@ -411,7 +463,8 @@ class MediaRepository(
         excludedPaths: Set<String> = emptySet(),
         onProgress: ((String, Float) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
-        try {
+        librarySyncMutex.withLock {
+            try {
             onProgress?.invoke("Fetching MediaStore content...", 0.1f)
             val mediaStoreItems = mediaStoreRepository.fetchAllMedia(
                 showImages = showImages,
@@ -475,7 +528,7 @@ class MediaRepository(
                     // Same physical file, different URI scheme — this is a hide/unhide transition.
                     Log.d(TAG, "syncMediaStore: URI transition detected — " +
                         "oldUri=${oldItem.uri} → newUri=${scannedCounterpart.uri} path=$filePath")
-                    transferMetadata(oldItem, scannedCounterpart, deleteOld = true)
+                    transferMetadataLocked(oldItem, scannedCounterpart, deleteOld = true)
                     transitionOldUris += oldItem.uri
                 }
 
@@ -521,25 +574,7 @@ class MediaRepository(
                 .mapNotNull { (key, items) ->
                     val (albumId, albumName) = key
                     if (albumId == null || albumName == null) return@mapNotNull null
-
-                    val coverItem = items.maxByOrNull { it.deviceCreatedAt ?: 0L } ?: items.first()
-                    val photoItems = items.filter { it.mediaType == "image" }
-                    val videoItems = items.filter { it.mediaType == "video" }
-
-                    Album(
-                        id = albumId,
-                        name = albumName,
-                        path = items.firstOrNull { it.filePath != null }?.filePath?.let { File(it).parent },
-                        mediaCount = items.size,
-                        photoCount = photoItems.size,
-                        videoCount = videoItems.size,
-                        coverUri = coverItem.uri,
-                        coverFilePath = coverItem.filePath,
-                        photoCoverUri = photoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
-                        videoCoverUri = videoItems.maxByOrNull { it.deviceCreatedAt ?: 0L }?.uri,
-                        lastModifiedAt = items.maxOfOrNull { it.deviceModifiedAt ?: it.deviceCreatedAt ?: 0L },
-                        isHidden = items.any { it.isHidden == 1 }
-                    )
+                    buildAlbum(albumId, albumName, items)
                 }
             // All FK parent rows now exist in the albums table before any child media rows
             // reference them.
@@ -591,9 +626,10 @@ class MediaRepository(
             }
 
             onProgress?.invoke("Sync complete", 1.0f)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            onProgress?.invoke("Error: ${e.message}", -1f)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                onProgress?.invoke("Error: ${e.message}", -1f)
+            }
         }
     }
 
